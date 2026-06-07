@@ -1,18 +1,36 @@
 {
   "name": "vigor-roblox",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "",
-  "main": "index.js",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Uav3537/Vigor-RobloxApi"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
   "scripts": {
     "prebuild": "rimraf dist",
     "build": "rollup -c",
     "save": "node commit.js",
     "start": "node ."
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "Roblox API",
+    "Roblox API SDK"
+  ],
+  "author": "Uav1010",
+  "license": "MIT",
   "dependencies": {
     "@rollup/plugin-commonjs": "^29.0.2",
     "@rollup/plugin-node-resolve": "^16.0.3",
@@ -21,6 +39,6 @@
     "rollup": "^4.60.2",
     "rollup-plugin-dts": "^6.4.1",
     "tslib": "^2.8.1",
-    "vigor-fetch": "^3.1.8"
+    "vigor-fetch": "^3.1.9"
   }
 }
