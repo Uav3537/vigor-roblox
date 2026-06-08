@@ -219,6 +219,12 @@ export interface RobloxThumbnailTarget {
     isCircular?: boolean
 }
 
+export interface RobloxThumbnailRaw extends RobloxThumbnailTarget {
+    imageUrl: string | null
+    state:    string
+    version:  string
+}
+
 export interface RobloxThumbnail extends RobloxThumbnailTarget {
     url:     string | null
     state:   string
@@ -662,8 +668,8 @@ export function createRobloxApi({
                     api.setResult((ctx.result as RobloxThumbnail[][]).flat())
                 })
             )
-            .request<RobloxThumbnail[]>()
-            return results.map(t => ({ ...t, url: t.state === 'Completed' ? t.url : null }))
+            .request<RobloxThumbnailRaw[]>()
+            return results.map(t => ({ ...t, url: t.state === 'Completed' ? t.imageUrl : null }))
         } catch (cause) {
             throw wrapVigorError(cause)
         }
@@ -697,11 +703,11 @@ export function createRobloxApi({
                     api.setResult((ctx.result as unknown[][]).flat())
                 })
             )
-            .request<Array<RobloxThumbnail & { requestId: string }>>()
+            .request<Array<RobloxThumbnailRaw & { requestId: string }>>()
             return results.map(item => {
                 const original = batchMap.get(item.requestId) ?? {}
                 const { requestId: _rid, ...rest } = item
-                return { ...original, ...rest, url: rest.state === 'Completed' ? rest.url : null } as RobloxThumbnail
+                return { ...original, ...rest, url: rest.state === 'Completed' ? rest.imageUrl : null } as RobloxThumbnail
             })
         } catch (cause) {
             throw wrapVigorError(cause)
