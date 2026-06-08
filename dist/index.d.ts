@@ -117,6 +117,11 @@ interface RobloxThumbnailTarget {
     format?: string;
     isCircular?: boolean;
 }
+interface RobloxThumbnailRaw extends RobloxThumbnailTarget {
+    imageUrl: string | null;
+    state: string;
+    version: string;
+}
 interface RobloxThumbnail extends RobloxThumbnailTarget {
     url: string | null;
     state: string;
@@ -236,4 +241,4 @@ interface RobloxApi {
 declare function createRobloxApi({ cache, cookies: cookiesList, ipgeolocationKey, }: CreateRobloxApiOptions): RobloxApi;
 
 export { RobloxAuthError, RobloxRateLimitError, RobloxRequestError, createRobloxApi };
-export type { CreateRobloxApiOptions, RobloxApi, RobloxApiCache, RobloxAssetId, RobloxAuthenticatedUser, RobloxCookie, RobloxDisplayName, RobloxJobId, RobloxPlaceId, RobloxPlaceInfo, RobloxPresenceEntry, RobloxServerEntry, RobloxServerEntryWithLocation, RobloxServerLocation, RobloxServersResult, RobloxThumbnail, RobloxThumbnailTarget, RobloxUniverseId, RobloxUser, RobloxUserAgeBracket, RobloxUserBirthdate, RobloxUserCountryCode, RobloxUserDescription, RobloxUserGender, RobloxUserId, RobloxUserName, RobloxUserRoles, RobloxUserSimple, VigorFetchInstance };
+export type { CreateRobloxApiOptions, RobloxApi, RobloxApiCache, RobloxAssetId, RobloxAuthenticatedUser, RobloxCookie, RobloxDisplayName, RobloxJobId, RobloxPlaceId, RobloxPlaceInfo, RobloxPresenceEntry, RobloxServerEntry, RobloxServerEntryWithLocation, RobloxServerLocation, RobloxServersResult, RobloxThumbnail, RobloxThumbnailRaw, RobloxThumbnailTarget, RobloxUniverseId, RobloxUser, RobloxUserAgeBracket, RobloxUserBirthdate, RobloxUserCountryCode, RobloxUserDescription, RobloxUserGender, RobloxUserId, RobloxUserName, RobloxUserRoles, RobloxUserSimple, VigorFetchInstance };

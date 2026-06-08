@@ -2062,7 +2062,7 @@ function createRobloxApi({ cache, cookies: cookiesList, ipgeolocationKey, }) {
                 api.setResult(ctx.result.flat());
             }))
                 .request();
-            return results.map(t => ({ ...t, url: t.state === 'Completed' ? t.url : null }));
+            return results.map(t => ({ ...t, url: t.state === 'Completed' ? t.imageUrl : null }));
         }
         catch (cause) {
             throw wrapVigorError(cause);
@@ -2092,7 +2092,7 @@ function createRobloxApi({ cache, cookies: cookiesList, ipgeolocationKey, }) {
             return results.map(item => {
                 const original = batchMap.get(item.requestId) ?? {};
                 const { requestId: _rid, ...rest } = item;
-                return { ...original, ...rest, url: rest.state === 'Completed' ? rest.url : null };
+                return { ...original, ...rest, url: rest.state === 'Completed' ? rest.imageUrl : null };
             });
         }
         catch (cause) {
