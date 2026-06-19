@@ -1836,10 +1836,85 @@ function partition(arr, pred) {
     return { pass, fail };
 }
 // ----------------------------------------------------------------
+// CSRF Token Manager
+// ----------------------------------------------------------------
+class CsrfTokenManager {
+    // cookie → token 매핑 (쿠키별로 독립 토큰 관리)
+    tokenMap = new Map();
+    // 쿠키별 진행 중인 갱신 Promise (중복 갱신 방지)
+    pendingMap = new Map();
+    /**
+     * 저장된 토큰을 반환합니다. 없으면 null.
+     */
+    get(cookie) {
+        return this.tokenMap.get(cookie) ?? null;
+    }
+    /**
+     * 토큰을 수동으로 저장합니다.
+     * (403 응답 헤더의 x-csrf-token 값을 받아서 저장할 때 사용)
+     */
+    set(cookie, token) {
+        this.tokenMap.set(cookie, token);
+    }
+    /**
+     * 토큰을 무효화합니다.
+     * (재시도 전 갱신이 필요할 때 호출)
+     */
+    invalidate(cookie) {
+        this.tokenMap.delete(cookie);
+    }
+    /**
+     * Roblox의 CSRF 토큰 갱신 방식:
+     * POST /v1/logout 등 아무 인증 엔드포인트에 빈 body로 요청하면
+     * 403 응답과 함께 x-csrf-token 헤더로 새 토큰을 내려줍니다.
+     *
+     * 동일 쿠키에 대해 동시에 여러 갱신 요청이 오면
+     * 하나만 실제로 요청하고 나머지는 그 결과를 공유합니다.
+     */
+    async refresh(cookie) {
+        const existing = this.pendingMap.get(cookie);
+        if (existing)
+            return existing;
+        const pending = (async () => {
+            try {
+                // Roblox는 POST에 body가 없어도 403 + x-csrf-token을 내려줌
+                const response = await fetch('https://auth.roblox.com/v2/logout', {
+                    method: 'POST',
+                    headers: {
+                        'Cookie': `.ROBLOSECURITY=${cookie}`,
+                        'User-Agent': 'Roblox/WinInet',
+                        'Content-Length': '0',
+                    },
+                });
+                const token = response.headers.get('x-csrf-token');
+                if (!token)
+                    throw new Error('CSRF token not found in response headers');
+                this.tokenMap.set(cookie, token);
+                return token;
+            }
+            finally {
+                this.pendingMap.delete(cookie);
+            }
+        })();
+        this.pendingMap.set(cookie, pending);
+        return pending;
+    }
+    /**
+     * 저장된 토큰을 반환하되, 없으면 자동으로 갱신 후 반환합니다.
+     */
+    async getOrRefresh(cookie) {
+        const cached = this.get(cookie);
+        if (cached)
+            return cached;
+        return this.refresh(cookie);
+    }
+}
+// ----------------------------------------------------------------
 // Factory
 // ----------------------------------------------------------------
 function createRobloxApi({ cache, cookies: cookiesList, ipgeolocationKey, }) {
     const cookiePool = cookiesList.map(cookie => ({ cookie, lastUsed: 0 }));
+    const csrfManager = new CsrfTokenManager();
     function pickCookie() {
         const entry = cookiePool.reduce((a, b) => a.lastUsed < b.lastUsed ? a : b);
         entry.lastUsed = Date.now();
@@ -1852,6 +1927,47 @@ function createRobloxApi({ cache, cookies: cookiesList, ipgeolocationKey, }) {
         });
     }
     const dataInterceptor = pickKey('data');
+    // ----------------------------------------------------------------
+    // CSRF 인터셉터 팩토리
+    // ----------------------------------------------------------------
+    // cookie를 인자로 받아 해당 쿠키 전용 CSRF 인터셉터를 생성합니다.
+    // 동작 방식:
+    //   before  → 캐시된 토큰이 있으면 X-CSRF-Token 헤더에 주입
+    //   onError → 403 응답이고 헤더에 x-csrf-token이 있으면
+    //             토큰을 갱신하고 요청을 재시작(restart)
+    function makeCsrfInterceptor(getCookie) {
+        return vigor.builder.fetch.interceptors()
+            .before(async (ctx, api) => {
+            const cookie = getCookie();
+            const token = await csrfManager.getOrRefresh(cookie);
+            api.setHeaders({
+                ...ctx.options.headers,
+                'X-CSRF-Token': token,
+            });
+        })
+            .onError(async (ctx, api) => {
+            // VigorFetchError + FETCH_FAILED + status 403 여부 확인
+            const cause = ctx.error;
+            if (cause instanceof VigorFetchError &&
+                cause.code === 'FETCH_FAILED' &&
+                cause.data?.status === 403) {
+                const response = cause.data.response;
+                const newToken = response.headers.get('x-csrf-token');
+                const cookie = getCookie();
+                if (newToken) {
+                    // 새 토큰 저장 후 재시도
+                    csrfManager.set(cookie, newToken);
+                    api.restart?.();
+                }
+                else {
+                    // 헤더에 토큰이 없으면 기존 토큰 무효화 후 강제 갱신 후 재시도
+                    csrfManager.invalidate(cookie);
+                    await csrfManager.refresh(cookie);
+                    api.restart?.();
+                }
+            }
+        });
+    }
     const cookieInterceptor = vigor.builder.fetch.interceptors()
         .before((ctx, api) => {
         api.setHeaders({
@@ -1866,6 +1982,9 @@ function createRobloxApi({ cache, cookies: cookiesList, ipgeolocationKey, }) {
             'User-Agent': 'Roblox/WinInet',
         });
     });
+    // CSRF가 필요한 POST 엔드포인트에 붙일 공용 인터셉터
+    // pickCookie()로 현재 선택된 쿠키를 기준으로 토큰 관리
+    const csrfInterceptor = makeCsrfInterceptor(pickCookie);
     const usersApi = vigor.fetch('https://users.roblox.com/v1')
         .interceptors(cookieInterceptor)
         .interceptors(winInetInterceptor)
@@ -1902,11 +2021,12 @@ function createRobloxApi({ cache, cookies: cookiesList, ipgeolocationKey, }) {
         .retryConfig(c => c
         .settings(s => s.attempt(4))
         .algorithms(a => a.backoff().initial(500).multiplier(2)));
-    // friends.roblox.com — used for friend list lookups, sending friend
-    // requests, and unfriending. Same cookie + WinInet headers as usersApi.
+    // friends.roblox.com — CSRF 인터셉터 포함
+    // sendFriendRequest / unfriend 는 POST라 CSRF 토큰 필요
     const friendsApi = vigor.fetch('https://friends.roblox.com/v1')
         .interceptors(cookieInterceptor)
         .interceptors(winInetInterceptor)
+        .interceptors(csrfInterceptor) // ← CSRF 추가
         .retryConfig(c => c
         .settings(s => s.attempt(5))
         .algorithms(a => a.backoff().initial(500).multiplier(2)));
