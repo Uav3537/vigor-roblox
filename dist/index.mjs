@@ -1902,6 +1902,14 @@ function createRobloxApi({ cache, cookies: cookiesList, ipgeolocationKey, }) {
         .retryConfig(c => c
         .settings(s => s.attempt(4))
         .algorithms(a => a.backoff().initial(500).multiplier(2)));
+    // friends.roblox.com — used for friend list lookups, sending friend
+    // requests, and unfriending. Same cookie + WinInet headers as usersApi.
+    const friendsApi = vigor.fetch('https://friends.roblox.com/v1')
+        .interceptors(cookieInterceptor)
+        .interceptors(winInetInterceptor)
+        .retryConfig(c => c
+        .settings(s => s.attempt(5))
+        .algorithms(a => a.backoff().initial(500).multiplier(2)));
     async function withCache(opts) {
         const { type, keys, ttlMs, getKey, fetchMissing, fallback } = opts;
         const cached = await cache.select(type, keys);
@@ -2396,6 +2404,42 @@ function createRobloxApi({ cache, cookies: cookiesList, ipgeolocationKey, }) {
         ]);
         return jobIds.flatMap(id => { const loc = resultMap.get(id); return loc ? [loc] : []; });
     }
+    // ----------------------------------------------------------------
+    // Friends
+    // ----------------------------------------------------------------
+    async function friends(userId) {
+        try {
+            return await friendsApi
+                .path('users', userId, 'friends')
+                .interceptors(dataInterceptor)
+                .request();
+        }
+        catch (cause) {
+            throw wrapVigorError(cause);
+        }
+    }
+    async function sendFriendRequest(targetUserId) {
+        try {
+            await friendsApi
+                .path('users', targetUserId, 'request-friendship')
+                .body({})
+                .request();
+        }
+        catch (cause) {
+            throw wrapVigorError(cause);
+        }
+    }
+    async function unfriend(targetUserId) {
+        try {
+            await friendsApi
+                .path('users', targetUserId, 'unfriend')
+                .body({})
+                .request();
+        }
+        catch (cause) {
+            throw wrapVigorError(cause);
+        }
+    }
     return {
         authenticated,
         usersSimple,
@@ -2411,7 +2455,10 @@ function createRobloxApi({ cache, cookies: cookiesList, ipgeolocationKey, }) {
         usersWithImg,
         track,
         serversRegion,
-        _internal: { gamejoinApi, gamesApi, apisRoblox },
+        friends,
+        sendFriendRequest,
+        unfriend,
+        _internal: { gamejoinApi, gamesApi, apisRoblox, friendsApi, presenceApi },
     };
 }
 

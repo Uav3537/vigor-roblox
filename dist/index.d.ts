@@ -183,6 +183,15 @@ interface RobloxServerLocation {
     isp: string;
     timezone: string;
 }
+interface RobloxFriendEntry {
+    id: RobloxUserId;
+    name: RobloxUserName;
+    displayName: RobloxDisplayName;
+    hasVerifiedBadge?: boolean;
+    isOnline?: boolean;
+    isDeleted?: boolean;
+    friendFrom?: string | null;
+}
 interface CreateRobloxApiOptions {
     cache: RobloxApiCache;
     cookies: RobloxCookie[];
@@ -232,13 +241,18 @@ interface RobloxApi {
         placeId: RobloxPlaceId;
         jobIds: RobloxJobId[];
     }) => Promise<RobloxServerLocation[]>;
+    friends: (userId: RobloxUserId) => Promise<RobloxFriendEntry[]>;
+    sendFriendRequest: (targetUserId: RobloxUserId) => Promise<void>;
+    unfriend: (targetUserId: RobloxUserId) => Promise<void>;
     _internal: {
         gamejoinApi: VigorFetchInstance;
         gamesApi: VigorFetchInstance;
         apisRoblox: VigorFetchInstance;
+        friendsApi: VigorFetchInstance;
+        presenceApi: VigorFetchInstance;
     };
 }
 declare function createRobloxApi({ cache, cookies: cookiesList, ipgeolocationKey, }: CreateRobloxApiOptions): RobloxApi;
 
 export { RobloxAuthError, RobloxRateLimitError, RobloxRequestError, createRobloxApi };
-export type { CreateRobloxApiOptions, RobloxApi, RobloxApiCache, RobloxAssetId, RobloxAuthenticatedUser, RobloxCookie, RobloxDisplayName, RobloxJobId, RobloxPlaceId, RobloxPlaceInfo, RobloxPresenceEntry, RobloxServerEntry, RobloxServerEntryWithLocation, RobloxServerLocation, RobloxServersResult, RobloxThumbnail, RobloxThumbnailRaw, RobloxThumbnailTarget, RobloxUniverseId, RobloxUser, RobloxUserAgeBracket, RobloxUserBirthdate, RobloxUserCountryCode, RobloxUserDescription, RobloxUserGender, RobloxUserId, RobloxUserName, RobloxUserRoles, RobloxUserSimple, VigorFetchInstance };
+export type { CreateRobloxApiOptions, RobloxApi, RobloxApiCache, RobloxAssetId, RobloxAuthenticatedUser, RobloxCookie, RobloxDisplayName, RobloxFriendEntry, RobloxJobId, RobloxPlaceId, RobloxPlaceInfo, RobloxPresenceEntry, RobloxServerEntry, RobloxServerEntryWithLocation, RobloxServerLocation, RobloxServersResult, RobloxThumbnail, RobloxThumbnailRaw, RobloxThumbnailTarget, RobloxUniverseId, RobloxUser, RobloxUserAgeBracket, RobloxUserBirthdate, RobloxUserCountryCode, RobloxUserDescription, RobloxUserGender, RobloxUserId, RobloxUserName, RobloxUserRoles, RobloxUserSimple, VigorFetchInstance };

@@ -299,6 +299,16 @@ export interface RobloxServerLocation {
     timezone:    string
 }
 
+export interface RobloxFriendEntry {
+    id:                RobloxUserId
+    name:              RobloxUserName
+    displayName:       RobloxDisplayName
+    hasVerifiedBadge?: boolean
+    isOnline?:         boolean
+    isDeleted?:        boolean
+    friendFrom?:       string | null
+}
+
 // ----------------------------------------------------------------
 // Factory options
 // ----------------------------------------------------------------
@@ -345,10 +355,15 @@ export interface RobloxApi {
         server: RobloxServerEntry & { location: RobloxServerLocation | null } | null
     }>>
     serversRegion:      (opts: { placeId: RobloxPlaceId; jobIds: RobloxJobId[] }) => Promise<RobloxServerLocation[]>
+    friends:            (userId: RobloxUserId) => Promise<RobloxFriendEntry[]>
+    sendFriendRequest:  (targetUserId: RobloxUserId) => Promise<void>
+    unfriend:           (targetUserId: RobloxUserId) => Promise<void>
     _internal: {
         gamejoinApi: VigorFetchInstance
         gamesApi:    VigorFetchInstance
         apisRoblox:  VigorFetchInstance
+        friendsApi:  VigorFetchInstance
+        presenceApi: VigorFetchInstance
     }
 }
 
@@ -468,6 +483,16 @@ export function createRobloxApi({
     const ipgeolocationApi = vigor.fetch('https://api.ipgeolocation.io')
         .retryConfig(c => c
             .settings(s => s.attempt(4))
+            .algorithms(a => a.backoff().initial(500).multiplier(2))
+        )
+
+    // friends.roblox.com — used for friend list lookups, sending friend
+    // requests, and unfriending. Same cookie + WinInet headers as usersApi.
+    const friendsApi = vigor.fetch('https://friends.roblox.com/v1')
+        .interceptors(cookieInterceptor)
+        .interceptors(winInetInterceptor)
+        .retryConfig(c => c
+            .settings(s => s.attempt(5))
             .algorithms(a => a.backoff().initial(500).multiplier(2))
         )
 
@@ -1067,6 +1092,43 @@ export function createRobloxApi({
         return jobIds.flatMap(id => { const loc = resultMap.get(id); return loc ? [loc] : [] })
     }
 
+    // ----------------------------------------------------------------
+    // Friends
+    // ----------------------------------------------------------------
+
+    async function friends(userId: RobloxUserId): Promise<RobloxFriendEntry[]> {
+        try {
+            return await friendsApi
+                .path('users', userId, 'friends')
+                .interceptors(dataInterceptor)
+                .request<RobloxFriendEntry[]>()
+        } catch (cause) {
+            throw wrapVigorError(cause)
+        }
+    }
+
+    async function sendFriendRequest(targetUserId: RobloxUserId): Promise<void> {
+        try {
+            await friendsApi
+                .path('users', targetUserId, 'request-friendship')
+                .body({})
+                .request<unknown>()
+        } catch (cause) {
+            throw wrapVigorError(cause)
+        }
+    }
+
+    async function unfriend(targetUserId: RobloxUserId): Promise<void> {
+        try {
+            await friendsApi
+                .path('users', targetUserId, 'unfriend')
+                .body({})
+                .request<unknown>()
+        } catch (cause) {
+            throw wrapVigorError(cause)
+        }
+    }
+
     return {
         authenticated,
         usersSimple,
@@ -1082,6 +1144,9 @@ export function createRobloxApi({
         usersWithImg,
         track,
         serversRegion,
-        _internal: { gamejoinApi, gamesApi, apisRoblox },
+        friends,
+        sendFriendRequest,
+        unfriend,
+        _internal: { gamejoinApi, gamesApi, apisRoblox, friendsApi, presenceApi },
     }
 }
