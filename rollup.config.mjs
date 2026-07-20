@@ -6,6 +6,9 @@ import dts from 'rollup-plugin-dts';
 export default [
   {
     input: 'src/index.ts',
+    external: [
+      "vigor-fetch"
+    ],
     output: [
       {
         file: 'dist/index.js',

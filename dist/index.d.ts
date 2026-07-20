@@ -1,4 +1,4 @@
-import { vigor } from 'vigor-fetch';
+import { VigorFetch } from 'vigor-fetch';
 
 type RobloxUserId = number & {
     __brand__: 'Roblox_UserId';
@@ -44,7 +44,6 @@ type RobloxErrorDatas<C extends RobloxErrorCodes> = Parameters<typeof RobloxErro
 type RobloxErrorOptions<C extends RobloxErrorCodes, T> = {
     cause?: unknown;
     data?: RobloxErrorDatas<C>;
-    timeline?: unknown[];
     context?: T;
 };
 declare abstract class RobloxApiError<C extends RobloxErrorCodes, T = unknown> extends Error {
@@ -52,7 +51,6 @@ declare abstract class RobloxApiError<C extends RobloxErrorCodes, T = unknown> e
     readonly cause?: unknown;
     readonly code: C;
     readonly data: RobloxErrorDatas<C> | undefined;
-    readonly timeline: unknown[];
     readonly context: T | undefined;
     constructor(code: C, options: RobloxErrorOptions<C, T>);
 }
@@ -204,7 +202,7 @@ interface ServersOpts {
     cursor?: string;
     thumbnailFormat?: Partial<RobloxThumbnailTarget>;
 }
-type VigorFetchInstance = ReturnType<typeof vigor.fetch>;
+type VigorFetchInstance = VigorFetch<any>;
 interface RobloxApi {
     authenticated: (cookies: RobloxCookie[]) => Promise<RobloxAuthenticatedUser[]>;
     usersSimple: (userIds: RobloxUserId[]) => Promise<RobloxUserSimple[]>;

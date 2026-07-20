@@ -1,16 +1,4 @@
-import {
-    vigor,
-    type VigorFetchContext,
-    type VigorFetchInterceptorsApi,
-    type VigorAllContext,
-    type VigorAllInterceptorsApi,
-    VigorFetchError,
-    VigorRetryError,
-} from 'vigor-fetch'
-
-// ----------------------------------------------------------------
-// Branded types
-// ----------------------------------------------------------------
+import { vigor, VigorFetchError, type VigorFetch } from 'vigor-fetch'
 
 export type RobloxUserId      = number & { __brand__: 'Roblox_UserId' }
 export type RobloxUserName    = string & { __brand__: 'Roblox_UserName' }
@@ -20,10 +8,6 @@ export type RobloxPlaceId     = number & { __brand__: 'Roblox_PlaceId' }
 export type RobloxUniverseId  = number & { __brand__: 'Roblox_UniverseId' }
 export type RobloxJobId       = string & { __brand__: 'Roblox_JobId' }
 export type RobloxAssetId     = number & { __brand__: 'Roblox_AssetId' }
-
-// ----------------------------------------------------------------
-// Error system
-// ----------------------------------------------------------------
 
 const RobloxErrorMessageFuncs = {
     AUTH_FAILED:    ({ status, cookie }: { status: number | null; cookie: string }) =>
@@ -40,10 +24,9 @@ type RobloxErrorDatas<C extends RobloxErrorCodes> =
     Parameters<typeof RobloxErrorMessageFuncs[C]> extends [infer A] ? A : undefined
 
 type RobloxErrorOptions<C extends RobloxErrorCodes, T> = {
-    cause?:    unknown
-    data?:     RobloxErrorDatas<C>
-    timeline?: unknown[]
-    context?:  T
+    cause?:   unknown
+    data?:    RobloxErrorDatas<C>
+    context?: T
 }
 
 abstract class RobloxApiError<C extends RobloxErrorCodes, T = unknown> extends Error {
@@ -51,18 +34,16 @@ abstract class RobloxApiError<C extends RobloxErrorCodes, T = unknown> extends E
     public readonly cause?:    unknown
     public readonly code:      C
     public readonly data:      RobloxErrorDatas<C> | undefined
-    public readonly timeline:  unknown[]
     public readonly context:   T | undefined
 
     constructor(code: C, options: RobloxErrorOptions<C, T>) {
         const messageFn = RobloxErrorMessageFuncs[code] as (arg: RobloxErrorDatas<C>) => string
         super(`[${code}] ${messageFn(options.data as RobloxErrorDatas<C>)}`, { cause: options.cause })
-        this.name     = new.target.name
-        this.code     = code
-        this.cause    = options.cause
-        this.data     = options.data
-        this.timeline = options.timeline ?? []
-        this.context  = options.context
+        this.name    = new.target.name
+        this.code    = code
+        this.cause   = options.cause
+        this.data    = options.data
+        this.context = options.context
         Object.setPrototypeOf(this, new.target.prototype);
         (Error as any).captureStackTrace?.(this, new.target)
     }
@@ -86,27 +67,16 @@ export class RobloxRequestError extends RobloxApiError<'REQUEST_FAILED'> {
     }
 }
 
-// ----------------------------------------------------------------
-// Error helpers
-// ----------------------------------------------------------------
-
 type VigorFetchFailedData = {
     status:     number
+    statusText: string
     response:   Response
     url:        string
-    headers:    unknown
-    body:       unknown
-    statusText: string
+    parsed:     unknown
 }
 
-function isFetchFailed(cause: unknown): cause is VigorFetchError<'FETCH_FAILED'> & { data: VigorFetchFailedData } {
+function isFetchFailed(cause: unknown): cause is VigorFetchError<'FETCH_FAILED', any> & { data: VigorFetchFailedData } {
     return cause instanceof VigorFetchError && cause.code === 'FETCH_FAILED' && cause.data != null
-}
-
-function extractTimeline(cause: unknown): unknown[] {
-    if (cause instanceof VigorFetchError) return (cause.context?.timeline ?? []) as unknown[]
-    if (cause instanceof VigorRetryError) return (cause.context?.timeline ?? []) as unknown[]
-    return []
 }
 
 function extractStatus(cause: unknown): number | null {
@@ -132,20 +102,14 @@ function extractRetryAfterMs(cause: unknown): number | null {
 }
 
 function wrapVigorError(cause: unknown): RobloxRateLimitError | RobloxRequestError {
-    const status   = extractStatus(cause)
-    const url      = extractUrl(cause)
-    const timeline = extractTimeline(cause)
+    const status = extractStatus(cause)
+    const url    = extractUrl(cause)
     if (status === 429) return new RobloxRateLimitError({
         data: { status, url, retryAfterMs: extractRetryAfterMs(cause) },
-        timeline,
         cause,
     })
-    return new RobloxRequestError({ data: { status, url }, timeline, cause })
+    return new RobloxRequestError({ data: { status, url }, cause })
 }
-
-// ----------------------------------------------------------------
-// Authenticated user extra types
-// ----------------------------------------------------------------
 
 export interface RobloxUserDescription {
     description: string
@@ -182,18 +146,10 @@ export type RobloxAuthenticatedUser =
     & Partial<RobloxUserCountryCode>
     & Partial<RobloxUserRoles>
 
-// ----------------------------------------------------------------
-// Cache abstraction
-// ----------------------------------------------------------------
-
 export interface RobloxApiCache {
     select: <T>(type: string, separators: string[]) => Promise<Array<{ separator: string; data: T }>>
     upsert: <T>(type: string, expire: number, items: Array<{ separator: string; data: T }>) => Promise<void>
 }
-
-// ----------------------------------------------------------------
-// Response types
-// ----------------------------------------------------------------
 
 export interface RobloxUserSimple {
     id:                 RobloxUserId
@@ -309,19 +265,11 @@ export interface RobloxFriendEntry {
     friendFrom?:       string | null
 }
 
-// ----------------------------------------------------------------
-// Factory options
-// ----------------------------------------------------------------
-
 export interface CreateRobloxApiOptions {
     cache:            RobloxApiCache
     cookies:          RobloxCookie[]
     ipgeolocationKey: string
 }
-
-// ----------------------------------------------------------------
-// Shared servers opts
-// ----------------------------------------------------------------
 
 interface ServersOpts {
     placeId:          RobloxPlaceId
@@ -331,11 +279,7 @@ interface ServersOpts {
     thumbnailFormat?: Partial<RobloxThumbnailTarget>
 }
 
-// ----------------------------------------------------------------
-// Public API shape
-// ----------------------------------------------------------------
-
-export type VigorFetchInstance = ReturnType<typeof vigor.fetch>
+export type VigorFetchInstance = VigorFetch<any>
 
 export interface RobloxApi {
     authenticated:      (cookies: RobloxCookie[]) => Promise<RobloxAuthenticatedUser[]>
@@ -367,19 +311,7 @@ export interface RobloxApi {
     }
 }
 
-// ----------------------------------------------------------------
-// Internal helpers
-// ----------------------------------------------------------------
-
 type WithImg<T> = T & { img: string | null }
-
-type FetchBeforeCtx = VigorFetchContext
-type FetchBeforeApi = Pick<VigorFetchInterceptorsApi<unknown>, 'setHeaders' | 'setOptions' | 'setBody' | 'throwError'>
-type FetchResultCtx = VigorFetchContext
-type FetchResultApi = Pick<VigorFetchInterceptorsApi<unknown>, 'setResult' | 'throwError'>
-
-type AllResultCtx = VigorAllContext
-type AllResultApi = Pick<VigorAllInterceptorsApi<unknown>, 'setResult' | 'throwError'>
 
 function chunk<T>(arr: T[], size: number): T[][] {
     const out: T[][] = []
@@ -393,60 +325,34 @@ function partition<T>(arr: T[], pred: (item: T) => boolean): { pass: T[]; fail: 
     return { pass, fail }
 }
 
-// ----------------------------------------------------------------
-// CSRF Token Manager
-// ----------------------------------------------------------------
-
 class CsrfTokenManager {
-    // cookie → token 매핑 (쿠키별로 독립 토큰 관리)
     private tokenMap = new Map<string, string>()
-    // 쿠키별 진행 중인 갱신 Promise (중복 갱신 방지)
     private pendingMap = new Map<string, Promise<string>>()
 
-    /**
-     * 저장된 토큰을 반환합니다. 없으면 null.
-     */
     get(cookie: RobloxCookie): string | null {
         return this.tokenMap.get(cookie) ?? null
     }
 
-    /**
-     * 토큰을 수동으로 저장합니다.
-     * (403 응답 헤더의 x-csrf-token 값을 받아서 저장할 때 사용)
-     */
     set(cookie: RobloxCookie, token: string): void {
         this.tokenMap.set(cookie, token)
     }
 
-    /**
-     * 토큰을 무효화합니다.
-     * (재시도 전 갱신이 필요할 때 호출)
-     */
     invalidate(cookie: RobloxCookie): void {
         this.tokenMap.delete(cookie)
     }
 
-    /**
-     * Roblox의 CSRF 토큰 갱신 방식:
-     * POST /v1/logout 등 아무 인증 엔드포인트에 빈 body로 요청하면
-     * 403 응답과 함께 x-csrf-token 헤더로 새 토큰을 내려줍니다.
-     *
-     * 동일 쿠키에 대해 동시에 여러 갱신 요청이 오면
-     * 하나만 실제로 요청하고 나머지는 그 결과를 공유합니다.
-     */
     async refresh(cookie: RobloxCookie): Promise<string> {
         const existing = this.pendingMap.get(cookie)
         if (existing) return existing
 
         const pending = (async (): Promise<string> => {
             try {
-                // Roblox는 POST에 body가 없어도 403 + x-csrf-token을 내려줌
                 const response = await fetch('https://auth.roblox.com/v2/logout', {
                     method:  'POST',
                     headers: {
-                        'Cookie':     `.ROBLOSECURITY=${cookie}`,
-                        'User-Agent': 'Roblox/WinInet',
-                        'Content-Length': '0',
+                        'Cookie':          `.ROBLOSECURITY=${cookie}`,
+                        'User-Agent':      'Roblox/WinInet',
+                        'Content-Length':  '0',
                     },
                 })
                 const token = response.headers.get('x-csrf-token')
@@ -462,9 +368,6 @@ class CsrfTokenManager {
         return pending
     }
 
-    /**
-     * 저장된 토큰을 반환하되, 없으면 자동으로 갱신 후 반환합니다.
-     */
     async getOrRefresh(cookie: RobloxCookie): Promise<string> {
         const cached = this.get(cookie)
         if (cached) return cached
@@ -472,17 +375,13 @@ class CsrfTokenManager {
     }
 }
 
-// ----------------------------------------------------------------
-// Factory
-// ----------------------------------------------------------------
-
 export function createRobloxApi({
     cache,
     cookies: cookiesList,
     ipgeolocationKey,
 }: CreateRobloxApiOptions): RobloxApi {
 
-    const cookiePool = cookiesList.map(cookie => ({ cookie, lastUsed: 0 }))
+    const cookiePool  = cookiesList.map(cookie => ({ cookie, lastUsed: 0 }))
     const csrfManager = new CsrfTokenManager()
 
     function pickCookie(): RobloxCookie {
@@ -491,140 +390,118 @@ export function createRobloxApi({
         return entry.cookie
     }
 
+    function makeHeaderMiddlewares(opts: {
+        getCookie: () => RobloxCookie
+        winInet?:  boolean
+        csrf?:     boolean
+    }) {
+        const { getCookie, winInet = false, csrf = false } = opts
+
+        let builder = vigor.builders.fetch.middlewares()
+            .before("intercept", async (ctx, api) => {
+                const cookie = getCookie()
+                ctx.record.cookie = cookie
+
+                const headers: Record<string, string> = {
+                    Cookie: `.ROBLOSECURITY=${cookie}`,
+                }
+                if (winInet) headers['User-Agent'] = 'Roblox/WinInet'
+                if (csrf)    headers['X-CSRF-Token'] = await csrfManager.getOrRefresh(cookie)
+
+                api.setHeaders(headers)
+                return ctx
+            })
+
+        if (csrf) {
+            builder = builder.onError("intercept", async (ctx, api) => {
+                const cause = ctx.error
+                if (isFetchFailed(cause) && cause.data.status === 403) {
+                    const cookie: RobloxCookie = ctx.record.cookie ?? getCookie()
+                    const newToken = cause.data.response.headers.get('x-csrf-token')
+
+                    if (newToken) {
+                        csrfManager.set(cookie, newToken)
+                    } else {
+                        csrfManager.invalidate(cookie)
+                        await csrfManager.refresh(cookie)
+                    }
+                    api.proceedRestart()
+                }
+                return ctx
+            })
+        }
+
+        return builder
+    }
+
+    /** Reusable `after` middleware that unwraps a `{ data: T }`-shaped response envelope. */
     function pickKey(key: string) {
-        return vigor.builder.fetch.interceptors()
-            .result((ctx: FetchResultCtx, api: FetchResultApi) => {
+        return vigor.builders.fetch.middlewares()
+            .after("intercept", async (ctx, api) => {
                 api.setResult((ctx.result as Record<string, unknown>)[key])
+                return ctx
             })
     }
 
     const dataInterceptor = pickKey('data')
 
-    // ----------------------------------------------------------------
-    // CSRF 인터셉터 팩토리
-    // ----------------------------------------------------------------
-    // cookie를 인자로 받아 해당 쿠키 전용 CSRF 인터셉터를 생성합니다.
-    // 동작 방식:
-    //   before  → 캐시된 토큰이 있으면 X-CSRF-Token 헤더에 주입
-    //   onError → 403 응답이고 헤더에 x-csrf-token이 있으면
-    //             토큰을 갱신하고 요청을 재시작(restart)
-    function makeCsrfInterceptor(getCookie: () => RobloxCookie) {
-        return vigor.builder.fetch.interceptors()
-            .before(async (ctx: FetchBeforeCtx, api: FetchBeforeApi) => {
-                const cookie = getCookie()
-                const token  = await csrfManager.getOrRefresh(cookie)
-                api.setHeaders({
-                    ...(ctx.options.headers as Record<string, string>),
-                    'X-CSRF-Token': token,
-                })
-            })
-            .onError(async (ctx, api) => {
-                // VigorFetchError + FETCH_FAILED + status 403 여부 확인
-                const cause = ctx.error
-                if (
-                    cause instanceof VigorFetchError &&
-                    cause.code === 'FETCH_FAILED' &&
-                    (cause.data as any)?.status === 403
-                ) {
-                    const response  = (cause.data as any).response as Response
-                    const newToken  = response.headers.get('x-csrf-token')
-                    const cookie    = getCookie()
-
-                    if (newToken) {
-                        // 새 토큰 저장 후 재시도
-                        csrfManager.set(cookie, newToken)
-                        // setHeaders는 onError api에 없으므로 restart로 재진입
-                        // before 인터셉터가 다시 실행되면서 새 토큰이 주입됩니다
-                        ;(api as any).restart?.()
-                    } else {
-                        // 헤더에 토큰이 없으면 기존 토큰 무효화 후 강제 갱신 후 재시도
-                        csrfManager.invalidate(cookie)
-                        await csrfManager.refresh(cookie)
-                        ;(api as any).restart?.()
-                    }
-                }
-            })
-    }
-
-    const cookieInterceptor = vigor.builder.fetch.interceptors()
-        .before((ctx: FetchBeforeCtx, api: FetchBeforeApi) => {
-            api.setHeaders({
-                ...(ctx.options.headers as Record<string, string>),
-                Cookie: `.ROBLOSECURITY=${pickCookie()}`,
-            })
-        })
-
-    const winInetInterceptor = vigor.builder.fetch.interceptors()
-        .before((ctx: FetchBeforeCtx, api: FetchBeforeApi) => {
-            api.setHeaders({
-                ...(ctx.options.headers as Record<string, string>),
-                'User-Agent': 'Roblox/WinInet',
-            })
-        })
-
-    // CSRF가 필요한 POST 엔드포인트에 붙일 공용 인터셉터
-    // pickCookie()로 현재 선택된 쿠키를 기준으로 토큰 관리
-    const csrfInterceptor = makeCsrfInterceptor(pickCookie)
+    const poolCookieMiddlewares       = makeHeaderMiddlewares({ getCookie: pickCookie })
+    const poolCookieWinInetMiddlewares = makeHeaderMiddlewares({ getCookie: pickCookie, winInet: true })
+    const poolCookieCsrfMiddlewares    = makeHeaderMiddlewares({ getCookie: pickCookie, winInet: true, csrf: true })
 
     const usersApi = vigor.fetch('https://users.roblox.com/v1')
-        .interceptors(cookieInterceptor)
-        .interceptors(winInetInterceptor)
-        .retryConfig(c => c
-            .settings(s => s.attempt(7))
-            .algorithms(a => a.backoff().initial(200).unit(800).multiplier(1.7))
+        .middlewares(poolCookieWinInetMiddlewares)
+        .retry(r => r
+            .settings(s => s.maxAttempts(7))
+            .algorithms(a => a.backoff({ initial: 200, unit: 800, multiplier: 1.7 }))
         )
 
     const thumbnailsApi = vigor.fetch('https://thumbnails.roblox.com/v1')
-        .interceptors(cookieInterceptor)
-        .interceptors(winInetInterceptor)
-        .retryConfig(c => c
-            .settings(s => s.attempt(5))
-            .algorithms(a => a.backoff().initial(1000).multiplier(2.5))
+        .middlewares(poolCookieWinInetMiddlewares)
+        .retry(r => r
+            .settings(s => s.maxAttempts(5))
+            .algorithms(a => a.backoff({ initial: 1000, multiplier: 2.5 }))
         )
 
     const gamesApi = vigor.fetch('https://games.roblox.com/v1')
-        .interceptors(cookieInterceptor)
-        .retryConfig(c => c
-            .settings(s => s.attempt(5))
-            .algorithms(a => a.backoff().initial(1000).multiplier(2.5))
+        .middlewares(poolCookieMiddlewares)
+        .retry(r => r
+            .settings(s => s.maxAttempts(5))
+            .algorithms(a => a.backoff({ initial: 1000, multiplier: 2.5 }))
         )
 
     const presenceApi = vigor.fetch('https://presence.roblox.com/v1')
-        .interceptors(cookieInterceptor)
-        .retryConfig(c => c
-            .settings(s => s.attempt(5))
-            .algorithms(a => a.backoff().initial(500).multiplier(2))
+        .middlewares(poolCookieMiddlewares)
+        .retry(r => r
+            .settings(s => s.maxAttempts(5))
+            .algorithms(a => a.backoff({ initial: 500, multiplier: 2 }))
         )
 
     const apisRoblox = vigor.fetch('https://apis.roblox.com')
-        .interceptors(cookieInterceptor)
-        .retryConfig(c => c
-            .settings(s => s.attempt(5))
-            .algorithms(a => a.backoff().initial(1000).multiplier(2))
+        .middlewares(poolCookieMiddlewares)
+        .retry(r => r
+            .settings(s => s.maxAttempts(5))
+            .algorithms(a => a.backoff({ initial: 1000, multiplier: 2 }))
         )
 
     const gamejoinApi = vigor.fetch('https://gamejoin.roblox.com/v1')
-        .interceptors(cookieInterceptor)
-        .retryConfig(c => c
-            .settings(s => s.attempt(7))
-            .algorithms(a => a.backoff().initial(500).multiplier(1.5))
+        .middlewares(poolCookieMiddlewares)
+        .retry(r => r
+            .settings(s => s.maxAttempts(7))
+            .algorithms(a => a.backoff({ initial: 500, multiplier: 1.5 }))
         )
 
     const ipgeolocationApi = vigor.fetch('https://api.ipgeolocation.io')
-        .retryConfig(c => c
-            .settings(s => s.attempt(4))
-            .algorithms(a => a.backoff().initial(500).multiplier(2))
+        .retry(r => r
+            .settings(s => s.maxAttempts(4))
+            .algorithms(a => a.backoff({ initial: 500, multiplier: 2 }))
         )
 
-    // friends.roblox.com — CSRF 인터셉터 포함
-    // sendFriendRequest / unfriend 는 POST라 CSRF 토큰 필요
     const friendsApi = vigor.fetch('https://friends.roblox.com/v1')
-        .interceptors(cookieInterceptor)
-        .interceptors(winInetInterceptor)
-        .interceptors(csrfInterceptor)          // ← CSRF 추가
-        .retryConfig(c => c
-            .settings(s => s.attempt(5))
-            .algorithms(a => a.backoff().initial(500).multiplier(2))
+        .middlewares(poolCookieCsrfMiddlewares)
+        .retry(r => r
+            .settings(s => s.maxAttempts(5))
+            .algorithms(a => a.backoff({ initial: 500, multiplier: 2 }))
         )
 
     async function withCache<T>(opts: {
@@ -648,16 +525,8 @@ export function createRobloxApi({
     }
 
     async function authenticated(cookies: RobloxCookie[]): Promise<RobloxAuthenticatedUser[]> {
-        return vigor.all(...cookies.map(cookie => async () => {
-            const fixedCookieInterceptor = vigor.builder.fetch.interceptors()
-                .before((ctx: FetchBeforeCtx, api: FetchBeforeApi) => {
-                    api.setHeaders({
-                        ...(ctx.options.headers as Record<string, string>),
-                        Cookie: `.ROBLOSECURITY=${cookie}`,
-                    })
-                })
-
-            const base = usersApi.interceptors(fixedCookieInterceptor)
+        const results = await vigor.all(...cookies.map(cookie => async () => {
+            const base = usersApi.middlewares(makeHeaderMiddlewares({ getCookie: () => cookie, winInet: true }))
 
             const [user, description, birthdate, gender, ageBracket, countryCode, roles] = await Promise.allSettled([
                 base.path('users', 'authenticated').request<RobloxUserSimple>(),
@@ -670,15 +539,13 @@ export function createRobloxApi({
             ])
 
             if (user.status === 'rejected') {
-                const cause    = user.reason
-                const status   = extractStatus(cause)
-                const timeline = extractTimeline(cause)
+                const cause  = user.reason
+                const status = extractStatus(cause)
                 if (status === 429) throw new RobloxRateLimitError({
                     data: { status, url: extractUrl(cause), retryAfterMs: extractRetryAfterMs(cause) },
-                    timeline,
                     cause,
                 })
-                throw new RobloxAuthError({ data: { status, cookie }, timeline, cause })
+                throw new RobloxAuthError({ data: { status, cookie }, cause })
             }
 
             return {
@@ -691,6 +558,8 @@ export function createRobloxApi({
                 ...(roles.status       === 'fulfilled' ? roles.value       : {}),
             } satisfies RobloxAuthenticatedUser
         })).request<RobloxAuthenticatedUser[]>()
+
+        return results
     }
 
     async function usersSimple(userIds: RobloxUserId[]): Promise<RobloxUserSimple[]> {
@@ -702,21 +571,16 @@ export function createRobloxApi({
             fallback: {} as RobloxUserSimple,
             fetchMissing: async missing => {
                 try {
-                    const results = await vigor.all(
+                    const grouped = await vigor.all(
                         ...chunk(missing.map(Number), 100).map(group => () =>
                             usersApi
                                 .path('users')
-                                .body({ userIds: group, excludeBannedUsers: false })
-                                .interceptors(dataInterceptor)
+                                .body("overwrite", { userIds: group, excludeBannedUsers: false })
+                                .middlewares(dataInterceptor)
                                 .request<RobloxUserSimple[]>()
                         )
-                    )
-                    .interceptors(vigor.builder.all.interceptors()
-                        .result((ctx: AllResultCtx, api: AllResultApi) => {
-                            api.setResult((ctx.result as RobloxUserSimple[][]).flat())
-                        })
-                    )
-                    .request<RobloxUserSimple[]>()
+                    ).request<RobloxUserSimple[][]>()
+                    const results = grouped.flat()
                     return results.filter(u => u.id != null && u.name != null && u.displayName != null)
                 } catch (cause) {
                     throw wrapVigorError(cause)
@@ -758,21 +622,16 @@ export function createRobloxApi({
             fallback: {} as RobloxUserSimple,
             fetchMissing: async missing => {
                 try {
-                    const results = await vigor.all(
+                    const grouped = await vigor.all(
                         ...chunk(missing, 100).map(group => () =>
                             usersApi
                                 .path('usernames', 'users')
-                                .body({ usernames: group, excludeBannedUsers: false })
-                                .interceptors(dataInterceptor)
+                                .body("overwrite", { usernames: group, excludeBannedUsers: false })
+                                .middlewares(dataInterceptor)
                                 .request<RobloxUserSimple[]>()
                         )
-                    )
-                    .interceptors(vigor.builder.all.interceptors()
-                        .result((ctx: AllResultCtx, api: AllResultApi) => {
-                            api.setResult((ctx.result as RobloxUserSimple[][]).flat())
-                        })
-                    )
-                    .request<RobloxUserSimple[]>()
+                    ).request<RobloxUserSimple[][]>()
+                    const results = grouped.flat()
                     return results.filter(u => u.id != null && u.name != null && u.displayName != null)
                 } catch (cause) {
                     throw wrapVigorError(cause)
@@ -783,21 +642,16 @@ export function createRobloxApi({
 
     async function presence(userIds: RobloxUserId[]): Promise<RobloxPresenceEntry[]> {
         try {
-            return await vigor.all(
+            const grouped = await vigor.all(
                 ...chunk(userIds, 50).map(group => () =>
                     presenceApi
                         .path('presence', 'users')
-                        .body({ userIds: group })
-                        .interceptors(pickKey('userPresences'))
+                        .body("overwrite", { userIds: group })
+                        .middlewares(pickKey('userPresences'))
                         .request<RobloxPresenceEntry[]>()
                 )
-            )
-            .interceptors(vigor.builder.all.interceptors()
-                .result((ctx: AllResultCtx, api: AllResultApi) => {
-                    api.setResult((ctx.result as RobloxPresenceEntry[][]).flat())
-                })
-            )
-            .request<RobloxPresenceEntry[]>()
+            ).request<RobloxPresenceEntry[][]>()
+            return grouped.flat()
         } catch (cause) {
             throw wrapVigorError(cause)
         }
@@ -810,21 +664,16 @@ export function createRobloxApi({
     }): Promise<RobloxThumbnail[]> {
         const { assetIds, size = '150x150', format = 'Png' } = opts
         try {
-            const results = await vigor.all(
+            const grouped = await vigor.all(
                 ...chunk(assetIds, 100).map(group => () =>
                     thumbnailsApi
                         .path('assets')
                         .query({ assetIds: group.join(','), size, format })
-                        .interceptors(dataInterceptor)
-                        .request<RobloxThumbnail[]>()
+                        .middlewares(dataInterceptor)
+                        .request<RobloxThumbnailRaw[]>()
                 )
-            )
-            .interceptors(vigor.builder.all.interceptors()
-                .result((ctx: AllResultCtx, api: AllResultApi) => {
-                    api.setResult((ctx.result as RobloxThumbnail[][]).flat())
-                })
-            )
-            .request<RobloxThumbnailRaw[]>()
+            ).request<RobloxThumbnailRaw[][]>()
+            const results = grouped.flat()
             return results.map(t => ({ ...t, url: t.state === 'Completed' ? t.imageUrl : null }))
         } catch (cause) {
             throw wrapVigorError(cause)
@@ -845,21 +694,16 @@ export function createRobloxApi({
         const batch    = targets.map((t, i) => ({ ...defaults, ...t, requestId: String(i) }))
         const batchMap = new Map(batch.map(t => [t.requestId, t]))
         try {
-            const results = await vigor.all(
+            const grouped = await vigor.all(
                 ...chunk(batch, 100).map(group => () =>
                     thumbnailsApi
                         .path('batch')
-                        .body(group)
-                        .interceptors(dataInterceptor)
-                        .request<Array<RobloxThumbnail & { requestId: string }>>()
+                        .body("overwrite", group)
+                        .middlewares(dataInterceptor)
+                        .request<Array<RobloxThumbnailRaw & { requestId: string }>>()
                 )
-            )
-            .interceptors(vigor.builder.all.interceptors()
-                .result((ctx: AllResultCtx, api: AllResultApi) => {
-                    api.setResult((ctx.result as unknown[][]).flat())
-                })
-            )
-            .request<Array<RobloxThumbnailRaw & { requestId: string }>>()
+            ).request<Array<RobloxThumbnailRaw & { requestId: string }>[]>()
+            const results = grouped.flat()
             return results.map(item => {
                 const original = batchMap.get(item.requestId) ?? {}
                 const { requestId: _rid, ...rest } = item
@@ -936,10 +780,11 @@ export function createRobloxApi({
                         ...missing.map(placeId => () =>
                             apisRoblox
                                 .path('universes', 'v1', 'places', placeId, 'universe')
-                                .interceptors(vigor.builder.fetch.interceptors()
-                                    .result((ctx: FetchResultCtx, api: FetchResultApi) => {
+                                .middlewares(vigor.builders.fetch.middlewares()
+                                    .after("intercept", async (ctx, api) => {
                                         const r = ctx.result as { universeId?: number }
                                         api.setResult({ placeId: Number(placeId), universeId: r?.universeId ?? null })
+                                        return ctx
                                     })
                                 )
                                 .request<{ placeId: number; universeId: number | null }>()
@@ -952,8 +797,8 @@ export function createRobloxApi({
                         ...universeEntries.map(({ placeId, universeId }) => async () => {
                             if (!universeId) return { placeId, universeId: null, info: null, assetIds: [] as number[] } satisfies MetaItem
                             const [details, media] = await Promise.all([
-                                gamesApi.path('games').query({ universeIds: universeId }).interceptors(dataInterceptor).request<unknown[]>(),
-                                gamesApi.path('games', universeId, 'media').interceptors(dataInterceptor).request<Array<{ imageId?: number }>>(),
+                                gamesApi.path('games').query({ universeIds: universeId }).middlewares(dataInterceptor).request<unknown[]>(),
+                                gamesApi.path('games', universeId, 'media').middlewares(dataInterceptor).request<Array<{ imageId?: number }>>(),
                             ])
                             return {
                                 placeId,
@@ -1093,7 +938,7 @@ export function createRobloxApi({
         try {
             const res = await gamejoinApi
                 .path('join-game-instance')
-                .body({ placeId, gameId: jobId })
+                .body("overwrite", { placeId, gameId: jobId })
                 .request<GamejoinResponse>()
             return {
                 publicIp:       res?.joinScript?.UdmuxEndpoint?.[0]?.Address ?? null,
@@ -1223,15 +1068,11 @@ export function createRobloxApi({
         return jobIds.flatMap(id => { const loc = resultMap.get(id); return loc ? [loc] : [] })
     }
 
-    // ----------------------------------------------------------------
-    // Friends
-    // ----------------------------------------------------------------
-
     async function friends(userId: RobloxUserId): Promise<RobloxFriendEntry[]> {
         try {
             return await friendsApi
                 .path('users', userId, 'friends')
-                .interceptors(dataInterceptor)
+                .middlewares(dataInterceptor)
                 .request<RobloxFriendEntry[]>()
         } catch (cause) {
             throw wrapVigorError(cause)
@@ -1242,7 +1083,7 @@ export function createRobloxApi({
         try {
             await friendsApi
                 .path('users', targetUserId, 'request-friendship')
-                .body({})
+                .body("overwrite", {})
                 .request<unknown>()
         } catch (cause) {
             throw wrapVigorError(cause)
@@ -1253,7 +1094,7 @@ export function createRobloxApi({
         try {
             await friendsApi
                 .path('users', targetUserId, 'unfriend')
-                .body({})
+                .body("overwrite", {})
                 .request<unknown>()
         } catch (cause) {
             throw wrapVigorError(cause)
@@ -1278,6 +1119,6 @@ export function createRobloxApi({
         friends,
         sendFriendRequest,
         unfriend,
-        _internal: { gamejoinApi, gamesApi, apisRoblox, friendsApi, presenceApi },
+        _internal: { gamejoinApi, gamesApi, apisRoblox, friendsApi, presenceApi } as unknown as RobloxApi['_internal'],
     }
 }
