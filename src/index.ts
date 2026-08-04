@@ -9,64 +9,6 @@ export type RobloxUniverseId  = number & { __brand__: 'Roblox_UniverseId' }
 export type RobloxJobId       = string & { __brand__: 'Roblox_JobId' }
 export type RobloxAssetId     = number & { __brand__: 'Roblox_AssetId' }
 
-const RobloxErrorMessageFuncs = {
-    AUTH_FAILED:    ({ status, cookie }: { status: number | null; cookie: string }) =>
-        `Cookie authentication failed (status: ${status ?? 'unknown'}, cookie: ${cookie.slice(0, 8)}...)`,
-    RATE_LIMITED:   ({ status, url, retryAfterMs }: { status: number; url: string | null; retryAfterMs: number | null }) =>
-        `Rate limited (status: ${status}, url: ${url ?? 'unknown'}, retryAfter: ${retryAfterMs ?? 'unknown'}ms)`,
-    REQUEST_FAILED: ({ status, url }: { status: number | null; url: string | null }) =>
-        `Request failed (status: ${status ?? 'unknown'}, url: ${url ?? 'unknown'})`,
-} as const
-
-type RobloxErrorCodes = keyof typeof RobloxErrorMessageFuncs
-
-type RobloxErrorDatas<C extends RobloxErrorCodes> =
-    Parameters<typeof RobloxErrorMessageFuncs[C]> extends [infer A] ? A : undefined
-
-type RobloxErrorOptions<C extends RobloxErrorCodes, T> = {
-    cause?:   unknown
-    data?:    RobloxErrorDatas<C>
-    context?: T
-}
-
-abstract class RobloxApiError<C extends RobloxErrorCodes, T = unknown> extends Error {
-    public readonly timestamp: Date = new Date()
-    public readonly cause?:    unknown
-    public readonly code:      C
-    public readonly data:      RobloxErrorDatas<C> | undefined
-    public readonly context:   T | undefined
-
-    constructor(code: C, options: RobloxErrorOptions<C, T>) {
-        const messageFn = RobloxErrorMessageFuncs[code] as (arg: RobloxErrorDatas<C>) => string
-        super(`[${code}] ${messageFn(options.data as RobloxErrorDatas<C>)}`, { cause: options.cause })
-        this.name    = new.target.name
-        this.code    = code
-        this.cause   = options.cause
-        this.data    = options.data
-        this.context = options.context
-        Object.setPrototypeOf(this, new.target.prototype);
-        (Error as any).captureStackTrace?.(this, new.target)
-    }
-}
-
-export class RobloxAuthError extends RobloxApiError<'AUTH_FAILED'> {
-    constructor(options: RobloxErrorOptions<'AUTH_FAILED', never>) {
-        super('AUTH_FAILED', options)
-    }
-}
-
-export class RobloxRateLimitError extends RobloxApiError<'RATE_LIMITED'> {
-    constructor(options: RobloxErrorOptions<'RATE_LIMITED', never>) {
-        super('RATE_LIMITED', options)
-    }
-}
-
-export class RobloxRequestError extends RobloxApiError<'REQUEST_FAILED'> {
-    constructor(options: RobloxErrorOptions<'REQUEST_FAILED', never>) {
-        super('REQUEST_FAILED', options)
-    }
-}
-
 type VigorFetchFailedData = {
     status:     number
     statusText: string
@@ -75,40 +17,10 @@ type VigorFetchFailedData = {
     parsed:     unknown
 }
 
+// Used internally by the CSRF retry middleware to detect 403s. Not part of
+// error-handling for callers — vigor's own VigorFetchError propagates as-is.
 function isFetchFailed(cause: unknown): cause is VigorFetchError<'FETCH_FAILED', any> & { data: VigorFetchFailedData } {
     return cause instanceof VigorFetchError && cause.code === 'FETCH_FAILED' && cause.data != null
-}
-
-function extractStatus(cause: unknown): number | null {
-    return isFetchFailed(cause) ? cause.data.status : null
-}
-
-function extractUrl(cause: unknown): string | null {
-    return isFetchFailed(cause) ? cause.data.url : null
-}
-
-function extractRetryAfterMs(cause: unknown): number | null {
-    if (!isFetchFailed(cause)) return null
-    const headers = cause.data.response.headers
-    const raw = headers.get('retry-after')
-             ?? headers.get('ratelimit-reset')
-             ?? headers.get('x-ratelimit-reset')
-             ?? null
-    if (raw === null) return null
-    const asNum = Number(raw)
-    if (!isNaN(asNum)) return asNum * 1000
-    const asDate = new Date(raw).getTime()
-    return !isNaN(asDate) ? asDate - Date.now() : null
-}
-
-function wrapVigorError(cause: unknown): RobloxRateLimitError | RobloxRequestError {
-    const status = extractStatus(cause)
-    const url    = extractUrl(cause)
-    if (status === 429) return new RobloxRateLimitError({
-        data: { status, url, retryAfterMs: extractRetryAfterMs(cause) },
-        cause,
-    })
-    return new RobloxRequestError({ data: { status, url }, cause })
 }
 
 export interface RobloxUserDescription {
@@ -347,13 +259,15 @@ class CsrfTokenManager {
 
         const pending = (async (): Promise<string> => {
             try {
-                const response = await fetch('https://auth.roblox.com/v2/logout', {
+                const response = await fetch('https://accountinformation.roblox.com/v1/description', {
                     method:  'POST',
                     headers: {
                         'Cookie':          `.ROBLOSECURITY=${cookie}`,
                         'User-Agent':      'Roblox/WinInet',
-                        'Content-Length':  '0',
+                        'Content-Type':    'application/json',
+                        'Content-Length':  '2',
                     },
+                    body: '{}',
                 })
                 const token = response.headers.get('x-csrf-token')
                 if (!token) throw new Error('CSRF token not found in response headers')
@@ -445,7 +359,7 @@ export function createRobloxApi({
 
     const dataInterceptor = pickKey('data')
 
-    const poolCookieMiddlewares       = makeHeaderMiddlewares({ getCookie: pickCookie })
+    const poolCookieMiddlewares        = makeHeaderMiddlewares({ getCookie: pickCookie })
     const poolCookieWinInetMiddlewares = makeHeaderMiddlewares({ getCookie: pickCookie, winInet: true })
     const poolCookieCsrfMiddlewares    = makeHeaderMiddlewares({ getCookie: pickCookie, winInet: true, csrf: true })
 
@@ -484,8 +398,12 @@ export function createRobloxApi({
             .algorithms(a => a.backoff({ initial: 1000, multiplier: 2 }))
         )
 
+    // gamejoin.roblox.com requires the `User-Agent: Roblox/WinInet` header,
+    // same as the real Roblox client sends. Without it, join-game-instance
+    // silently rejects the join (status 12 / "Unable to join Game 311") even
+    // though the cookie itself is valid and the server has room.
     const gamejoinApi = vigor.fetch('https://gamejoin.roblox.com/v1')
-        .middlewares(poolCookieMiddlewares)
+        .middlewares(poolCookieWinInetMiddlewares)
         .retry(r => r
             .settings(s => s.maxAttempts(7))
             .algorithms(a => a.backoff({ initial: 500, multiplier: 1.5 }))
@@ -538,15 +456,8 @@ export function createRobloxApi({
                 base.path('users', 'authenticated', 'roles').request<RobloxUserRoles>(),
             ])
 
-            if (user.status === 'rejected') {
-                const cause  = user.reason
-                const status = extractStatus(cause)
-                if (status === 429) throw new RobloxRateLimitError({
-                    data: { status, url: extractUrl(cause), retryAfterMs: extractRetryAfterMs(cause) },
-                    cause,
-                })
-                throw new RobloxAuthError({ data: { status, cookie }, cause })
-            }
+            // If the core "who am I" call fails, let vigor's own error surface as-is.
+            if (user.status === 'rejected') throw user.reason
 
             return {
                 ...user.value,
@@ -570,21 +481,17 @@ export function createRobloxApi({
             getKey:   item => String(item.id),
             fallback: {} as RobloxUserSimple,
             fetchMissing: async missing => {
-                try {
-                    const grouped = await vigor.all(
-                        ...chunk(missing.map(Number), 100).map(group => () =>
-                            usersApi
-                                .path('users')
-                                .body("overwrite", { userIds: group, excludeBannedUsers: false })
-                                .middlewares(dataInterceptor)
-                                .request<RobloxUserSimple[]>()
-                        )
-                    ).request<RobloxUserSimple[][]>()
-                    const results = grouped.flat()
-                    return results.filter(u => u.id != null && u.name != null && u.displayName != null)
-                } catch (cause) {
-                    throw wrapVigorError(cause)
-                }
+                const grouped = await vigor.all(
+                    ...chunk(missing.map(Number), 100).map(group => () =>
+                        usersApi
+                            .path('users')
+                            .body("overwrite", { userIds: group, excludeBannedUsers: false })
+                            .middlewares(dataInterceptor)
+                            .request<RobloxUserSimple[]>()
+                    )
+                ).request<RobloxUserSimple[][]>()
+                const results = grouped.flat()
+                return results.filter(u => u.id != null && u.name != null && u.displayName != null)
             },
         })
     }
@@ -597,18 +504,14 @@ export function createRobloxApi({
             getKey:   item => String(item.id),
             fallback: {} as RobloxUser,
             fetchMissing: async missing => {
-                try {
-                    const results = await vigor.all(
-                        ...missing.map(id => () => usersApi.path('users', id).request<RobloxUser>())
-                    )
-                    .settings(s => s.concurrency(2))
-                    .request<RobloxUser[]>()
-                    return results.filter(
-                        u => u.id != null && u.name != null && u.displayName != null && u.description != null
-                    )
-                } catch (cause) {
-                    throw wrapVigorError(cause)
-                }
+                const results = await vigor.all(
+                    ...missing.map(id => () => usersApi.path('users', id).request<RobloxUser>())
+                )
+                .settings(s => s.concurrency(2))
+                .request<RobloxUser[]>()
+                return results.filter(
+                    u => u.id != null && u.name != null && u.displayName != null && u.description != null
+                )
             },
         })
     }
@@ -621,40 +524,32 @@ export function createRobloxApi({
             getKey:   item => item.requestedUsername ?? item.name,
             fallback: {} as RobloxUserSimple,
             fetchMissing: async missing => {
-                try {
-                    const grouped = await vigor.all(
-                        ...chunk(missing, 100).map(group => () =>
-                            usersApi
-                                .path('usernames', 'users')
-                                .body("overwrite", { usernames: group, excludeBannedUsers: false })
-                                .middlewares(dataInterceptor)
-                                .request<RobloxUserSimple[]>()
-                        )
-                    ).request<RobloxUserSimple[][]>()
-                    const results = grouped.flat()
-                    return results.filter(u => u.id != null && u.name != null && u.displayName != null)
-                } catch (cause) {
-                    throw wrapVigorError(cause)
-                }
+                const grouped = await vigor.all(
+                    ...chunk(missing, 100).map(group => () =>
+                        usersApi
+                            .path('usernames', 'users')
+                            .body("overwrite", { usernames: group, excludeBannedUsers: false })
+                            .middlewares(dataInterceptor)
+                            .request<RobloxUserSimple[]>()
+                    )
+                ).request<RobloxUserSimple[][]>()
+                const results = grouped.flat()
+                return results.filter(u => u.id != null && u.name != null && u.displayName != null)
             },
         })
     }
 
     async function presence(userIds: RobloxUserId[]): Promise<RobloxPresenceEntry[]> {
-        try {
-            const grouped = await vigor.all(
-                ...chunk(userIds, 50).map(group => () =>
-                    presenceApi
-                        .path('presence', 'users')
-                        .body("overwrite", { userIds: group })
-                        .middlewares(pickKey('userPresences'))
-                        .request<RobloxPresenceEntry[]>()
-                )
-            ).request<RobloxPresenceEntry[][]>()
-            return grouped.flat()
-        } catch (cause) {
-            throw wrapVigorError(cause)
-        }
+        const grouped = await vigor.all(
+            ...chunk(userIds, 50).map(group => () =>
+                presenceApi
+                    .path('presence', 'users')
+                    .body("overwrite", { userIds: group })
+                    .middlewares(pickKey('userPresences'))
+                    .request<RobloxPresenceEntry[]>()
+            )
+        ).request<RobloxPresenceEntry[][]>()
+        return grouped.flat()
     }
 
     async function thumbnailAssets(opts: {
@@ -663,21 +558,17 @@ export function createRobloxApi({
         format?:  string
     }): Promise<RobloxThumbnail[]> {
         const { assetIds, size = '150x150', format = 'Png' } = opts
-        try {
-            const grouped = await vigor.all(
-                ...chunk(assetIds, 100).map(group => () =>
-                    thumbnailsApi
-                        .path('assets')
-                        .query({ assetIds: group.join(','), size, format })
-                        .middlewares(dataInterceptor)
-                        .request<RobloxThumbnailRaw[]>()
-                )
-            ).request<RobloxThumbnailRaw[][]>()
-            const results = grouped.flat()
-            return results.map(t => ({ ...t, url: t.state === 'Completed' ? t.imageUrl : null }))
-        } catch (cause) {
-            throw wrapVigorError(cause)
-        }
+        const grouped = await vigor.all(
+            ...chunk(assetIds, 100).map(group => () =>
+                thumbnailsApi
+                    .path('assets')
+                    .query({ assetIds: group.join(','), size, format })
+                    .middlewares(dataInterceptor)
+                    .request<RobloxThumbnailRaw[]>()
+            )
+        ).request<RobloxThumbnailRaw[][]>()
+        const results = grouped.flat()
+        return results.map(t => ({ ...t, url: t.state === 'Completed' ? t.imageUrl : null }))
     }
 
     async function thumbnailsBatch(
@@ -693,25 +584,21 @@ export function createRobloxApi({
         }
         const batch    = targets.map((t, i) => ({ ...defaults, ...t, requestId: String(i) }))
         const batchMap = new Map(batch.map(t => [t.requestId, t]))
-        try {
-            const grouped = await vigor.all(
-                ...chunk(batch, 100).map(group => () =>
-                    thumbnailsApi
-                        .path('batch')
-                        .body("overwrite", group)
-                        .middlewares(dataInterceptor)
-                        .request<Array<RobloxThumbnailRaw & { requestId: string }>>()
-                )
-            ).request<Array<RobloxThumbnailRaw & { requestId: string }>[]>()
-            const results = grouped.flat()
-            return results.map(item => {
-                const original = batchMap.get(item.requestId) ?? {}
-                const { requestId: _rid, ...rest } = item
-                return { ...original, ...rest, url: rest.state === 'Completed' ? rest.imageUrl : null } as RobloxThumbnail
-            })
-        } catch (cause) {
-            throw wrapVigorError(cause)
-        }
+        const grouped = await vigor.all(
+            ...chunk(batch, 100).map(group => () =>
+                thumbnailsApi
+                    .path('batch')
+                    .body("overwrite", group)
+                    .middlewares(dataInterceptor)
+                    .request<Array<RobloxThumbnailRaw & { requestId: string }>>()
+            )
+        ).request<Array<RobloxThumbnailRaw & { requestId: string }>[]>()
+        const results = grouped.flat()
+        return results.map(item => {
+            const original = batchMap.get(item.requestId) ?? {}
+            const { requestId: _rid, ...rest } = item
+            return { ...original, ...rest, url: rest.state === 'Completed' ? rest.imageUrl : null } as RobloxThumbnail
+        })
     }
 
     async function serversSimple(opts: ServersOpts): Promise<RobloxServersResult<RobloxServerEntry>> {
@@ -719,19 +606,15 @@ export function createRobloxApi({
         let nextCursor: string | null = cursor ?? null
         let prevCursor: string | null = null
         const rawData: RobloxServerRaw[] = []
-        try {
-            for (let i = 0; i < count; i++) {
-                const page = await gamesApi
-                    .path('games', placeId, 'servers', serverType)
-                    .query({ limit: 100, ...(nextCursor ? { cursor: nextCursor } : {}) })
-                    .request<{ previousPageCursor: string | null; nextPageCursor: string | null; data: RobloxServerRaw[] }>()
-                if (i === 0) prevCursor = page.previousPageCursor
-                nextCursor = page.nextPageCursor
-                rawData.push(...page.data)
-                if (!nextCursor) break
-            }
-        } catch (cause) {
-            throw wrapVigorError(cause)
+        for (let i = 0; i < count; i++) {
+            const page = await gamesApi
+                .path('games', placeId, 'servers', serverType)
+                .query({ limit: 100, ...(nextCursor ? { cursor: nextCursor } : {}) })
+                .request<{ previousPageCursor: string | null; nextPageCursor: string | null; data: RobloxServerRaw[] }>()
+            if (i === 0) prevCursor = page.previousPageCursor
+            nextCursor = page.nextPageCursor
+            rawData.push(...page.data)
+            if (!nextCursor) break
         }
         const thumbTargets: RobloxThumbnailTarget[] = rawData
             .flatMap(s => s.playerTokens.map(token => ({ token, type: 'AvatarHeadShot', size: '150x150', format: 'Png', ...thumbnailFormat })))
@@ -775,55 +658,51 @@ export function createRobloxApi({
             getKey:   item => String(item.placeId),
             fallback: {} as RobloxPlaceInfo,
             fetchMissing: async missing => {
-                try {
-                    const universeEntries = await vigor.all(
-                        ...missing.map(placeId => () =>
-                            apisRoblox
-                                .path('universes', 'v1', 'places', placeId, 'universe')
-                                .middlewares(vigor.builders.fetch.middlewares()
-                                    .after("intercept", async (ctx, api) => {
-                                        const r = ctx.result as { universeId?: number }
-                                        api.setResult({ placeId: Number(placeId), universeId: r?.universeId ?? null })
-                                        return ctx
-                                    })
-                                )
-                                .request<{ placeId: number; universeId: number | null }>()
-                        )
-                    ).request<{ placeId: number; universeId: number | null }[]>()
+                const universeEntries = await vigor.all(
+                    ...missing.map(placeId => () =>
+                        apisRoblox
+                            .path('universes', 'v1', 'places', placeId, 'universe')
+                            .middlewares(vigor.builders.fetch.middlewares()
+                                .after("intercept", async (ctx, api) => {
+                                    const r = ctx.result as { universeId?: number }
+                                    api.setResult({ placeId: Number(placeId), universeId: r?.universeId ?? null })
+                                    return ctx
+                                })
+                            )
+                            .request<{ placeId: number; universeId: number | null }>()
+                    )
+                ).request<{ placeId: number; universeId: number | null }[]>()
 
-                    type MetaItem = { placeId: number; universeId: number | null; info: unknown; assetIds: number[] }
+                type MetaItem = { placeId: number; universeId: number | null; info: unknown; assetIds: number[] }
 
-                    const metaList = await vigor.all(
-                        ...universeEntries.map(({ placeId, universeId }) => async () => {
-                            if (!universeId) return { placeId, universeId: null, info: null, assetIds: [] as number[] } satisfies MetaItem
-                            const [details, media] = await Promise.all([
-                                gamesApi.path('games').query({ universeIds: universeId }).middlewares(dataInterceptor).request<unknown[]>(),
-                                gamesApi.path('games', universeId, 'media').middlewares(dataInterceptor).request<Array<{ imageId?: number }>>(),
-                            ])
-                            return {
-                                placeId,
-                                universeId,
-                                info:     (details as unknown[])?.[0] ?? null,
-                                assetIds: (media ?? []).map(m => m.imageId).filter((id): id is number => id != null),
-                            } satisfies MetaItem
-                        })
-                    ).request<MetaItem[]>()
+                const metaList = await vigor.all(
+                    ...universeEntries.map(({ placeId, universeId }) => async () => {
+                        if (!universeId) return { placeId, universeId: null, info: null, assetIds: [] as number[] } satisfies MetaItem
+                        const [details, media] = await Promise.all([
+                            gamesApi.path('games').query({ universeIds: universeId }).middlewares(dataInterceptor).request<unknown[]>(),
+                            gamesApi.path('games', universeId, 'media').middlewares(dataInterceptor).request<Array<{ imageId?: number }>>(),
+                        ])
+                        return {
+                            placeId,
+                            universeId,
+                            info:     (details as unknown[])?.[0] ?? null,
+                            assetIds: (media ?? []).map(m => m.imageId).filter((id): id is number => id != null),
+                        } satisfies MetaItem
+                    })
+                ).request<MetaItem[]>()
 
-                    const allAssetIds = [...new Set(metaList.flatMap(m => m.assetIds))]
-                    const assetUrlMap = new Map<number, string>()
-                    if (allAssetIds.length > 0) {
-                        const thumbs = await thumbnailAssets({ assetIds: allAssetIds as RobloxAssetId[], size: '768x432', format: 'Png' })
-                        thumbs.forEach(t => { if (t.targetId != null && t.url) assetUrlMap.set(t.targetId as number, t.url) })
-                    }
-                    return metaList.map(({ placeId, universeId, info, assetIds }) => ({
-                        ...(info as object ?? {}),
-                        placeId,
-                        universeId,
-                        logos: assetIds.map(id => assetUrlMap.get(id)).filter((u): u is string => u != null),
-                    })) as RobloxPlaceInfo[]
-                } catch (cause) {
-                    throw wrapVigorError(cause)
+                const allAssetIds = [...new Set(metaList.flatMap(m => m.assetIds))]
+                const assetUrlMap = new Map<number, string>()
+                if (allAssetIds.length > 0) {
+                    const thumbs = await thumbnailAssets({ assetIds: allAssetIds as RobloxAssetId[], size: '768x432', format: 'Png' })
+                    thumbs.forEach(t => { if (t.targetId != null && t.url) assetUrlMap.set(t.targetId as number, t.url) })
                 }
+                return metaList.map(({ placeId, universeId, info, assetIds }) => ({
+                    ...(info as object ?? {}),
+                    placeId,
+                    universeId,
+                    logos: assetIds.map(id => assetUrlMap.get(id)).filter((u): u is string => u != null),
+                })) as RobloxPlaceInfo[]
             },
         })
     }
@@ -927,7 +806,7 @@ export function createRobloxApi({
     interface GamejoinResponse {
         joinScript?: {
             MachineAddress?: string
-            UdmuxEndpoint?:  Array<{ Address: string; Port: number }>
+            UdmuxEndpoints?: Array<{ Address: string; Port: number }>
         }
     }
 
@@ -941,10 +820,13 @@ export function createRobloxApi({
                 .body("overwrite", { placeId, gameId: jobId })
                 .request<GamejoinResponse>()
             return {
-                publicIp:       res?.joinScript?.UdmuxEndpoint?.[0]?.Address ?? null,
+                publicIp:       res?.joinScript?.UdmuxEndpoints?.[0]?.Address ?? null,
                 machineAddress: res?.joinScript?.MachineAddress ?? null,
             }
         } catch {
+            // Genuinely optional here: a single job failing to join (server
+            // gone, full, etc.) shouldn't blow up the whole batch — it just
+            // won't get a location.
             return { publicIp: null, machineAddress: null }
         }
     }
@@ -1069,36 +951,24 @@ export function createRobloxApi({
     }
 
     async function friends(userId: RobloxUserId): Promise<RobloxFriendEntry[]> {
-        try {
-            return await friendsApi
-                .path('users', userId, 'friends')
-                .middlewares(dataInterceptor)
-                .request<RobloxFriendEntry[]>()
-        } catch (cause) {
-            throw wrapVigorError(cause)
-        }
+        return friendsApi
+            .path('users', userId, 'friends')
+            .middlewares(dataInterceptor)
+            .request<RobloxFriendEntry[]>()
     }
 
     async function sendFriendRequest(targetUserId: RobloxUserId): Promise<void> {
-        try {
-            await friendsApi
-                .path('users', targetUserId, 'request-friendship')
-                .body("overwrite", {})
-                .request<unknown>()
-        } catch (cause) {
-            throw wrapVigorError(cause)
-        }
+        await friendsApi
+            .path('users', targetUserId, 'request-friendship')
+            .body("overwrite", {})
+            .request<unknown>()
     }
 
     async function unfriend(targetUserId: RobloxUserId): Promise<void> {
-        try {
-            await friendsApi
-                .path('users', targetUserId, 'unfriend')
-                .body("overwrite", {})
-                .request<unknown>()
-        } catch (cause) {
-            throw wrapVigorError(cause)
-        }
+        await friendsApi
+            .path('users', targetUserId, 'unfriend')
+            .body("overwrite", {})
+            .request<unknown>()
     }
 
     return {
