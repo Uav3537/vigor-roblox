@@ -1,6 +1,6 @@
 {
   "name": "vigor-roblox",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -32,7 +32,7 @@
   "author": "Uav1010",
   "license": "MIT",
   "dependencies": {
-    "vigor-fetch": "^4.0.1"
+    "vigor-fetch": "^4.0.9"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^29.0.2",
