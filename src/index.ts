@@ -552,23 +552,112 @@ export function createRobloxApi({
         return grouped.flat()
     }
 
+    // ============================
+    // 썸네일 캐시 키
+    // targetId 기반과 token 기반을 구분해서 겹치지 않게 하고,
+    // type/size/format까지 키에 포함해 다른 포맷 요청은 별개로 캐싱한다.
+    // ============================
+    function thumbnailCacheKey(t: RobloxThumbnailTarget): string {
+        const base = t.targetId != null ? `id:${t.targetId}` : `token:${t.token}`
+        return `${base}:${t.type}:${t.size}:${t.format}`
+    }
+
+    // ============================
+    // 폴백: 배치(/v1/batch) 결과가 없거나 Completed가 아닌 유저 타겟들을
+    // 개별 아바타 헤드샷 엔드포인트(/v1/users/avatar-headshot)로 한 번에 재조회.
+    // 이 엔드포인트는 userIds를 배열로 받으므로 남은 항목을 한 번에 묶어서 호출한다.
+    // token 기반 타겟(서버 플레이어 토큰 등)은 이 엔드포인트가 지원하지 않으므로 대상에서 제외.
+    // ============================
+    async function fetchThumbnailFallback(
+        targets: Array<RobloxThumbnailTarget & { requestId: string }>
+    ): Promise<Map<string, RobloxThumbnailRaw>> {
+        const byUserId = targets.filter(
+            (t): t is typeof t & { targetId: RobloxUserId } => t.targetId != null
+        )
+        if (byUserId.length === 0) return new Map()
+
+        // size/format이 서로 다른 타겟이 섞여 있을 수 있으니 그룹으로 나눠서 호출
+        const groups = new Map<string, typeof byUserId>()
+        for (const t of byUserId) {
+            const key = `${t.size}:${t.format}:${t.isCircular ?? false}`
+            const list = groups.get(key) ?? []
+            list.push(t)
+            groups.set(key, list)
+        }
+
+        const resultMap = new Map<string, RobloxThumbnailRaw>()
+
+        await vigor.all(
+            ...Array.from(groups.values()).flatMap(group =>
+                chunk(group, 100).map(part => async () => {
+                    try {
+                        const res = await thumbnailsApi
+                            .path('users', 'avatar-headshot')
+                            .query({
+                                userIds:          part.map(t => t.targetId).join(','),
+                                size:             part[0].size,
+                                format:           part[0].format,
+                                isCircular:       part[0].isCircular ?? false,
+                                includeBackground: false,
+                            })
+                            .middlewares(dataInterceptor)
+                            .request<RobloxThumbnailRaw[]>()
+
+                        const byTargetId = new Map(res.map(r => [r.targetId, r]))
+                        part.forEach(t => {
+                            const found = byTargetId.get(t.targetId)
+                            if (found) resultMap.set(t.requestId, found)
+                        })
+                    } catch {
+                        // 폴백도 실패하면 그냥 비워둔다 — 상위에서 Completed 아님으로 처리됨
+                    }
+                })
+            )
+        ).settings(s => s.concurrency(5)).request<void[]>()
+
+        return resultMap
+    }
+
     async function thumbnailAssets(opts: {
         assetIds: RobloxAssetId[]
         size?:    string
         format?:  string
     }): Promise<RobloxThumbnail[]> {
         const { assetIds, size = '150x150', format = 'Png' } = opts
-        const grouped = await vigor.all(
-            ...chunk(assetIds, 100).map(group => () =>
-                thumbnailsApi
-                    .path('assets')
-                    .query({ assetIds: group.join(','), size, format })
-                    .middlewares(dataInterceptor)
-                    .request<RobloxThumbnailRaw[]>()
-            )
-        ).request<RobloxThumbnailRaw[][]>()
-        const results = grouped.flat()
-        return results.map(t => ({ ...t, url: t.state === 'Completed' ? t.imageUrl : null }))
+        const targets = assetIds.map(id => ({ targetId: id, type: 'Asset', size, format }))
+
+        return withCache<RobloxThumbnail>({
+            type:     'thumbnailAssets',
+            keys:     targets.map(thumbnailCacheKey),
+            ttlMs:    6 * 60 * 60 * 1000,
+            getKey:   item => thumbnailCacheKey(item),
+            fallback: { url: null } as RobloxThumbnail,
+            fetchMissing: async (missingKeys) => {
+                const missingTargets = targets.filter(t => missingKeys.includes(thumbnailCacheKey(t)))
+                const missingIds = missingTargets.map(t => t.targetId)
+
+                const grouped = await vigor.all(
+                    ...chunk(missingIds, 100).map(group => () =>
+                        thumbnailsApi
+                            .path('assets')
+                            .query({ assetIds: group.join(','), size, format })
+                            .middlewares(dataInterceptor)
+                            .request<RobloxThumbnailRaw[]>()
+                    )
+                ).request<RobloxThumbnailRaw[][]>()
+
+                const results = grouped.flat().map(t => ({
+                    ...t,
+                    type: 'Asset',
+                    size,
+                    format,
+                    url: t.state === 'Completed' ? t.imageUrl : null,
+                })) as RobloxThumbnail[]
+
+                // 실패(Completed가 아닌) 항목은 캐시에서 제외 — 다음 요청에서 재시도됨
+                return results.filter(r => r.state === 'Completed')
+            },
+        })
     }
 
     async function thumbnailsBatch(
@@ -582,22 +671,59 @@ export function createRobloxApi({
             isCircular: false,
             ...formatDefaults,
         }
-        const batch    = targets.map((t, i) => ({ ...defaults, ...t, requestId: String(i) }))
-        const batchMap = new Map(batch.map(t => [t.requestId, t]))
-        const grouped = await vigor.all(
-            ...chunk(batch, 100).map(group => () =>
-                thumbnailsApi
-                    .path('batch')
-                    .body("overwrite", group)
-                    .middlewares(dataInterceptor)
-                    .request<Array<RobloxThumbnailRaw & { requestId: string }>>()
-            )
-        ).request<Array<RobloxThumbnailRaw & { requestId: string }>[]>()
-        const results = grouped.flat()
-        return results.map(item => {
-            const original = batchMap.get(item.requestId) ?? {}
-            const { requestId: _rid, ...rest } = item
-            return { ...original, ...rest, url: rest.state === 'Completed' ? rest.imageUrl : null } as RobloxThumbnail
+        const withDefaults = targets.map(t => ({ ...defaults, ...t }))
+
+        return withCache<RobloxThumbnail>({
+            type:     'thumbnails',
+            keys:     withDefaults.map(thumbnailCacheKey),
+            ttlMs:    6 * 60 * 60 * 1000,
+            getKey:   item => thumbnailCacheKey(item),
+            fallback: { url: null } as RobloxThumbnail,
+            fetchMissing: async (missingKeys) => {
+                const missingTargets = withDefaults.filter(t => missingKeys.includes(thumbnailCacheKey(t)))
+                const batch    = missingTargets.map((t, i) => ({ ...t, requestId: String(i) }))
+                const batchMap = new Map(batch.map(t => [t.requestId, t]))
+
+                const grouped = await vigor.all(
+                    ...chunk(batch, 100).map(group => () =>
+                        thumbnailsApi
+                            .path('batch')
+                            .body("overwrite", group)
+                            .middlewares(dataInterceptor)
+                            .request<Array<RobloxThumbnailRaw & { requestId: string }>>()
+                    )
+                ).request<Array<RobloxThumbnailRaw & { requestId: string }>[]>()
+
+                const results = grouped.flat()
+                const resultByRequestId = new Map(results.map(r => [r.requestId, r]))
+
+                const needsFallback = batch.filter(t => {
+                    const r = resultByRequestId.get(t.requestId)
+                    return !r || r.state !== 'Completed'
+                })
+
+                if (needsFallback.length > 0) {
+                    const fallbackMap = await fetchThumbnailFallback(needsFallback)
+                    fallbackMap.forEach((raw, requestId) => resultByRequestId.set(requestId, { ...raw, requestId }))
+                }
+
+                const merged = batch.map(t => {
+                    const item = resultByRequestId.get(t.requestId)
+                    const original = batchMap.get(t.requestId) ?? {}
+                    if (!item) {
+                        return { ...original, url: null, state: 'Error', version: '' } as RobloxThumbnail
+                    }
+                    const { requestId: _rid, ...rest } = item
+                    return {
+                        ...original,
+                        ...rest,
+                        url: rest.state === 'Completed' ? rest.imageUrl : null,
+                    } as RobloxThumbnail
+                })
+
+                // 실패 항목은 캐시에서 제외 — 다음 요청에서 재시도됨 (레이트리밋/일시 오류 대비)
+                return merged.filter(m => m.state === 'Completed')
+            },
         })
     }
 
