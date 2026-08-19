@@ -558,7 +558,7 @@ export function createRobloxApi({
     // type/size/format까지 키에 포함해 다른 포맷 요청은 별개로 캐싱한다.
     // ============================
     function thumbnailCacheKey(t: RobloxThumbnailTarget): string {
-        const base = t.targetId != null ? `id:${t.targetId}` : `token:${t.token}`
+        const base = t.targetId ? `id:${t.targetId}` : `token:${t.token}`
         return `${base}:${t.type}:${t.size}:${t.format}`
     }
 
@@ -882,15 +882,8 @@ export function createRobloxApi({
 
         const getHash = (url: string | null | undefined): string | null => {
             if (!url) return null
-            try {
-                const segments = new URL(url).pathname.split('/')
-                const segment  = segments.find(s => s.includes('-'))
-                if (!segment) return null
-                const parts = segment.split('-')
-                return parts.length >= 3 ? parts.slice(1, -1).join('-') : null
-            } catch {
-                return null
-            }
+            const match = url.match(/-([0-9A-Fa-f]{32})-/)
+            return match ? match[1].toUpperCase() : null
         }
 
         const serverHashMap = new Map<string, RobloxServerEntry>()
