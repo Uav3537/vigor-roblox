@@ -17,8 +17,6 @@ type VigorFetchFailedData = {
     parsed:     unknown
 }
 
-// Used internally by the CSRF retry middleware to detect 403s. Not part of
-// error-handling for callers — vigor's own VigorFetchError propagates as-is.
 function isFetchFailed(cause: unknown): cause is VigorFetchError<'FETCH_FAILED', any> & { data: VigorFetchFailedData } {
     return cause instanceof VigorFetchError && cause.code === 'FETCH_FAILED' && cause.data != null
 }
@@ -348,7 +346,6 @@ export function createRobloxApi({
         return builder
     }
 
-    /** Reusable `after` middleware that unwraps a `{ data: T }`-shaped response envelope. */
     function pickKey(key: string) {
         return vigor.builders.fetch.middlewares()
             .after("intercept", async (ctx, api) => {
@@ -398,10 +395,6 @@ export function createRobloxApi({
             .algorithms(a => a.backoff({ initial: 1000, multiplier: 2 }))
         )
 
-    // gamejoin.roblox.com requires the `User-Agent: Roblox/WinInet` header,
-    // same as the real Roblox client sends. Without it, join-game-instance
-    // silently rejects the join (status 12 / "Unable to join Game 311") even
-    // though the cookie itself is valid and the server has room.
     const gamejoinApi = vigor.fetch('https://gamejoin.roblox.com/v1')
         .middlewares(poolCookieWinInetMiddlewares)
         .retry(r => r
@@ -455,8 +448,6 @@ export function createRobloxApi({
                 base.path('users', 'authenticated', 'country-code').request<RobloxUserCountryCode>(),
                 base.path('users', 'authenticated', 'roles').request<RobloxUserRoles>(),
             ])
-
-            // If the core "who am I" call fails, let vigor's own error surface as-is.
             if (user.status === 'rejected') throw user.reason
 
             return {
@@ -552,22 +543,11 @@ export function createRobloxApi({
         return grouped.flat()
     }
 
-    // ============================
-    // 썸네일 캐시 키
-    // targetId 기반과 token 기반을 구분해서 겹치지 않게 하고,
-    // type/size/format까지 키에 포함해 다른 포맷 요청은 별개로 캐싱한다.
-    // ============================
     function thumbnailCacheKey(t: RobloxThumbnailTarget): string {
         const base = t.targetId ? `id:${t.targetId}` : `token:${t.token}`
         return `${base}:${t.type}:${t.size}:${t.format}`
     }
 
-    // ============================
-    // 폴백: 배치(/v1/batch) 결과가 없거나 Completed가 아닌 유저 타겟들을
-    // 개별 아바타 헤드샷 엔드포인트(/v1/users/avatar-headshot)로 한 번에 재조회.
-    // 이 엔드포인트는 userIds를 배열로 받으므로 남은 항목을 한 번에 묶어서 호출한다.
-    // token 기반 타겟(서버 플레이어 토큰 등)은 이 엔드포인트가 지원하지 않으므로 대상에서 제외.
-    // ============================
     async function fetchThumbnailFallback(
         targets: Array<RobloxThumbnailTarget & { requestId: string }>
     ): Promise<Map<string, RobloxThumbnailRaw>> {
@@ -576,7 +556,6 @@ export function createRobloxApi({
         )
         if (byUserId.length === 0) return new Map()
 
-        // size/format이 서로 다른 타겟이 섞여 있을 수 있으니 그룹으로 나눠서 호출
         const groups = new Map<string, typeof byUserId>()
         for (const t of byUserId) {
             const key = `${t.size}:${t.format}:${t.isCircular ?? false}`
@@ -609,7 +588,6 @@ export function createRobloxApi({
                             if (found) resultMap.set(t.requestId, found)
                         })
                     } catch {
-                        // 폴백도 실패하면 그냥 비워둔다 — 상위에서 Completed 아님으로 처리됨
                     }
                 })
             )
@@ -654,7 +632,6 @@ export function createRobloxApi({
                     url: t.state === 'Completed' ? t.imageUrl : null,
                 })) as RobloxThumbnail[]
 
-                // 실패(Completed가 아닌) 항목은 캐시에서 제외 — 다음 요청에서 재시도됨
                 return results.filter(r => r.state === 'Completed')
             },
         })
@@ -721,7 +698,6 @@ export function createRobloxApi({
                     } as RobloxThumbnail
                 })
 
-                // 실패 항목은 캐시에서 제외 — 다음 요청에서 재시도됨 (레이트리밋/일시 오류 대비)
                 return merged.filter(m => m.state === 'Completed')
             },
         })
@@ -943,9 +919,6 @@ export function createRobloxApi({
                 machineAddress: res?.joinScript?.MachineAddress ?? null,
             }
         } catch {
-            // Genuinely optional here: a single job failing to join (server
-            // gone, full, etc.) shouldn't blow up the whole batch — it just
-            // won't get a location.
             return { publicIp: null, machineAddress: null }
         }
     }
