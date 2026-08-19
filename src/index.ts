@@ -235,6 +235,44 @@ function partition<T>(arr: T[], pred: (item: T) => boolean): { pass: T[]; fail: 
     return { pass, fail }
 }
 
+function makeRateLimiter(opts: { limit: number; windowMs: number }) {
+    const { limit, windowMs } = opts
+    const queue: Array<() => void> = []
+    let count = 0
+    let windowStart = Date.now()
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    function drain() {
+        const now = Date.now()
+        if (now - windowStart >= windowMs) {
+            windowStart = now
+            count = 0
+        }
+        while (queue.length > 0 && count < limit) {
+            count++
+            const next = queue.shift()!
+            next()
+        }
+        if (queue.length > 0 && timer == null) {
+            const delay = Math.max(0, windowMs - (Date.now() - windowStart))
+            timer = setTimeout(() => {
+                timer = null
+                drain()
+            }, delay)
+        }
+    }
+
+    return function schedule<T>(fn: () => Promise<T>): Promise<T> {
+        return new Promise<T>((resolve, reject) => {
+            queue.push(() => { fn().then(resolve, reject) })
+            drain()
+        })
+    }
+}
+
+const gamesServersRateLimiter   = makeRateLimiter({ limit: 20, windowMs: 60 * 1000 })
+const friendsApiRateLimiter     = makeRateLimiter({ limit: 20, windowMs: 60 * 1000 })
+
 class CsrfTokenManager {
     private tokenMap = new Map<string, string>()
     private pendingMap = new Map<string, Promise<string>>()
@@ -703,37 +741,54 @@ export function createRobloxApi({
         })
     }
 
+    const SERVERS_SIMPLE_CACHE_TTL_MS = 5 * 1000
+
     async function serversSimple(opts: ServersOpts): Promise<RobloxServersResult<RobloxServerEntry>> {
         const { placeId, count = 1, serverType = 'Public', cursor, thumbnailFormat } = opts
-        let nextCursor: string | null = cursor ?? null
-        let prevCursor: string | null = null
-        const rawData: RobloxServerRaw[] = []
-        for (let i = 0; i < count; i++) {
-            const page = await gamesApi
-                .path('games', placeId, 'servers', serverType)
-                .query({ limit: 100, ...(nextCursor ? { cursor: nextCursor } : {}) })
-                .request<{ previousPageCursor: string | null; nextPageCursor: string | null; data: RobloxServerRaw[] }>()
-            if (i === 0) prevCursor = page.previousPageCursor
-            nextCursor = page.nextPageCursor
-            rawData.push(...page.data)
-            if (!nextCursor) break
-        }
-        const thumbTargets: RobloxThumbnailTarget[] = rawData
-            .flatMap(s => s.playerTokens.map(token => ({ token, type: 'AvatarHeadShot', size: '150x150', format: 'Png', ...thumbnailFormat })))
-        const thumbResults = await thumbnailsBatch(thumbTargets, thumbnailFormat)
-        const thumbMap     = new Map(thumbResults.map(t => [t.token, t.url]))
-        return {
-            previousPageCursor: prevCursor,
-            nextPageCursor:     nextCursor,
-            data: rawData.map(s => ({
-                jobId:      s.id,
-                maxPlayers: s.maxPlayers,
-                playing:    s.playing,
-                fps:        s.fps,
-                ping:       s.ping,
-                playerImgs: s.playerTokens.map(tok => thumbMap.get(tok)).filter((url): url is string => url != null),
-            })),
-        }
+        const cacheKey = `${placeId}:${serverType}:${count}:${cursor ?? ''}`
+
+        const [result] = await withCache<RobloxServersResult<RobloxServerEntry>>({
+            type:     'serversSimple',
+            keys:     [cacheKey],
+            ttlMs:    SERVERS_SIMPLE_CACHE_TTL_MS,
+            getKey:   () => cacheKey,
+            fallback: { previousPageCursor: null, nextPageCursor: null, data: [] },
+            fetchMissing: async () => {
+                let nextCursor: string | null = cursor ?? null
+                let prevCursor: string | null = null
+                const rawData: RobloxServerRaw[] = []
+                for (let i = 0; i < count; i++) {
+                    const page = await gamesServersRateLimiter(() =>
+                        gamesApi
+                            .path('games', placeId, 'servers', serverType)
+                            .query({ limit: 100, ...(nextCursor ? { cursor: nextCursor } : {}) })
+                            .request<{ previousPageCursor: string | null; nextPageCursor: string | null; data: RobloxServerRaw[] }>()
+                    )
+                    if (i === 0) prevCursor = page.previousPageCursor
+                    nextCursor = page.nextPageCursor
+                    rawData.push(...page.data)
+                    if (!nextCursor) break
+                }
+                const thumbTargets: RobloxThumbnailTarget[] = rawData
+                    .flatMap(s => s.playerTokens.map(token => ({ token, type: 'AvatarHeadShot', size: '150x150', format: 'Png', ...thumbnailFormat })))
+                const thumbResults = await thumbnailsBatch(thumbTargets, thumbnailFormat)
+                const thumbMap     = new Map(thumbResults.map(t => [t.token, t.url]))
+                return [{
+                    previousPageCursor: prevCursor,
+                    nextPageCursor:     nextCursor,
+                    data: rawData.map(s => ({
+                        jobId:      s.id,
+                        maxPlayers: s.maxPlayers,
+                        playing:    s.playing,
+                        fps:        s.fps,
+                        ping:       s.ping,
+                        playerImgs: s.playerTokens.map(tok => thumbMap.get(tok)).filter((url): url is string => url != null),
+                    })),
+                }]
+            },
+        })
+
+        return result
     }
 
     async function servers(opts: ServersOpts): Promise<RobloxServersResult<RobloxServerEntryWithLocation>> {
@@ -1043,24 +1098,41 @@ export function createRobloxApi({
     }
 
     async function friends(userId: RobloxUserId): Promise<RobloxFriendEntry[]> {
-        return friendsApi
-            .path('users', userId, 'friends')
-            .middlewares(dataInterceptor)
-            .request<RobloxFriendEntry[]>()
+        const [result] = await withCache<RobloxFriendEntry[]>({
+            type:     'friends',
+            keys:     [String(userId)],
+            ttlMs:    10 * 60 * 1000,
+            getKey:   () => String(userId),
+            fallback: [] as RobloxFriendEntry[],
+            fetchMissing: async () => {
+                const list = await friendsApiRateLimiter(() =>
+                    friendsApi
+                        .path('users', userId, 'friends')
+                        .middlewares(dataInterceptor)
+                        .request<RobloxFriendEntry[]>()
+                )
+                return [list]
+            },
+        })
+        return result
     }
 
     async function sendFriendRequest(targetUserId: RobloxUserId): Promise<void> {
-        await friendsApi
-            .path('users', targetUserId, 'request-friendship')
-            .body("overwrite", {})
-            .request<unknown>()
+        await friendsApiRateLimiter(() =>
+            friendsApi
+                .path('users', targetUserId, 'request-friendship')
+                .body("overwrite", {})
+                .request<unknown>()
+        )
     }
 
     async function unfriend(targetUserId: RobloxUserId): Promise<void> {
-        await friendsApi
-            .path('users', targetUserId, 'unfriend')
-            .body("overwrite", {})
-            .request<unknown>()
+        await friendsApiRateLimiter(() =>
+            friendsApi
+                .path('users', targetUserId, 'unfriend')
+                .body("overwrite", {})
+                .request<unknown>()
+        )
     }
 
     return {
