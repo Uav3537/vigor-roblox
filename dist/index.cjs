@@ -1,7 +1,31 @@
+"use strict";
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
 // src/index.ts
-import { vigor, VigorFetchError } from "vigor-fetch";
+var index_exports = {};
+__export(index_exports, {
+  createRobloxApi: () => createRobloxApi
+});
+module.exports = __toCommonJS(index_exports);
+var import_vigor_fetch = require("vigor-fetch");
 function isFetchFailed(cause) {
-  return cause instanceof VigorFetchError && cause.code === "FETCH_FAILED" && cause.data != null;
+  return cause instanceof import_vigor_fetch.VigorFetchError && cause.code === "FETCH_FAILED" && cause.data != null;
 }
 function chunk(arr, size) {
   const out = [];
@@ -107,7 +131,7 @@ function createRobloxApi({
   }
   function makeHeaderMiddlewares(opts) {
     const { getCookie, winInet = false, csrf = false } = opts;
-    let builder = vigor.builders.fetch.middlewares().before("intercept", async (ctx, api) => {
+    let builder = import_vigor_fetch.vigor.builders.fetch.middlewares().before("intercept", async (ctx, api) => {
       const cookie = getCookie();
       ctx.record.cookie = cookie;
       const headers = {
@@ -138,7 +162,7 @@ function createRobloxApi({
     return builder;
   }
   function pickKey(key) {
-    return vigor.builders.fetch.middlewares().after("intercept", async (ctx, api) => {
+    return import_vigor_fetch.vigor.builders.fetch.middlewares().after("intercept", async (ctx, api) => {
       api.setResult(ctx.result[key]);
       return ctx;
     });
@@ -147,28 +171,28 @@ function createRobloxApi({
   const poolCookieMiddlewares = makeHeaderMiddlewares({ getCookie: pickCookie });
   const poolCookieWinInetMiddlewares = makeHeaderMiddlewares({ getCookie: pickCookie, winInet: true });
   const poolCookieCsrfMiddlewares = makeHeaderMiddlewares({ getCookie: pickCookie, winInet: true, csrf: true });
-  const usersApi = vigor.fetch("https://users.roblox.com/v1").middlewares(poolCookieWinInetMiddlewares).retry(
+  const usersApi = import_vigor_fetch.vigor.fetch("https://users.roblox.com/v1").middlewares(poolCookieWinInetMiddlewares).retry(
     (r) => r.settings((s) => s.maxAttempts(7)).algorithms((a) => a.backoff({ initial: 200, unit: 800, multiplier: 1.7 }))
   );
-  const thumbnailsApi = vigor.fetch("https://thumbnails.roblox.com/v1").middlewares(poolCookieWinInetMiddlewares).retry(
+  const thumbnailsApi = import_vigor_fetch.vigor.fetch("https://thumbnails.roblox.com/v1").middlewares(poolCookieWinInetMiddlewares).retry(
     (r) => r.settings((s) => s.maxAttempts(5)).algorithms((a) => a.backoff({ initial: 1e3, multiplier: 2.5 }))
   );
-  const gamesApi = vigor.fetch("https://games.roblox.com/v1").middlewares(poolCookieMiddlewares).retry(
+  const gamesApi = import_vigor_fetch.vigor.fetch("https://games.roblox.com/v1").middlewares(poolCookieMiddlewares).retry(
     (r) => r.settings((s) => s.maxAttempts(5)).algorithms((a) => a.backoff({ initial: 1e3, multiplier: 2.5 }))
   );
-  const presenceApi = vigor.fetch("https://presence.roblox.com/v1").middlewares(poolCookieMiddlewares).retry(
+  const presenceApi = import_vigor_fetch.vigor.fetch("https://presence.roblox.com/v1").middlewares(poolCookieMiddlewares).retry(
     (r) => r.settings((s) => s.maxAttempts(5)).algorithms((a) => a.backoff({ initial: 500, multiplier: 2 }))
   );
-  const apisRoblox = vigor.fetch("https://apis.roblox.com").middlewares(poolCookieMiddlewares).retry(
+  const apisRoblox = import_vigor_fetch.vigor.fetch("https://apis.roblox.com").middlewares(poolCookieMiddlewares).retry(
     (r) => r.settings((s) => s.maxAttempts(5)).algorithms((a) => a.backoff({ initial: 1e3, multiplier: 2 }))
   );
-  const gamejoinApi = vigor.fetch("https://gamejoin.roblox.com/v1").middlewares(poolCookieWinInetMiddlewares).retry(
+  const gamejoinApi = import_vigor_fetch.vigor.fetch("https://gamejoin.roblox.com/v1").middlewares(poolCookieWinInetMiddlewares).retry(
     (r) => r.settings((s) => s.maxAttempts(7)).algorithms((a) => a.backoff({ initial: 500, multiplier: 1.5 }))
   );
-  const ipgeolocationApi = vigor.fetch("https://api.ipgeolocation.io").retry(
+  const ipgeolocationApi = import_vigor_fetch.vigor.fetch("https://api.ipgeolocation.io").retry(
     (r) => r.settings((s) => s.maxAttempts(4)).algorithms((a) => a.backoff({ initial: 500, multiplier: 2 }))
   );
-  const friendsApi = vigor.fetch("https://friends.roblox.com/v1").middlewares(poolCookieCsrfMiddlewares).retry(
+  const friendsApi = import_vigor_fetch.vigor.fetch("https://friends.roblox.com/v1").middlewares(poolCookieCsrfMiddlewares).retry(
     (r) => r.settings((s) => s.maxAttempts(5)).algorithms((a) => a.backoff({ initial: 500, multiplier: 2 }))
   );
   async function withCache(opts) {
@@ -184,7 +208,7 @@ function createRobloxApi({
     return keys.map((k) => cacheMap.get(k) ?? fallback);
   }
   async function authenticated(cookies) {
-    const results = await vigor.all(...cookies.map((cookie) => async () => {
+    const results = await import_vigor_fetch.vigor.all(...cookies.map((cookie) => async () => {
       const base = usersApi.middlewares(makeHeaderMiddlewares({ getCookie: () => cookie, winInet: true }));
       const [user, description, birthdate, gender, ageBracket, countryCode, roles] = await Promise.allSettled([
         base.path("users", "authenticated").request(),
@@ -216,7 +240,7 @@ function createRobloxApi({
       getKey: (item) => String(item.id),
       fallback: {},
       fetchMissing: async (missing) => {
-        const grouped = await vigor.all(
+        const grouped = await import_vigor_fetch.vigor.all(
           ...chunk(missing.map(Number), 100).map(
             (group) => () => usersApi.path("users").body("overwrite", { userIds: group, excludeBannedUsers: false }).middlewares(dataInterceptor).request()
           )
@@ -234,7 +258,7 @@ function createRobloxApi({
       getKey: (item) => String(item.id),
       fallback: {},
       fetchMissing: async (missing) => {
-        const results = await vigor.all(
+        const results = await import_vigor_fetch.vigor.all(
           ...missing.map((id) => () => usersApi.path("users", id).request())
         ).settings((s) => s.concurrency(2)).request();
         return results.filter(
@@ -251,7 +275,7 @@ function createRobloxApi({
       getKey: (item) => item.requestedUsername ?? item.name,
       fallback: {},
       fetchMissing: async (missing) => {
-        const grouped = await vigor.all(
+        const grouped = await import_vigor_fetch.vigor.all(
           ...chunk(missing, 100).map(
             (group) => () => usersApi.path("usernames", "users").body("overwrite", { usernames: group, excludeBannedUsers: false }).middlewares(dataInterceptor).request()
           )
@@ -262,7 +286,7 @@ function createRobloxApi({
     });
   }
   async function presence(userIds) {
-    const grouped = await vigor.all(
+    const grouped = await import_vigor_fetch.vigor.all(
       ...chunk(userIds, 50).map(
         (group) => () => presenceApi.path("presence", "users").body("overwrite", { userIds: group }).middlewares(pickKey("userPresences")).request()
       )
@@ -286,7 +310,7 @@ function createRobloxApi({
       groups.set(key, list);
     }
     const resultMap = /* @__PURE__ */ new Map();
-    await vigor.all(
+    await import_vigor_fetch.vigor.all(
       ...Array.from(groups.values()).flatMap(
         (group) => chunk(group, 100).map((part) => async () => {
           try {
@@ -321,7 +345,7 @@ function createRobloxApi({
       fetchMissing: async (missingKeys) => {
         const missingTargets = targets.filter((t) => missingKeys.includes(thumbnailCacheKey(t)));
         const missingIds = missingTargets.map((t) => t.targetId);
-        const grouped = await vigor.all(
+        const grouped = await import_vigor_fetch.vigor.all(
           ...chunk(missingIds, 100).map(
             (group) => () => thumbnailsApi.path("assets").query({ assetIds: group.join(","), size, format }).middlewares(dataInterceptor).request()
           )
@@ -356,7 +380,7 @@ function createRobloxApi({
         const missingTargets = withDefaults.filter((t) => missingKeys.includes(thumbnailCacheKey(t)));
         const batch = missingTargets.map((t, i) => ({ ...t, requestId: String(i) }));
         const batchMap = new Map(batch.map((t) => [t.requestId, t]));
-        const grouped = await vigor.all(
+        const grouped = await import_vigor_fetch.vigor.all(
           ...chunk(batch, 100).map(
             (group) => () => thumbnailsApi.path("batch").body("overwrite", group).middlewares(dataInterceptor).request()
           )
@@ -451,10 +475,10 @@ function createRobloxApi({
       getKey: (item) => String(item.placeId),
       fallback: {},
       fetchMissing: async (missing) => {
-        const universeEntries = await vigor.all(
+        const universeEntries = await import_vigor_fetch.vigor.all(
           ...missing.map(
             (placeId) => () => apisRoblox.path("universes", "v1", "places", placeId, "universe").middlewares(
-              vigor.builders.fetch.middlewares().after("intercept", async (ctx, api) => {
+              import_vigor_fetch.vigor.builders.fetch.middlewares().after("intercept", async (ctx, api) => {
                 const r = ctx.result;
                 api.setResult({ placeId: Number(placeId), universeId: r?.universeId ?? null });
                 return ctx;
@@ -462,7 +486,7 @@ function createRobloxApi({
             ).request()
           )
         ).request();
-        const metaList = await vigor.all(
+        const metaList = await import_vigor_fetch.vigor.all(
           ...universeEntries.map(({ placeId, universeId }) => async () => {
             if (!universeId) return { placeId, universeId: null, info: null, assetIds: [] };
             const [details, media] = await Promise.all([
@@ -611,7 +635,7 @@ function createRobloxApi({
     const jobHitMap = new Map(cachedByJob.map(({ separator, data }) => [separator, data]));
     const missJobIds = jobIds.filter((id) => !jobHitMap.has(id));
     if (missJobIds.length === 0) return jobIds.map((id) => jobHitMap.get(id));
-    const extracted = await vigor.all(
+    const extracted = await import_vigor_fetch.vigor.all(
       ...missJobIds.map((jobId) => async () => {
         const { publicIp, machineAddress } = await extractIps(placeId, jobId);
         return { jobId, publicIp, machineAddress };
@@ -637,7 +661,7 @@ function createRobloxApi({
     const ipHitMap = new Map(cachedByIp.map(({ separator, data }) => [separator, data]));
     const stillMissIps = missPublicIps.filter((ip) => !ipHitMap.has(ip));
     if (stillMissIps.length > 0) {
-      const fetched = await vigor.all(
+      const fetched = await import_vigor_fetch.vigor.all(
         ...stillMissIps.map((ip) => async () => ({ ip, loc: await fetchIpLocation(ip) }))
       ).settings((s) => s.concurrency(5)).request();
       const toUpsertIp = fetched.filter((e) => e.loc !== null);
@@ -726,6 +750,7 @@ function createRobloxApi({
     _internal: { gamejoinApi, gamesApi, apisRoblox, friendsApi, presenceApi }
   };
 }
-export {
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
   createRobloxApi
-};
+});
