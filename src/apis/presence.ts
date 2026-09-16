@@ -55,7 +55,7 @@ export function createPresenceApi({ presenceApi, buildPresenceApi, ttlSelect, tt
             return fetchPresenceRaw(userIds, presenceApi)
         }
 
-        const accountKey = cookieHash(opts.cookie)
+        const accountKey = await cookieHash(opts.cookie)
         const client      = buildPresenceApi(opts.cookie)
         const cacheKeys   = userIds.map(id => `${accountKey}:${id}`)
 

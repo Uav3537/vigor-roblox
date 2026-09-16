@@ -59,7 +59,7 @@ export function createGamejoinApi({ gamejoinApi, buildGamejoinApi, ttlSelect, tt
         jobId:   RobloxJobId,
         opts?:   { cookie?: RobloxCookie }
     ): Promise<GamejoinIpResult> {
-        const accountKey = opts?.cookie ? cookieHash(opts.cookie) : 'shared'
+        const accountKey = opts?.cookie ? await cookieHash(opts.cookie) : 'shared'
         const client      = opts?.cookie ? buildGamejoinApi(opts.cookie) : gamejoinApi
         const cacheKey    = `${placeId}:${jobId}:${accountKey}`
 

@@ -41,6 +41,7 @@ __export(index_exports, {
   RobloxThumbnailRawSchema: () => RobloxThumbnailRawSchema,
   RobloxThumbnailRawWithRequestIdSchema: () => RobloxThumbnailRawWithRequestIdSchema,
   RobloxThumbnailSchema: () => RobloxThumbnailSchema,
+  RobloxThumbnailTargetBaseSchema: () => RobloxThumbnailTargetBaseSchema,
   RobloxThumbnailTargetSchema: () => RobloxThumbnailTargetSchema,
   RobloxUniverseFromPlaceRawSchema: () => RobloxUniverseFromPlaceRawSchema,
   RobloxUniverseFromPlaceSchema: () => RobloxUniverseFromPlaceSchema,
@@ -197,15 +198,23 @@ function createNetworkClients(opts) {
   const gamesApi = import_vigor_fetch2.vigor.fetch("https://games.roblox.com/v1").middlewares(poolCookieMiddlewares).retry(
     (r) => r.settings((s) => s.maxAttempts(5)).algorithms((a) => a.backoff({ initial: 1e3, multiplier: 2.5 }))
   );
-  const presenceApi = import_vigor_fetch2.vigor.fetch("https://presence.roblox.com/v1").middlewares(poolCookieMiddlewares).retry(
-    (r) => r.settings((s) => s.maxAttempts(5)).algorithms((a) => a.backoff({ initial: 500, multiplier: 2 }))
-  );
+  function buildPresenceApi(cookie) {
+    const middlewares = cookie ? makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager }) : poolCookieMiddlewares;
+    return import_vigor_fetch2.vigor.fetch("https://presence.roblox.com/v1").middlewares(middlewares).retry(
+      (r) => r.settings((s) => s.maxAttempts(5)).algorithms((a) => a.backoff({ initial: 500, multiplier: 2 }))
+    );
+  }
+  const presenceApi = buildPresenceApi();
   const apisRoblox = import_vigor_fetch2.vigor.fetch("https://apis.roblox.com").middlewares(poolCookieMiddlewares).retry(
     (r) => r.settings((s) => s.maxAttempts(5)).algorithms((a) => a.backoff({ initial: 1e3, multiplier: 2 }))
   );
-  const gamejoinApi = import_vigor_fetch2.vigor.fetch("https://gamejoin.roblox.com/v1").middlewares(poolCookieWinInetMiddlewares).retry(
-    (r) => r.settings((s) => s.maxAttempts(7)).algorithms((a) => a.backoff({ initial: 500, multiplier: 1.5 }))
-  );
+  function buildGamejoinApi(cookie) {
+    const middlewares = cookie ? makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager, winInet: true }) : poolCookieWinInetMiddlewares;
+    return import_vigor_fetch2.vigor.fetch("https://gamejoin.roblox.com/v1").middlewares(middlewares).retry(
+      (r) => r.settings((s) => s.maxAttempts(7)).algorithms((a) => a.backoff({ initial: 500, multiplier: 1.5 }))
+    );
+  }
+  const gamejoinApi = buildGamejoinApi();
   const ipgeolocationApi = import_vigor_fetch2.vigor.fetch("https://api.ipgeolocation.io").retry(
     (r) => r.settings((s) => s.maxAttempts(4)).algorithms((a) => a.backoff({ initial: 500, multiplier: 2 }))
   );
@@ -218,8 +227,10 @@ function createNetworkClients(opts) {
     thumbnailsApi,
     gamesApi,
     presenceApi,
+    buildPresenceApi,
     apisRoblox,
     gamejoinApi,
+    buildGamejoinApi,
     ipgeolocationApi,
     friendsApi
   };
@@ -227,17 +238,19 @@ function createNetworkClients(opts) {
 
 // src/types/cache.ts
 var DEFAULT_TTL_CONFIG = {
-  usersSimple: 30 * 60 * 1e3,
-  users: 60 * 60 * 1e3,
+  usersSimple: 24 * 60 * 60 * 1e3,
+  users: 24 * 60 * 60 * 1e3,
   usernames: 30 * 60 * 1e3,
-  thumbnailAssets: 6 * 60 * 60 * 1e3,
-  thumbnails: 6 * 60 * 60 * 1e3,
+  thumbnailAssets: 48 * 60 * 60 * 1e3,
+  thumbnails: 48 * 60 * 60 * 1e3,
   serversSimple: 5 * 1e3,
   friends: 10 * 60 * 1e3,
   placeInfo: 60 * 60 * 1e3,
   serverLocationJob: 12 * 60 * 60 * 1e3,
   serverLocationIp: 31 * 24 * 60 * 60 * 1e3,
-  serverLocationMachine: 2 * 24 * 60 * 60 * 1e3
+  serverLocationMachine: 2 * 24 * 60 * 60 * 1e3,
+  presence: 30 * 1e3,
+  gamejoin: 30 * 60 * 1e3
 };
 function resolveTtlConfig(ttl) {
   return { ...DEFAULT_TTL_CONFIG, ...ttl };
@@ -285,21 +298,17 @@ var import_zod2 = require("zod");
 
 // src/types/branded.ts
 var import_zod = require("zod");
-var RobloxUserIdSchema = import_zod.z.number().int().positive().min(1).max(1e11).brand();
-var RobloxUserNameSchema = import_zod.z.string().min(3).max(20).regex(/^[A-Za-z0-9_]+$/, "Roblox username may only contain letters, numbers, and underscores").refine((v) => !v.startsWith("_") && !v.endsWith("_"), {
-  message: "Username cannot start or end with an underscore"
-}).refine((v) => !v.includes("__"), {
-  message: "Username cannot contain consecutive underscores"
-}).brand();
-var RobloxDisplayNameSchema = import_zod.z.string().min(3).max(20).brand();
+var RobloxUserIdSchema = import_zod.z.number().int().positive().brand();
+var RobloxUserNameSchema = import_zod.z.string().trim().min(1).brand();
+var RobloxDisplayNameSchema = import_zod.z.string().min(1).brand();
 var RobloxCookieSchema = import_zod.z.string().min(50).startsWith(
   "_|WARNING:-DO-NOT-SHARE-THIS.--Sharing-this-will-allow-someone-to-log-in-as-you-and-to-steal-your-ROBUX-and-items.|_",
   { message: "Not a valid .ROBLOSECURITY cookie" }
 ).brand();
-var RobloxPlaceIdSchema = import_zod.z.number().int().positive().min(1).max(1e11).brand();
-var RobloxUniverseIdSchema = import_zod.z.number().int().positive().min(1).max(1e11).brand();
+var RobloxPlaceIdSchema = import_zod.z.number().int().positive().brand();
+var RobloxUniverseIdSchema = import_zod.z.number().int().positive().brand();
 var RobloxJobIdSchema = import_zod.z.string().uuid("JobId must be a valid UUID").brand();
-var RobloxAssetIdSchema = import_zod.z.number().int().positive().min(1).max(1e11).brand();
+var RobloxAssetIdSchema = import_zod.z.number().int().positive().brand();
 function isRobloxUserId(value) {
   return RobloxUserIdSchema.safeParse(value).success;
 }
@@ -502,6 +511,10 @@ function partition(arr, pred) {
   for (const item of arr) (pred(item) ? pass : fail).push(item);
   return { pass, fail };
 }
+async function cookieHash(cookie) {
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(cookie));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+}
 
 // src/apis/users.ts
 function createUsersApi({ usersApi, csrfManager, withCache }) {
@@ -598,14 +611,39 @@ function createUsersByNameApi({ usersApi, withCache }) {
 // src/apis/presence.ts
 var import_zod5 = require("zod");
 var import_vigor_fetch5 = require("vigor-fetch");
-function createPresenceApi({ presenceApi }) {
-  async function presence(userIds) {
+function createPresenceApi({ presenceApi, buildPresenceApi, ttlSelect, ttlUpsert }) {
+  async function fetchPresenceRaw(userIds, client) {
     const grouped = await import_vigor_fetch5.vigor.all(
       ...chunk(userIds, 50).map(
-        (group) => () => presenceApi.path("presence", "users").body("overwrite", { userIds: group }).middlewares(pickKeyValidated("userPresences", import_zod5.z.array(RobloxPresenceEntrySchema))).request()
+        (group) => () => client.path("presence", "users").body("overwrite", { userIds: group }).middlewares(pickKeyValidated("userPresences", import_zod5.z.array(RobloxPresenceEntrySchema))).request()
       )
     ).request();
     return grouped.flat();
+  }
+  async function presence(userIds, opts) {
+    if (userIds.length === 0) return [];
+    if (!opts?.cookie) {
+      return fetchPresenceRaw(userIds, presenceApi);
+    }
+    const accountKey = await cookieHash(opts.cookie);
+    const client = buildPresenceApi(opts.cookie);
+    const cacheKeys = userIds.map((id) => `${accountKey}:${id}`);
+    const cached = await ttlSelect("presence", "presence", cacheKeys);
+    const hitMap = new Map(cached.map(({ separator, data }) => [separator, data]));
+    const missIds = userIds.filter((id) => !hitMap.has(`${accountKey}:${id}`));
+    if (missIds.length > 0) {
+      const fetched = await fetchPresenceRaw(missIds, client);
+      await ttlUpsert(
+        "presence",
+        "presence",
+        fetched.map((entry) => ({ separator: `${accountKey}:${entry.userId}`, data: entry }))
+      );
+      fetched.forEach((entry) => hitMap.set(`${accountKey}:${entry.userId}`, entry));
+    }
+    return userIds.flatMap((id) => {
+      const entry = hitMap.get(`${accountKey}:${id}`);
+      return entry ? [entry] : [];
+    });
   }
   return { presence };
 }
@@ -746,10 +784,10 @@ function createThumbnailsApi({ thumbnailsApi, withCache }) {
 }
 
 // src/apis/gamejoin.ts
-function createGamejoinApi({ gamejoinApi }) {
-  async function extractIps(placeId, jobId) {
+function createGamejoinApi({ gamejoinApi, buildGamejoinApi, ttlSelect, ttlUpsert }) {
+  async function fetchIpsRaw(placeId, jobId, client) {
     try {
-      const res = await gamejoinApi.path("join-game-instance").body("overwrite", { placeId, gameId: jobId }).middlewares(validate(GamejoinResponseSchema)).request();
+      const res = await client.path("join-game-instance").body("overwrite", { placeId, gameId: jobId }).middlewares(validate(GamejoinResponseSchema)).request();
       return {
         publicIp: res?.joinScript?.UdmuxEndpoints?.[0]?.Address ?? null,
         machineAddress: res?.joinScript?.MachineAddress ?? null
@@ -757,6 +795,18 @@ function createGamejoinApi({ gamejoinApi }) {
     } catch {
       return { publicIp: null, machineAddress: null };
     }
+  }
+  async function extractIps(placeId, jobId, opts) {
+    const accountKey = opts?.cookie ? await cookieHash(opts.cookie) : "shared";
+    const client = opts?.cookie ? buildGamejoinApi(opts.cookie) : gamejoinApi;
+    const cacheKey = `${placeId}:${jobId}:${accountKey}`;
+    const [hit] = await ttlSelect("gamejoin", "gamejoin", [cacheKey]);
+    if (hit) return hit.data;
+    const result = await fetchIpsRaw(placeId, jobId, client);
+    if (result.publicIp) {
+      await ttlUpsert("gamejoin", "gamejoin", [{ separator: cacheKey, data: result }]);
+    }
+    return result;
   }
   return { extractIps };
 }
@@ -1160,17 +1210,19 @@ function createRobloxApi({
     thumbnailsApi,
     gamesApi,
     presenceApi,
+    buildPresenceApi,
     apisRoblox,
     gamejoinApi,
+    buildGamejoinApi,
     ipgeolocationApi,
     friendsApi
   } = createNetworkClients({ cookies: cookiesList, csrfManager });
   const { withCache, ttlSelect, ttlUpsert } = createCacheHelpers(cache, ttl);
   const { authenticated, usersSimple, users } = createUsersApi({ usersApi, csrfManager, withCache });
   const { usersByName } = createUsersByNameApi({ usersApi, withCache });
-  const { presence } = createPresenceApi({ presenceApi });
+  const { presence } = createPresenceApi({ presenceApi, buildPresenceApi, ttlSelect, ttlUpsert });
   const { thumbnailAssets, thumbnailsBatch } = createThumbnailsApi({ thumbnailsApi, withCache });
-  const { extractIps } = createGamejoinApi({ gamejoinApi });
+  const { extractIps } = createGamejoinApi({ gamejoinApi, buildGamejoinApi, ttlSelect, ttlUpsert });
   const { serversRegion } = createServersRegionApi({ ipgeolocationApi, ipgeolocationKey, extractIps, ttlSelect, ttlUpsert });
   const { serversSimple, servers } = createServersApi({ gamesApi, withCache, thumbnailsBatch, serversRegion });
   const { placeInfo } = createPlaceInfoApi({ apisRoblox, gamesApi, withCache, thumbnailAssets });
@@ -1187,6 +1239,7 @@ function createRobloxApi({
     serversSimple,
     servers,
     presence,
+    gamejoin: extractIps,
     placeInfo,
     usersSimpleWithImg,
     usersWithImg,
@@ -1221,6 +1274,7 @@ function createRobloxApi({
   RobloxThumbnailRawSchema,
   RobloxThumbnailRawWithRequestIdSchema,
   RobloxThumbnailSchema,
+  RobloxThumbnailTargetBaseSchema,
   RobloxThumbnailTargetSchema,
   RobloxUniverseFromPlaceRawSchema,
   RobloxUniverseFromPlaceSchema,

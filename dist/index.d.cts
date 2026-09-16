@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
 declare const RobloxUserIdSchema: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+/**
+ * 이름 형식(길이, 허용 문자 등)은 Roblox가 정하는 것이므로 여기서 따라 하지 않는다.
+ * 실제 데이터가 규칙을 벗어나는 경우가 있어서(예: `roblox_user_9093205801`) 응답 검증이
+ * 통째로 실패하는 원인이 됐다. 비어있지 않은 문자열인지만 확인한다.
+ */
 declare const RobloxUserNameSchema: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_UserName", "out">;
 declare const RobloxDisplayNameSchema: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_UserDisplayName", "out">;
 declare const RobloxCookieSchema: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_Cookie", "out">;
@@ -72,6 +77,14 @@ type RobloxUserAgeBracket = z.infer<typeof RobloxUserAgeBracketSchema>;
 type RobloxUserCountryCode = z.infer<typeof RobloxUserCountryCodeSchema>;
 type RobloxUserRoles = z.infer<typeof RobloxUserRolesSchema>;
 type RobloxAuthenticatedUser = RobloxUserSimple & Partial<RobloxUserDescription> & Partial<RobloxUserBirthdate> & Partial<RobloxUserGender> & Partial<RobloxUserAgeBracket> & Partial<RobloxUserCountryCode> & Partial<RobloxUserRoles>;
+declare const RobloxThumbnailTargetBaseSchema: z.ZodObject<{
+    targetId: z.ZodPreprocess<z.ZodOptional<z.ZodUnion<readonly [z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_AssetId", "out">, z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">]>>>;
+    token: z.ZodOptional<z.ZodString>;
+    type: z.ZodOptional<z.ZodString>;
+    size: z.ZodOptional<z.ZodString>;
+    format: z.ZodOptional<z.ZodString>;
+    isCircular: z.ZodOptional<z.ZodBoolean>;
+}, z.core.$strip>;
 declare const RobloxThumbnailTargetSchema: z.ZodObject<{
     targetId: z.ZodPreprocess<z.ZodOptional<z.ZodUnion<readonly [z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_AssetId", "out">, z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">]>>>;
     token: z.ZodOptional<z.ZodString>;
@@ -102,6 +115,7 @@ declare const RobloxThumbnailSchema: z.ZodObject<{
     state: z.ZodString;
     version: z.ZodString;
 }, z.core.$strip>;
+type RobloxThumbnailTargetBase = z.infer<typeof RobloxThumbnailTargetBaseSchema>;
 type RobloxThumbnailTarget = z.infer<typeof RobloxThumbnailTargetSchema>;
 type RobloxThumbnailRaw = z.infer<typeof RobloxThumbnailRawSchema>;
 type RobloxThumbnail = z.infer<typeof RobloxThumbnailSchema>;
@@ -300,6 +314,10 @@ interface RobloxTtlConfig {
     serverLocationJob?: number;
     serverLocationIp?: number;
     serverLocationMachine?: number;
+    /** cookie를 지정한 호출만 캐시됨 (계정별 분리). 미지정 호출은 캐시를 타지 않음. */
+    presence?: number;
+    /** cookie 지정 시 계정별 분리, 미지정 시 "shared" 키 하나로 공유 캐시. */
+    gamejoin?: number;
 }
 type ResolvedTtlConfig = Required<RobloxTtlConfig>;
 declare const DEFAULT_TTL_CONFIG: ResolvedTtlConfig;
@@ -336,7 +354,15 @@ declare function createRobloxApi({ cache, cookies: cookiesList, ipgeolocationKey
     thumbnailsBatch: (targets: RobloxThumbnailTarget[], formatDefaults?: Partial<RobloxThumbnailTarget>) => Promise<RobloxThumbnail[]>;
     serversSimple: (opts: ServersOpts) => Promise<RobloxServersResult<RobloxServerEntry>>;
     servers: (opts: ServersOpts) => Promise<RobloxServersResult<RobloxServerEntryWithLocation>>;
-    presence: (userIds: RobloxUserId[]) => Promise<RobloxPresenceEntry[]>;
+    presence: (userIds: RobloxUserId[], opts?: {
+        cookie?: RobloxCookie;
+    }) => Promise<RobloxPresenceEntry[]>;
+    gamejoin: (placeId: RobloxPlaceId, jobId: RobloxJobId, opts?: {
+        cookie?: RobloxCookie;
+    }) => Promise<{
+        publicIp: string | null;
+        machineAddress: string | null;
+    }>;
     placeInfo: (placeIds: RobloxPlaceId[]) => Promise<RobloxPlaceInfo[]>;
     usersSimpleWithImg: (userIds: RobloxUserId[]) => Promise<WithImg<RobloxUserSimple>[]>;
     usersWithImg: (userIds: RobloxUserId[]) => Promise<WithImg<RobloxUser>[]>;
@@ -360,4 +386,4 @@ declare function createRobloxApi({ cache, cookies: cookiesList, ipgeolocationKey
 };
 type RobloxApi = ReturnType<typeof createRobloxApi>;
 
-export { type CreateRobloxApiOptions, DEFAULT_TTL_CONFIG, type GamejoinResponse, GamejoinResponseSchema, type ResolvedTtlConfig, type RobloxApi, type RobloxApiCache, type RobloxAssetId, RobloxAssetIdSchema, type RobloxAuthenticatedUser, type RobloxCookie, RobloxCookieSchema, type RobloxDisplayName, RobloxDisplayNameSchema, type RobloxFriendEntry, RobloxFriendEntrySchema, type RobloxGameDetailsRaw, RobloxGameDetailsRawSchema, type RobloxGameMediaEntry, RobloxGameMediaEntrySchema, type RobloxIpGeoRaw, RobloxIpGeoRawSchema, type RobloxJobId, RobloxJobIdSchema, type RobloxPlaceId, RobloxPlaceIdSchema, type RobloxPlaceInfo, RobloxPlaceInfoSchema, type RobloxPresenceEntry, RobloxPresenceEntrySchema, type RobloxServerEntry, RobloxServerEntrySchema, type RobloxServerEntryWithLocation, RobloxServerEntryWithLocationSchema, type RobloxServerLocation, RobloxServerLocationSchema, type RobloxServerRaw, RobloxServerRawSchema, type RobloxServersPageRaw, RobloxServersPageRawSchema, type RobloxServersResult, type RobloxThumbnail, type RobloxThumbnailRaw, RobloxThumbnailRawSchema, type RobloxThumbnailRawWithRequestId, RobloxThumbnailRawWithRequestIdSchema, RobloxThumbnailSchema, type RobloxThumbnailTarget, RobloxThumbnailTargetSchema, type RobloxTtlConfig, type RobloxUniverseFromPlace, type RobloxUniverseFromPlaceRaw, RobloxUniverseFromPlaceRawSchema, RobloxUniverseFromPlaceSchema, type RobloxUniverseId, RobloxUniverseIdSchema, type RobloxUser, type RobloxUserAgeBracket, RobloxUserAgeBracketSchema, type RobloxUserBirthdate, RobloxUserBirthdateSchema, type RobloxUserCountryCode, RobloxUserCountryCodeSchema, type RobloxUserDescription, RobloxUserDescriptionSchema, type RobloxUserGender, RobloxUserGenderSchema, type RobloxUserId, RobloxUserIdSchema, type RobloxUserName, RobloxUserNameSchema, type RobloxUserRoles, RobloxUserRolesSchema, RobloxUserSchema, type RobloxUserSimple, RobloxUserSimpleSchema, type ServersOpts, type WithImg, createRobloxApi, isRobloxAssetId, isRobloxCookie, isRobloxDisplayName, isRobloxJobId, isRobloxPlaceId, isRobloxUniverseId, isRobloxUserId, isRobloxUserName, resolveTtlConfig, robloxServersResultSchema };
+export { type CreateRobloxApiOptions, DEFAULT_TTL_CONFIG, type GamejoinResponse, GamejoinResponseSchema, type ResolvedTtlConfig, type RobloxApi, type RobloxApiCache, type RobloxAssetId, RobloxAssetIdSchema, type RobloxAuthenticatedUser, type RobloxCookie, RobloxCookieSchema, type RobloxDisplayName, RobloxDisplayNameSchema, type RobloxFriendEntry, RobloxFriendEntrySchema, type RobloxGameDetailsRaw, RobloxGameDetailsRawSchema, type RobloxGameMediaEntry, RobloxGameMediaEntrySchema, type RobloxIpGeoRaw, RobloxIpGeoRawSchema, type RobloxJobId, RobloxJobIdSchema, type RobloxPlaceId, RobloxPlaceIdSchema, type RobloxPlaceInfo, RobloxPlaceInfoSchema, type RobloxPresenceEntry, RobloxPresenceEntrySchema, type RobloxServerEntry, RobloxServerEntrySchema, type RobloxServerEntryWithLocation, RobloxServerEntryWithLocationSchema, type RobloxServerLocation, RobloxServerLocationSchema, type RobloxServerRaw, RobloxServerRawSchema, type RobloxServersPageRaw, RobloxServersPageRawSchema, type RobloxServersResult, type RobloxThumbnail, type RobloxThumbnailRaw, RobloxThumbnailRawSchema, type RobloxThumbnailRawWithRequestId, RobloxThumbnailRawWithRequestIdSchema, RobloxThumbnailSchema, type RobloxThumbnailTarget, type RobloxThumbnailTargetBase, RobloxThumbnailTargetBaseSchema, RobloxThumbnailTargetSchema, type RobloxTtlConfig, type RobloxUniverseFromPlace, type RobloxUniverseFromPlaceRaw, RobloxUniverseFromPlaceRawSchema, RobloxUniverseFromPlaceSchema, type RobloxUniverseId, RobloxUniverseIdSchema, type RobloxUser, type RobloxUserAgeBracket, RobloxUserAgeBracketSchema, type RobloxUserBirthdate, RobloxUserBirthdateSchema, type RobloxUserCountryCode, RobloxUserCountryCodeSchema, type RobloxUserDescription, RobloxUserDescriptionSchema, type RobloxUserGender, RobloxUserGenderSchema, type RobloxUserId, RobloxUserIdSchema, type RobloxUserName, RobloxUserNameSchema, type RobloxUserRoles, RobloxUserRolesSchema, RobloxUserSchema, type RobloxUserSimple, RobloxUserSimpleSchema, type ServersOpts, type WithImg, createRobloxApi, isRobloxAssetId, isRobloxCookie, isRobloxDisplayName, isRobloxJobId, isRobloxPlaceId, isRobloxUniverseId, isRobloxUserId, isRobloxUserName, resolveTtlConfig, robloxServersResultSchema };
