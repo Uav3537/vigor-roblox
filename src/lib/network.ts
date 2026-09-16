@@ -41,12 +41,25 @@ export function createNetworkClients(opts: {
             .algorithms(a => a.backoff({ initial: 1000, multiplier: 2.5 }))
         )
 
-    const presenceApi = vigor.fetch('https://presence.roblox.com/v1')
-        .middlewares(poolCookieMiddlewares)
-        .retry(r => r
-            .settings(s => s.maxAttempts(5))
-            .algorithms(a => a.backoff({ initial: 500, multiplier: 2 }))
-        )
+    /**
+     * presenceApi 빌더. `cookie`를 지정하면 그 계정 쿠키를 고정으로 쓰고,
+     * 미지정이면 기존과 동일하게 풀에서 라운드로빈으로 고른다.
+     * presence는 요청 계정 ↔ 대상 유저 관계(친구 여부 등 프라이버시 설정)에
+     * 따라 응답이 달라질 수 있어 계정을 고정할 수 있어야 한다.
+     */
+    function buildPresenceApi(cookie?: RobloxCookie) {
+        const middlewares = cookie
+            ? makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager })
+            : poolCookieMiddlewares
+
+        return vigor.fetch('https://presence.roblox.com/v1')
+            .middlewares(middlewares)
+            .retry(r => r
+                .settings(s => s.maxAttempts(5))
+                .algorithms(a => a.backoff({ initial: 500, multiplier: 2 }))
+            )
+    }
+    const presenceApi = buildPresenceApi()
 
     const apisRoblox = vigor.fetch('https://apis.roblox.com')
         .middlewares(poolCookieMiddlewares)
@@ -55,12 +68,25 @@ export function createNetworkClients(opts: {
             .algorithms(a => a.backoff({ initial: 1000, multiplier: 2 }))
         )
 
-    const gamejoinApi = vigor.fetch('https://gamejoin.roblox.com/v1')
-        .middlewares(poolCookieWinInetMiddlewares)
-        .retry(r => r
-            .settings(s => s.maxAttempts(7))
-            .algorithms(a => a.backoff({ initial: 500, multiplier: 1.5 }))
-        )
+    /**
+     * gamejoinApi 빌더. presenceApi와 동일한 이유(계정별 고정 필요)로 존재한다.
+     * gamejoin은 실험/계정 밴 등으로 같은 서버라도 계정에 따라 ip 대신 밴
+     * 메시지가 올 수 있어 "같은 서버 = 같은 ip"라는 가정이 완전히 안전하진
+     * 않다는 점을 호출부에서 감안해야 한다.
+     */
+    function buildGamejoinApi(cookie?: RobloxCookie) {
+        const middlewares = cookie
+            ? makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager, winInet: true })
+            : poolCookieWinInetMiddlewares
+
+        return vigor.fetch('https://gamejoin.roblox.com/v1')
+            .middlewares(middlewares)
+            .retry(r => r
+                .settings(s => s.maxAttempts(7))
+                .algorithms(a => a.backoff({ initial: 500, multiplier: 1.5 }))
+            )
+    }
+    const gamejoinApi = buildGamejoinApi()
 
     const ipgeolocationApi = vigor.fetch('https://api.ipgeolocation.io')
         .retry(r => r
@@ -81,8 +107,10 @@ export function createNetworkClients(opts: {
         thumbnailsApi,
         gamesApi,
         presenceApi,
+        buildPresenceApi,
         apisRoblox,
         gamejoinApi,
+        buildGamejoinApi,
         ipgeolocationApi,
         friendsApi,
     }

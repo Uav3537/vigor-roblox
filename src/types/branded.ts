@@ -4,27 +4,22 @@ export const RobloxUserIdSchema = z
     .number()
     .int()
     .positive()
-    .min(1)
-    .max(100_000_000_000)
     .brand<'RobloxApi::Roblox_UserId'>()
 
+/**
+ * 이름 형식(길이, 허용 문자 등)은 Roblox가 정하는 것이므로 여기서 따라 하지 않는다.
+ * 실제 데이터가 규칙을 벗어나는 경우가 있어서(예: `roblox_user_9093205801`) 응답 검증이
+ * 통째로 실패하는 원인이 됐다. 비어있지 않은 문자열인지만 확인한다.
+ */
 export const RobloxUserNameSchema = z
     .string()
-    .min(3)
-    .max(20)
-    .regex(/^[A-Za-z0-9_]+$/, 'Roblox username may only contain letters, numbers, and underscores')
-    .refine((v) => !v.startsWith('_') && !v.endsWith('_'), {
-        message: 'Username cannot start or end with an underscore',
-    })
-    .refine((v) => !v.includes('__'), {
-        message: 'Username cannot contain consecutive underscores',
-    })
+    .trim()
+    .min(1)
     .brand<'RobloxApi::Roblox_UserName'>()
 
 export const RobloxDisplayNameSchema = z
     .string()
-    .min(3)
-    .max(20)
+    .min(1)
     .brand<'RobloxApi::Roblox_UserDisplayName'>()
 
 export const RobloxCookieSchema = z
@@ -40,16 +35,12 @@ export const RobloxPlaceIdSchema = z
     .number()
     .int()
     .positive()
-    .min(1)
-    .max(100_000_000_000)
     .brand<'RobloxApi::Roblox_PlaceId'>()
 
 export const RobloxUniverseIdSchema = z
     .number()
     .int()
     .positive()
-    .min(1)
-    .max(100_000_000_000)
     .brand<'RobloxApi::Roblox_UniverseId'>()
 
 export const RobloxJobIdSchema = z
@@ -61,8 +52,6 @@ export const RobloxAssetIdSchema = z
     .number()
     .int()
     .positive()
-    .min(1)
-    .max(100_000_000_000)
     .brand<'RobloxApi::Roblox_AssetId'>()
 
 export type RobloxUserId      = z.infer<typeof RobloxUserIdSchema>

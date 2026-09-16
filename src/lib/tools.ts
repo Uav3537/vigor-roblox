@@ -1,3 +1,6 @@
+import { createHash } from 'crypto'
+import { RobloxCookie } from '@/types/branded'
+
 export function chunk<T>(arr: T[], size: number): T[][] {
     const out: T[][] = []
     for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
@@ -8,4 +11,9 @@ export function partition<T>(arr: T[], pred: (item: T) => boolean): { pass: T[];
     const pass: T[] = [], fail: T[] = []
     for (const item of arr) (pred(item) ? pass : fail).push(item)
     return { pass, fail }
+}
+
+
+export function cookieHash(cookie: RobloxCookie): string {
+    return createHash('sha256').update(cookie).digest('hex').slice(0, 16)
 }

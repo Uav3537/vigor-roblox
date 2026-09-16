@@ -35,8 +35,10 @@ export function createRobloxApi({
         thumbnailsApi,
         gamesApi,
         presenceApi,
+        buildPresenceApi,
         apisRoblox,
         gamejoinApi,
+        buildGamejoinApi,
         ipgeolocationApi,
         friendsApi,
     } = createNetworkClients({ cookies: cookiesList, csrfManager })
@@ -45,9 +47,9 @@ export function createRobloxApi({
 
     const { authenticated, usersSimple, users } = createUsersApi({ usersApi, csrfManager, withCache })
     const { usersByName } = createUsersByNameApi({ usersApi, withCache })
-    const { presence } = createPresenceApi({ presenceApi })
+    const { presence } = createPresenceApi({ presenceApi, buildPresenceApi, ttlSelect, ttlUpsert })
     const { thumbnailAssets, thumbnailsBatch } = createThumbnailsApi({ thumbnailsApi, withCache })
-    const { extractIps } = createGamejoinApi({ gamejoinApi })
+    const { extractIps } = createGamejoinApi({ gamejoinApi, buildGamejoinApi, ttlSelect, ttlUpsert })
     const { serversRegion } = createServersRegionApi({ ipgeolocationApi, ipgeolocationKey, extractIps, ttlSelect, ttlUpsert })
     const { serversSimple, servers } = createServersApi({ gamesApi, withCache, thumbnailsBatch, serversRegion })
     const { placeInfo } = createPlaceInfoApi({ apisRoblox, gamesApi, withCache, thumbnailAssets })
@@ -65,6 +67,7 @@ export function createRobloxApi({
         serversSimple,
         servers,
         presence,
+        gamejoin: extractIps,
         placeInfo,
         usersSimpleWithImg,
         usersWithImg,
