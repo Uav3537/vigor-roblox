@@ -10,11 +10,11 @@ export interface CreateRobloxApiOptions {
     cache:            RobloxApiCache
     /**
      * .ROBLOSECURITY 쿠키 목록. 복사하지 않고 참조로 쓰므로 외부에서 push/splice 하면 바로 반영된다.
-     * games/users/presence에서는 쓸 수 있는 OAuth 토큰이 없을 때만 쓰인다.
+     * games(서버 목록 제외)/users/presence에서는 쓸 수 있는 OAuth 토큰이 없을 때만 쓰인다. 서버 목록은 항상 쿠키를 쓴다.
      */
     cookies:          RobloxCookie[]
     /**
-     * OAuth 2.0 access token 목록 (games/users/presence에 우선 사용). 참조로 쓰므로 만료/갱신 시
+     * OAuth 2.0 access token 목록 (games(서버 목록 제외)/users/presence에 우선 사용). 참조로 쓰므로 만료/갱신 시
      * 외부에서 배열을 직접 수정하면 된다.
      */
     oauthTokens?:     string[]

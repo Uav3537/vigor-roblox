@@ -254,9 +254,9 @@ var CREDENTIAL_MAX_RESTARTS = 10;
 function createNetworkClients(opts) {
   const { cookies, oauthTokens, oauthTokenRateLimit, csrfManager } = opts;
   const pickCookie = createCookieRotator(cookies);
-  function credentialMiddlewares(winInet = false) {
+  function credentialMiddlewares({ winInet = false, allowOAuth = true } = {}) {
     const pool = createCredentialPool({ cookies, oauthTokens, tokenLimit: oauthTokenRateLimit });
-    return makeCredentialMiddlewares({ pool, allowOAuth: true, winInet });
+    return makeCredentialMiddlewares({ pool, allowOAuth, winInet });
   }
   const poolCookieMiddlewares = makeHeaderMiddlewares({ getCookie: pickCookie, csrfManager });
   const poolCookieWinInetMiddlewares = makeHeaderMiddlewares({ getCookie: pickCookie, csrfManager, winInet: true });
@@ -264,13 +264,16 @@ function createNetworkClients(opts) {
   const usersPlainApi = vigor2.fetch("https://users.roblox.com/v1").retry(
     (r) => r.settings((s) => s.maxAttempts(7)).algorithms((a) => a.backoff({ initial: 200, unit: 800, multiplier: 1.7 }))
   );
-  const usersApi = vigor2.fetch("https://users.roblox.com/v1").middlewares(credentialMiddlewares(true)).settings((s) => s.unretryStatus(429).maxRestarts(CREDENTIAL_MAX_RESTARTS)).retry(
+  const usersApi = vigor2.fetch("https://users.roblox.com/v1").middlewares(credentialMiddlewares({ winInet: true })).settings((s) => s.unretryStatus(429).maxRestarts(CREDENTIAL_MAX_RESTARTS)).retry(
     (r) => r.settings((s) => s.maxAttempts(7)).algorithms((a) => a.backoff({ initial: 200, unit: 800, multiplier: 1.7 }))
   );
   const thumbnailsApi = vigor2.fetch("https://thumbnails.roblox.com/v1").middlewares(poolCookieWinInetMiddlewares).retry(
     (r) => r.settings((s) => s.maxAttempts(5)).algorithms((a) => a.backoff({ initial: 1e3, multiplier: 2.5 }))
   );
   const gamesApi = vigor2.fetch("https://games.roblox.com/v1").middlewares(credentialMiddlewares()).settings((s) => s.unretryStatus(429).maxRestarts(CREDENTIAL_MAX_RESTARTS)).retry(
+    (r) => r.settings((s) => s.maxAttempts(5)).algorithms((a) => a.backoff({ initial: 1e3, multiplier: 2.5 }))
+  );
+  const gamesServersApi = vigor2.fetch("https://games.roblox.com/v1").middlewares(credentialMiddlewares({ allowOAuth: false })).settings((s) => s.unretryStatus(429).maxRestarts(CREDENTIAL_MAX_RESTARTS)).retry(
     (r) => r.settings((s) => s.maxAttempts(5)).algorithms((a) => a.backoff({ initial: 1e3, multiplier: 2.5 }))
   );
   const presenceCredentialMiddlewares = credentialMiddlewares();
@@ -303,6 +306,7 @@ function createNetworkClients(opts) {
     usersPlainApi,
     thumbnailsApi,
     gamesApi,
+    gamesServersApi,
     presenceApi,
     buildPresenceApi,
     apisRoblox,
@@ -1032,7 +1036,7 @@ var gamesServersRateLimiter = makeRateLimiter({ limit: 20, windowMs: 60 * 1e3 })
 var friendsApiRateLimiter = makeRateLimiter({ limit: 20, windowMs: 60 * 1e3 });
 
 // src/apis/servers.ts
-function createServersApi({ gamesApi, withCache, thumbnailsBatch, serversRegion }) {
+function createServersApi({ gamesServersApi, withCache, thumbnailsBatch, serversRegion }) {
   async function serversSimple(opts) {
     const { placeId, count = 1, serverType = "Public", cursor, thumbnailFormat } = opts;
     const cacheKey = `${placeId}:${serverType}:${count}:${cursor ?? ""}`;
@@ -1048,7 +1052,10 @@ function createServersApi({ gamesApi, withCache, thumbnailsBatch, serversRegion 
         const rawData = [];
         for (let i = 0; i < count; i++) {
           const page = await gamesServersRateLimiter(
-            () => gamesApi.path("games", placeId, "servers", serverType).query({ limit: 100, ...nextCursor ? { cursor: nextCursor } : {} }).middlewares(validate(RobloxServersPageRawSchema)).request()
+            () => (
+              // OAuth 토큰으로는 playerTokens가 오지 않으므로 쿠키 전용 클라이언트를 쓴다.
+              gamesServersApi.path("games", placeId, "servers", serverType).query({ limit: 100, ...nextCursor ? { cursor: nextCursor } : {} }).middlewares(validate(RobloxServersPageRawSchema)).request()
+            )
           );
           if (i === 0) prevCursor = page.previousPageCursor;
           nextCursor = page.nextPageCursor;
@@ -1289,6 +1296,7 @@ function createRobloxApi({
     usersPlainApi,
     thumbnailsApi,
     gamesApi,
+    gamesServersApi,
     presenceApi,
     buildPresenceApi,
     apisRoblox,
@@ -1304,7 +1312,7 @@ function createRobloxApi({
   const { thumbnailAssets, thumbnailsBatch } = createThumbnailsApi({ thumbnailsApi, withCache });
   const { extractIps } = createGamejoinApi({ gamejoinApi, buildGamejoinApi, ttlSelect, ttlUpsert });
   const { serversRegion } = createServersRegionApi({ ipgeolocationApi, ipgeolocationKey, extractIps, ttlSelect, ttlUpsert });
-  const { serversSimple, servers } = createServersApi({ gamesApi, withCache, thumbnailsBatch, serversRegion });
+  const { serversSimple, servers } = createServersApi({ gamesServersApi, withCache, thumbnailsBatch, serversRegion });
   const { placeInfo } = createPlaceInfoApi({ apisRoblox, gamesApi, withCache, thumbnailAssets });
   const { usersSimpleWithImg, usersWithImg, usersByNamesWithImg } = createWithImgApi({ usersSimple, users, usersByName, thumbnailsBatch });
   const { track } = createTrackApi({ usersByName, usersSimple, serversSimple, thumbnailsBatch, serversRegion });

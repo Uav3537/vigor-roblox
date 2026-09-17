@@ -18,13 +18,13 @@ import { createThumbnailsApi } from '@/apis/thumbnails'
 import { createServersRegionApi } from '@/apis/serversRegion'
 
 export type ServersApiDeps = {
-    gamesApi:         ReturnType<typeof createNetworkClients>['gamesApi']
+    gamesServersApi:  ReturnType<typeof createNetworkClients>['gamesServersApi']
     withCache:        ReturnType<typeof createCacheHelpers>['withCache']
     thumbnailsBatch:  ReturnType<typeof createThumbnailsApi>['thumbnailsBatch']
     serversRegion:    ReturnType<typeof createServersRegionApi>['serversRegion']
 }
 
-export function createServersApi({ gamesApi, withCache, thumbnailsBatch, serversRegion }: ServersApiDeps) {
+export function createServersApi({ gamesServersApi, withCache, thumbnailsBatch, serversRegion }: ServersApiDeps) {
 
     async function serversSimple(opts: ServersOpts): Promise<RobloxServersResult<RobloxServerEntry>> {
         const { placeId, count = 1, serverType = 'Public', cursor, thumbnailFormat } = opts
@@ -42,7 +42,8 @@ export function createServersApi({ gamesApi, withCache, thumbnailsBatch, servers
                 const rawData: RobloxServerRaw[] = []
                 for (let i = 0; i < count; i++) {
                     const page = await gamesServersRateLimiter(() =>
-                        gamesApi
+                        // OAuth 토큰으로는 playerTokens가 오지 않으므로 쿠키 전용 클라이언트를 쓴다.
+                        gamesServersApi
                             .path('games', placeId, 'servers', serverType)
                             .query({ limit: 100, ...(nextCursor ? { cursor: nextCursor } : {}) })
                             .middlewares(validate(RobloxServersPageRawSchema))
