@@ -84,6 +84,49 @@ function makeHeaderMiddlewares(opts) {
   }
   return builder;
 }
+function findFetchFailed(error) {
+  let current = error;
+  for (let depth = 0; depth < 5 && current != null; depth++) {
+    if (isFetchFailed(current)) return current;
+    const next = current;
+    current = next.data?.error ?? next.cause;
+  }
+  return null;
+}
+function baseHeaders(ctx) {
+  const { body, headers } = ctx.policy;
+  const isPlainObject = body !== null && typeof body === "object" && (Object.getPrototypeOf(body) === Object.prototype || Array.isArray(body));
+  return {
+    ...isPlainObject ? { "Content-Type": "application/json" } : {},
+    ...headers !== null && typeof headers === "object" ? headers : {}
+  };
+}
+function makeCredentialMiddlewares(opts) {
+  const { pool, allowOAuth, winInet = false } = opts;
+  return vigor.builders.fetch.middlewares().before("intercept", async (ctx, api) => {
+    const credential = await pool.acquire({ allowOAuth });
+    ctx.record.credential = credential;
+    if (credential.kind === "cookie") ctx.record.cookie = credential.value;
+    const headers = baseHeaders(ctx);
+    if (credential.kind === "oauth") headers["Authorization"] = `Bearer ${credential.value}`;
+    else headers["Cookie"] = `.ROBLOSECURITY=${credential.value}`;
+    if (winInet) headers["User-Agent"] = "Roblox/WinInet";
+    api.setHeaders(headers);
+    return ctx;
+  }).after("intercept", async (ctx, api) => {
+    const { record, response } = ctx;
+    if (record.credential && response instanceof Response) pool.observe(record.credential, response);
+    return ctx;
+  }).onError("intercept", async (ctx, api) => {
+    const credential = ctx.record.credential;
+    const failed = findFetchFailed(ctx.error);
+    if (credential && failed) {
+      pool.observe(credential, failed.data.response);
+      if (failed.data.status === 429) api.proceedRestart();
+    }
+    return ctx;
+  });
+}
 function pickKey(key) {
   return vigor.builders.fetch.middlewares().after("intercept", async (ctx, api) => {
     api.setResult(ctx.result[key]);
@@ -105,30 +148,135 @@ function pickKeyValidated(key, schema) {
   });
 }
 
+// src/lib/credentials.ts
+var DEFAULT_OAUTH_TOKEN_RATE_LIMIT = { limit: 4, windowMs: 60 * 1e3 };
+var DEFAULT_COOLDOWN_MS = 60 * 1e3;
+var sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+function createCookieRotator(cookies) {
+  const lastUsed = /* @__PURE__ */ new Map();
+  return function pickCookie() {
+    if (cookies.length === 0) throw new Error("[vigor-roblox] No cookies available");
+    let best = cookies[0];
+    for (const cookie of cookies) {
+      if ((lastUsed.get(cookie) ?? 0) < (lastUsed.get(best) ?? 0)) best = cookie;
+    }
+    lastUsed.set(best, Date.now());
+    return best;
+  };
+}
+function createCredentialPool(opts) {
+  const { cookies, oauthTokens, tokenLimit = DEFAULT_OAUTH_TOKEN_RATE_LIMIT } = opts;
+  const cooldownUntil = /* @__PURE__ */ new Map();
+  const tokenUsage = /* @__PURE__ */ new Map();
+  const cookieLastUsed = /* @__PURE__ */ new Map();
+  const keyOf = (c) => `${c.kind}:${c.value}`;
+  function tokenAvailableAt(token, now) {
+    const usage = (tokenUsage.get(token) ?? []).filter((t) => now - t < tokenLimit.windowMs);
+    tokenUsage.set(token, usage);
+    const byLimit = usage.length < tokenLimit.limit ? now : usage[0] + tokenLimit.windowMs;
+    return Math.max(byLimit, cooldownUntil.get(`oauth:${token}`) ?? 0, now);
+  }
+  async function acquire({ allowOAuth }) {
+    for (; ; ) {
+      const now = Date.now();
+      let wakeAt = Infinity;
+      if (allowOAuth) {
+        let bestToken = null;
+        let bestUsage = Infinity;
+        for (const token of oauthTokens) {
+          const at = tokenAvailableAt(token, now);
+          if (at > now) {
+            wakeAt = Math.min(wakeAt, at);
+            continue;
+          }
+          const usage = tokenUsage.get(token).length;
+          if (usage < bestUsage) {
+            bestUsage = usage;
+            bestToken = token;
+          }
+        }
+        if (bestToken !== null) {
+          tokenUsage.get(bestToken).push(now);
+          return { kind: "oauth", value: bestToken };
+        }
+      }
+      let bestCookie = null;
+      for (const cookie of cookies) {
+        const until = cooldownUntil.get(`cookie:${cookie}`) ?? 0;
+        if (until > now) {
+          wakeAt = Math.min(wakeAt, until);
+          continue;
+        }
+        if (bestCookie === null || (cookieLastUsed.get(cookie) ?? 0) < (cookieLastUsed.get(bestCookie) ?? 0)) {
+          bestCookie = cookie;
+        }
+      }
+      if (bestCookie !== null) {
+        cookieLastUsed.set(bestCookie, now);
+        return { kind: "cookie", value: bestCookie };
+      }
+      if (wakeAt === Infinity) throw new Error("[vigor-roblox] No credentials available");
+      await sleep(Math.min(1e3, Math.max(50, wakeAt - now)));
+    }
+  }
+  function cooldown(credential, ms) {
+    const until = Date.now() + ms;
+    const key = keyOf(credential);
+    cooldownUntil.set(key, Math.max(cooldownUntil.get(key) ?? 0, until));
+  }
+  function observe(credential, response) {
+    const rateLimited = response.status === 429;
+    const exhausted = response.headers.get("x-ratelimit-remaining")?.trim() === "0";
+    if (!rateLimited && !exhausted) return false;
+    cooldown(credential, resetDelayMs(response.headers));
+    return true;
+  }
+  return { acquire, cooldown, observe };
+}
+function resetDelayMs(headers) {
+  let delay = 0;
+  for (const name of ["retry-after", "x-ratelimit-reset"]) {
+    const raw = headers.get(name);
+    if (!raw) continue;
+    const seconds = Number.parseFloat(raw);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      delay = Math.max(delay, seconds * 1e3);
+      continue;
+    }
+    const date = Date.parse(raw);
+    if (!Number.isNaN(date)) delay = Math.max(delay, date - Date.now());
+  }
+  return delay > 0 ? Math.max(1e3, delay) : DEFAULT_COOLDOWN_MS;
+}
+
 // src/lib/network.ts
+var CREDENTIAL_MAX_RESTARTS = 10;
 function createNetworkClients(opts) {
-  const { cookies, csrfManager } = opts;
-  const cookiePool = cookies.map((cookie) => ({ cookie, lastUsed: 0 }));
-  function pickCookie() {
-    const entry = cookiePool.reduce((a, b) => a.lastUsed < b.lastUsed ? a : b);
-    entry.lastUsed = Date.now();
-    return entry.cookie;
+  const { cookies, oauthTokens, oauthTokenRateLimit, csrfManager } = opts;
+  const pickCookie = createCookieRotator(cookies);
+  function credentialMiddlewares(winInet = false) {
+    const pool = createCredentialPool({ cookies, oauthTokens, tokenLimit: oauthTokenRateLimit });
+    return makeCredentialMiddlewares({ pool, allowOAuth: true, winInet });
   }
   const poolCookieMiddlewares = makeHeaderMiddlewares({ getCookie: pickCookie, csrfManager });
   const poolCookieWinInetMiddlewares = makeHeaderMiddlewares({ getCookie: pickCookie, csrfManager, winInet: true });
   const poolCookieCsrfMiddlewares = makeHeaderMiddlewares({ getCookie: pickCookie, csrfManager, winInet: true, csrf: true });
-  const usersApi = vigor2.fetch("https://users.roblox.com/v1").middlewares(poolCookieWinInetMiddlewares).retry(
+  const usersPlainApi = vigor2.fetch("https://users.roblox.com/v1").retry(
+    (r) => r.settings((s) => s.maxAttempts(7)).algorithms((a) => a.backoff({ initial: 200, unit: 800, multiplier: 1.7 }))
+  );
+  const usersApi = vigor2.fetch("https://users.roblox.com/v1").middlewares(credentialMiddlewares(true)).settings((s) => s.unretryStatus(429).maxRestarts(CREDENTIAL_MAX_RESTARTS)).retry(
     (r) => r.settings((s) => s.maxAttempts(7)).algorithms((a) => a.backoff({ initial: 200, unit: 800, multiplier: 1.7 }))
   );
   const thumbnailsApi = vigor2.fetch("https://thumbnails.roblox.com/v1").middlewares(poolCookieWinInetMiddlewares).retry(
     (r) => r.settings((s) => s.maxAttempts(5)).algorithms((a) => a.backoff({ initial: 1e3, multiplier: 2.5 }))
   );
-  const gamesApi = vigor2.fetch("https://games.roblox.com/v1").middlewares(poolCookieMiddlewares).retry(
+  const gamesApi = vigor2.fetch("https://games.roblox.com/v1").middlewares(credentialMiddlewares()).settings((s) => s.unretryStatus(429).maxRestarts(CREDENTIAL_MAX_RESTARTS)).retry(
     (r) => r.settings((s) => s.maxAttempts(5)).algorithms((a) => a.backoff({ initial: 1e3, multiplier: 2.5 }))
   );
+  const presenceCredentialMiddlewares = credentialMiddlewares();
   function buildPresenceApi(cookie) {
-    const middlewares = cookie ? makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager }) : poolCookieMiddlewares;
-    return vigor2.fetch("https://presence.roblox.com/v1").middlewares(middlewares).retry(
+    const middlewares = cookie ? makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager }) : presenceCredentialMiddlewares;
+    return vigor2.fetch("https://presence.roblox.com/v1").middlewares(middlewares).settings((s) => s.unretryStatus(429).maxRestarts(CREDENTIAL_MAX_RESTARTS)).retry(
       (r) => r.settings((s) => s.maxAttempts(5)).algorithms((a) => a.backoff({ initial: 500, multiplier: 2 }))
     );
   }
@@ -152,6 +300,7 @@ function createNetworkClients(opts) {
   return {
     pickCookie,
     usersApi,
+    usersPlainApi,
     thumbnailsApi,
     gamesApi,
     presenceApi,
@@ -445,10 +594,10 @@ async function cookieHash(cookie) {
 }
 
 // src/apis/users.ts
-function createUsersApi({ usersApi, csrfManager, withCache }) {
+function createUsersApi({ usersApi, usersPlainApi, csrfManager, withCache }) {
   async function authenticated(cookies) {
     const results = await vigor3.all(...cookies.map((cookie) => async () => {
-      const base = usersApi.middlewares(makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager, winInet: true }));
+      const base = usersPlainApi.middlewares(makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager, winInet: true }));
       const [user, description, birthdate, gender, ageBracket, countryCode, roles] = await Promise.allSettled([
         base.path("users", "authenticated").middlewares(validate(RobloxUserSimpleSchema)).request(),
         base.path("description").middlewares(validate(RobloxUserDescriptionSchema)).request(),
@@ -1129,12 +1278,15 @@ function createFriendsApi({ friendsApi, withCache }) {
 function createRobloxApi({
   cache,
   cookies: cookiesList,
+  oauthTokens = [],
+  oauthTokenRateLimit,
   ipgeolocationKey,
   ttl
 }) {
   const csrfManager = new CsrfTokenManager();
   const {
     usersApi,
+    usersPlainApi,
     thumbnailsApi,
     gamesApi,
     presenceApi,
@@ -1144,9 +1296,9 @@ function createRobloxApi({
     buildGamejoinApi,
     ipgeolocationApi,
     friendsApi
-  } = createNetworkClients({ cookies: cookiesList, csrfManager });
+  } = createNetworkClients({ cookies: cookiesList, oauthTokens, oauthTokenRateLimit, csrfManager });
   const { withCache, ttlSelect, ttlUpsert } = createCacheHelpers(cache, ttl);
-  const { authenticated, usersSimple, users } = createUsersApi({ usersApi, csrfManager, withCache });
+  const { authenticated, usersSimple, users } = createUsersApi({ usersApi, usersPlainApi, csrfManager, withCache });
   const { usersByName } = createUsersByNameApi({ usersApi, withCache });
   const { presence } = createPresenceApi({ presenceApi, buildPresenceApi, ttlSelect, ttlUpsert });
   const { thumbnailAssets, thumbnailsBatch } = createThumbnailsApi({ thumbnailsApi, withCache });

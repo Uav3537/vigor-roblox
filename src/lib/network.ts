@@ -1,27 +1,47 @@
 import { vigor } from 'vigor-fetch'
 import { RobloxCookie } from '@/types/branded'
 import { CsrfTokenManager } from './csrf'
-import { makeHeaderMiddlewares } from './middlewares'
+import { makeCredentialMiddlewares, makeHeaderMiddlewares } from './middlewares'
+import { OAuthTokenRateLimit, createCookieRotator, createCredentialPool } from './credentials'
+
+/**
+ * OAuth 토큰 → 쿠키 순으로 인증하는 클라이언트 공통 설정.
+ * 429는 같은 인증으로 재시도해도 소용없으므로 retry 대상에서 빼고, 미들웨어가 다른 인증 수단으로 재시작한다.
+ */
+const CREDENTIAL_MAX_RESTARTS = 10
 
 export function createNetworkClients(opts: {
-    cookies:     RobloxCookie[]
-    csrfManager: CsrfTokenManager
+    /** 참조로 사용된다. 외부에서 push/splice 하면 바로 반영된다. */
+    cookies:          RobloxCookie[]
+    /** 참조로 사용된다. 외부에서 push/splice 하면 바로 반영된다. */
+    oauthTokens:      string[]
+    oauthTokenRateLimit?: OAuthTokenRateLimit
+    csrfManager:      CsrfTokenManager
 }) {
-    const { cookies, csrfManager } = opts
-    const cookiePool = cookies.map(cookie => ({ cookie, lastUsed: 0 }))
+    const { cookies, oauthTokens, oauthTokenRateLimit, csrfManager } = opts
 
-    function pickCookie(): RobloxCookie {
-        const entry = cookiePool.reduce((a, b) => a.lastUsed < b.lastUsed ? a : b)
-        entry.lastUsed = Date.now()
-        return entry.cookie
+    const pickCookie = createCookieRotator(cookies)
+
+    /** rate limit은 엔드포인트 단위라 클라이언트마다 별도의 풀(쿨다운/쿠키 사용 횟수)을 쓴다. */
+    function credentialMiddlewares(winInet = false) {
+        const pool = createCredentialPool({ cookies, oauthTokens, tokenLimit: oauthTokenRateLimit })
+        return makeCredentialMiddlewares({ pool, allowOAuth: true, winInet })
     }
 
     const poolCookieMiddlewares        = makeHeaderMiddlewares({ getCookie: pickCookie, csrfManager })
     const poolCookieWinInetMiddlewares = makeHeaderMiddlewares({ getCookie: pickCookie, csrfManager, winInet: true })
     const poolCookieCsrfMiddlewares    = makeHeaderMiddlewares({ getCookie: pickCookie, csrfManager, winInet: true, csrf: true })
 
+    /** 인증 미들웨어가 없는 users 클라이언트. 호출부에서 특정 쿠키를 붙일 때(authenticated) 쓴다. */
+    const usersPlainApi = vigor.fetch('https://users.roblox.com/v1')
+        .retry(r => r
+            .settings(s => s.maxAttempts(7))
+            .algorithms(a => a.backoff({ initial: 200, unit: 800, multiplier: 1.7 }))
+        )
+
     const usersApi = vigor.fetch('https://users.roblox.com/v1')
-        .middlewares(poolCookieWinInetMiddlewares)
+        .middlewares(credentialMiddlewares(true))
+        .settings(s => s.unretryStatus(429).maxRestarts(CREDENTIAL_MAX_RESTARTS))
         .retry(r => r
             .settings(s => s.maxAttempts(7))
             .algorithms(a => a.backoff({ initial: 200, unit: 800, multiplier: 1.7 }))
@@ -35,7 +55,8 @@ export function createNetworkClients(opts: {
         )
 
     const gamesApi = vigor.fetch('https://games.roblox.com/v1')
-        .middlewares(poolCookieMiddlewares)
+        .middlewares(credentialMiddlewares())
+        .settings(s => s.unretryStatus(429).maxRestarts(CREDENTIAL_MAX_RESTARTS))
         .retry(r => r
             .settings(s => s.maxAttempts(5))
             .algorithms(a => a.backoff({ initial: 1000, multiplier: 2.5 }))
@@ -43,17 +64,19 @@ export function createNetworkClients(opts: {
 
     /**
      * presenceApi 빌더. `cookie`를 지정하면 그 계정 쿠키를 고정으로 쓰고,
-     * 미지정이면 기존과 동일하게 풀에서 라운드로빈으로 고른다.
+     * 미지정이면 OAuth 토큰(1분 제한) → 쿠키 순으로 풀에서 고른다.
      * presence는 요청 계정 ↔ 대상 유저 관계(친구 여부 등 프라이버시 설정)에
      * 따라 응답이 달라질 수 있어 계정을 고정할 수 있어야 한다.
      */
+    const presenceCredentialMiddlewares = credentialMiddlewares()
     function buildPresenceApi(cookie?: RobloxCookie) {
         const middlewares = cookie
             ? makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager })
-            : poolCookieMiddlewares
+            : presenceCredentialMiddlewares
 
         return vigor.fetch('https://presence.roblox.com/v1')
             .middlewares(middlewares)
+            .settings(s => s.unretryStatus(429).maxRestarts(CREDENTIAL_MAX_RESTARTS))
             .retry(r => r
                 .settings(s => s.maxAttempts(5))
                 .algorithms(a => a.backoff({ initial: 500, multiplier: 2 }))
@@ -104,6 +127,7 @@ export function createNetworkClients(opts: {
     return {
         pickCookie,
         usersApi,
+        usersPlainApi,
         thumbnailsApi,
         gamesApi,
         presenceApi,

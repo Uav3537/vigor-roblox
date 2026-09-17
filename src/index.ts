@@ -20,10 +20,13 @@ export * from '@/types/branded'
 export * from '@/types/responses'
 export * from '@/types/cache'
 export * from '@/types/api'
+export type { RobloxCredential, OAuthTokenRateLimit } from '@/lib/credentials'
 
 export function createRobloxApi({
     cache,
     cookies: cookiesList,
+    oauthTokens = [],
+    oauthTokenRateLimit,
     ipgeolocationKey,
     ttl,
 }: CreateRobloxApiOptions) {
@@ -32,6 +35,7 @@ export function createRobloxApi({
 
     const {
         usersApi,
+        usersPlainApi,
         thumbnailsApi,
         gamesApi,
         presenceApi,
@@ -41,11 +45,11 @@ export function createRobloxApi({
         buildGamejoinApi,
         ipgeolocationApi,
         friendsApi,
-    } = createNetworkClients({ cookies: cookiesList, csrfManager })
+    } = createNetworkClients({ cookies: cookiesList, oauthTokens, oauthTokenRateLimit, csrfManager })
 
     const { withCache, ttlSelect, ttlUpsert } = createCacheHelpers(cache, ttl)
 
-    const { authenticated, usersSimple, users } = createUsersApi({ usersApi, csrfManager, withCache })
+    const { authenticated, usersSimple, users } = createUsersApi({ usersApi, usersPlainApi, csrfManager, withCache })
     const { usersByName } = createUsersByNameApi({ usersApi, withCache })
     const { presence } = createPresenceApi({ presenceApi, buildPresenceApi, ttlSelect, ttlUpsert })
     const { thumbnailAssets, thumbnailsBatch } = createThumbnailsApi({ thumbnailsApi, withCache })
