@@ -137,6 +137,26 @@ export function createNetworkClients(opts: {
             .algorithms(a => a.backoff({ initial: 500, multiplier: 2 }))
         )
 
+    /**
+     * chatApi 빌더. presence/gamejoin과 동일하게 계정별 고정이 필요하다 —
+     * 대화 목록·메시지는 요청 계정 기준으로만 조회되므로 특정 쿠키를 고정해야
+     * 의미가 있다. send-messages(POST)는 CSRF 토큰이 필요해 winInet + csrf를 쓴다.
+     * 공식 문서화되지 않은 platform-chat-api 엔드포인트를 사용한다.
+     */
+    function buildChatApi(cookie?: RobloxCookie) {
+        const middlewares = cookie
+            ? makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager, winInet: true, csrf: true })
+            : poolCookieCsrfMiddlewares
+
+        return vigor.fetch('https://apis.roblox.com/platform-chat-api/v1')
+            .middlewares(middlewares)
+            .retry(r => r
+                .settings(s => s.maxAttempts(5))
+                .algorithms(a => a.backoff({ initial: 500, multiplier: 2 }))
+            )
+    }
+    const chatApi = buildChatApi()
+
     return {
         pickCookie,
         usersApi,
@@ -151,5 +171,7 @@ export function createNetworkClients(opts: {
         buildGamejoinApi,
         ipgeolocationApi,
         friendsApi,
+        chatApi,
+        buildChatApi,
     }
 }

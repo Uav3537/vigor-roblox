@@ -23,6 +23,14 @@ __export(index_exports, {
   DEFAULT_TTL_CONFIG: () => DEFAULT_TTL_CONFIG,
   GamejoinResponseSchema: () => GamejoinResponseSchema,
   RobloxAssetIdSchema: () => RobloxAssetIdSchema,
+  RobloxAuthenticatedUserBaseSchema: () => RobloxAuthenticatedUserBaseSchema,
+  RobloxChatConversationSchema: () => RobloxChatConversationSchema,
+  RobloxChatConversationsPageSchema: () => RobloxChatConversationsPageSchema,
+  RobloxChatMessageSchema: () => RobloxChatMessageSchema,
+  RobloxChatMessagesPageSchema: () => RobloxChatMessagesPageSchema,
+  RobloxChatMetadataSchema: () => RobloxChatMetadataSchema,
+  RobloxChatSendResultSchema: () => RobloxChatSendResultSchema,
+  RobloxChatUserDataSchema: () => RobloxChatUserDataSchema,
   RobloxCookieSchema: () => RobloxCookieSchema,
   RobloxDisplayNameSchema: () => RobloxDisplayNameSchema,
   RobloxFriendEntrySchema: () => RobloxFriendEntrySchema,
@@ -372,6 +380,13 @@ function createNetworkClients(opts) {
   const friendsApi = import_vigor_fetch2.vigor.fetch("https://friends.roblox.com/v1").middlewares(poolCookieCsrfMiddlewares).retry(
     (r) => r.settings((s) => s.maxAttempts(5)).algorithms((a) => a.backoff({ initial: 500, multiplier: 2 }))
   );
+  function buildChatApi(cookie) {
+    const middlewares = cookie ? makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager, winInet: true, csrf: true }) : poolCookieCsrfMiddlewares;
+    return import_vigor_fetch2.vigor.fetch("https://apis.roblox.com/platform-chat-api/v1").middlewares(middlewares).retry(
+      (r) => r.settings((s) => s.maxAttempts(5)).algorithms((a) => a.backoff({ initial: 500, multiplier: 2 }))
+    );
+  }
+  const chatApi = buildChatApi();
   return {
     pickCookie,
     usersApi,
@@ -385,7 +400,9 @@ function createNetworkClients(opts) {
     gamejoinApi,
     buildGamejoinApi,
     ipgeolocationApi,
-    friendsApi
+    friendsApi,
+    chatApi,
+    buildChatApi
   };
 }
 
@@ -501,6 +518,9 @@ var RobloxUserSchema = RobloxUserSimpleSchema.extend({
   isBanned: import_zod2.z.boolean(),
   created: import_zod2.z.string()
 });
+var RobloxAuthenticatedUserBaseSchema = RobloxUserSimpleSchema.extend({
+  hasVerifiedBadge: import_zod2.z.boolean().optional()
+});
 var RobloxUserDescriptionSchema = import_zod2.z.object({
   description: import_zod2.z.string()
 });
@@ -539,12 +559,12 @@ var RobloxThumbnailTargetSchema = RobloxThumbnailTargetBaseSchema.refine(
 var RobloxThumbnailRawSchema = RobloxThumbnailTargetBaseSchema.extend({
   imageUrl: import_zod2.z.string().nullable(),
   state: import_zod2.z.string(),
-  version: import_zod2.z.string()
+  version: import_zod2.z.string().nullable()
 });
 var RobloxThumbnailSchema = RobloxThumbnailTargetBaseSchema.extend({
   url: import_zod2.z.string().nullable(),
   state: import_zod2.z.string(),
-  version: import_zod2.z.string()
+  version: import_zod2.z.string().nullable()
 });
 var RobloxServerEntrySchema = import_zod2.z.object({
   jobId: RobloxJobIdSchema,
@@ -579,13 +599,77 @@ function robloxServersResultSchema(entrySchema) {
 var RobloxPresenceEntrySchema = import_zod2.z.object({
   userId: RobloxUserIdSchema,
   userPresenceType: import_zod2.z.number(),
-  lastLocation: import_zod2.z.string(),
-  placeId: RobloxPlaceIdSchema.nullable(),
-  rootPlaceId: RobloxPlaceIdSchema.nullable(),
-  gameId: RobloxJobIdSchema.nullable(),
-  universeId: RobloxUniverseIdSchema.nullable(),
-  lastOnline: import_zod2.z.string()
+  lastLocation: import_zod2.z.string().nullish(),
+  placeId: RobloxPlaceIdSchema.nullish(),
+  rootPlaceId: RobloxPlaceIdSchema.nullish(),
+  gameId: RobloxJobIdSchema.nullish(),
+  universeId: RobloxUniverseIdSchema.nullish(),
+  lastOnline: import_zod2.z.string().nullish()
 });
+var RobloxChatMessageSchema = import_zod2.z.object({
+  id: import_zod2.z.string(),
+  content: import_zod2.z.string(),
+  sender_user_id: RobloxUserIdSchema,
+  created_at: import_zod2.z.string(),
+  type: import_zod2.z.string().nullish(),
+  moderation_type: import_zod2.z.string().nullish(),
+  replies_to: import_zod2.z.string().nullish(),
+  is_deleted: import_zod2.z.boolean().nullish(),
+  is_previewable: import_zod2.z.boolean().nullish(),
+  is_badgeable: import_zod2.z.boolean().nullish(),
+  visibility: import_zod2.z.string().nullish(),
+  /** send-messages 응답에만 있다 ("success" 등). */
+  status: import_zod2.z.string().nullish()
+});
+var RobloxChatUserDataSchema = import_zod2.z.object({
+  id: RobloxUserIdSchema,
+  name: import_zod2.z.string().nullish(),
+  display_name: import_zod2.z.string().nullish(),
+  combined_name: import_zod2.z.string().nullish(),
+  is_verified: import_zod2.z.boolean().nullish()
+});
+var RobloxChatConversationSchema = import_zod2.z.object({
+  id: import_zod2.z.string(),
+  source: import_zod2.z.string().nullish(),
+  type: import_zod2.z.string().nullish(),
+  name: import_zod2.z.string().nullish(),
+  is_default_name: import_zod2.z.boolean().nullish(),
+  created_by: RobloxUserIdSchema.nullish(),
+  participant_user_ids: import_zod2.z.array(RobloxUserIdSchema),
+  user_data: import_zod2.z.record(import_zod2.z.string(), RobloxChatUserDataSchema).nullish(),
+  messages: import_zod2.z.array(RobloxChatMessageSchema).nullish(),
+  unread_message_count: import_zod2.z.number().nullish(),
+  updated_at: import_zod2.z.string().nullish(),
+  created_at: import_zod2.z.string().nullish(),
+  moderation_type: import_zod2.z.string().nullish(),
+  preview_message: RobloxChatMessageSchema.nullish(),
+  sort_index: import_zod2.z.number().nullish()
+});
+var RobloxChatConversationsPageSchema = import_zod2.z.object({
+  conversations: import_zod2.z.array(RobloxChatConversationSchema),
+  next_cursor: import_zod2.z.string().nullish()
+});
+var RobloxChatMessagesPageSchema = import_zod2.z.object({
+  messages: import_zod2.z.array(RobloxChatMessageSchema),
+  next_cursor: import_zod2.z.string().nullish(),
+  previous_cursor: import_zod2.z.string().nullish()
+});
+var RobloxChatSendResultSchema = import_zod2.z.object({
+  messages: import_zod2.z.array(RobloxChatMessageSchema)
+});
+var RobloxChatMetadataSchema = import_zod2.z.object({
+  isChatEnabled: import_zod2.z.boolean().nullish(),
+  isChatEnabledByPrivacySetting: import_zod2.z.string().nullish(),
+  isGroupChatEnabledByPrivacySetting: import_zod2.z.string().nullish(),
+  isChatEnabledByGlobalRules: import_zod2.z.string().nullish(),
+  isChatVisible: import_zod2.z.boolean().nullish(),
+  isChatUserMessagesEnabled: import_zod2.z.boolean().nullish(),
+  maxConversationTitleLength: import_zod2.z.number().nullish(),
+  typingInChatFromSenderThrottleMs: import_zod2.z.number().nullish(),
+  typingInChatForReceiverExpirationMs: import_zod2.z.number().nullish(),
+  validMessageTypesWhiteList: import_zod2.z.array(import_zod2.z.string()).nullish(),
+  senderTypesForUnknownMessageTypeError: import_zod2.z.array(import_zod2.z.string()).nullish()
+}).passthrough();
 var RobloxPlaceInfoSchema = import_zod2.z.object({
   placeId: RobloxPlaceIdSchema,
   universeId: RobloxUniverseIdSchema.nullable(),
@@ -604,10 +688,11 @@ var RobloxPlaceInfoSchema = import_zod2.z.object({
   updated: import_zod2.z.string(),
   logos: import_zod2.z.array(import_zod2.z.string())
 });
+var emptyToUndefined = (v) => v === "" ? void 0 : v;
 var RobloxFriendEntrySchema = import_zod2.z.object({
   id: RobloxUserIdSchema,
-  name: RobloxUserNameSchema,
-  displayName: RobloxDisplayNameSchema,
+  name: import_zod2.z.preprocess(emptyToUndefined, RobloxUserNameSchema.optional()),
+  displayName: import_zod2.z.preprocess(emptyToUndefined, RobloxDisplayNameSchema.optional()),
   hasVerifiedBadge: import_zod2.z.boolean().optional(),
   isOnline: import_zod2.z.boolean().optional(),
   isDeleted: import_zod2.z.boolean().optional(),
@@ -629,7 +714,7 @@ var GamejoinResponseSchema = import_zod2.z.object({
   }).optional()
 });
 var RobloxUniverseFromPlaceRawSchema = import_zod2.z.object({
-  universeId: import_zod2.z.number().optional()
+  universeId: import_zod2.z.number().nullish()
 }).passthrough();
 var RobloxUniverseFromPlaceSchema = import_zod2.z.object({
   placeId: import_zod2.z.number(),
@@ -675,7 +760,7 @@ function createUsersApi({ usersApi, usersPlainApi, csrfManager, withCache }) {
     const results = await import_vigor_fetch3.vigor.all(...cookies.map((cookie) => async () => {
       const base = usersPlainApi.middlewares(makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager, winInet: true }));
       const [user, description, birthdate, gender, ageBracket, countryCode, roles] = await Promise.allSettled([
-        base.path("users", "authenticated").middlewares(validate(RobloxUserSimpleSchema)).request(),
+        base.path("users", "authenticated").middlewares(validate(RobloxAuthenticatedUserBaseSchema)).request(),
         base.path("description").middlewares(validate(RobloxUserDescriptionSchema)).request(),
         base.path("birthdate").middlewares(validate(RobloxUserBirthdateSchema)).request(),
         base.path("gender").middlewares(validate(RobloxUserGenderSchema)).request(),
@@ -1106,6 +1191,7 @@ function makeRateLimiter(opts) {
 }
 var gamesServersRateLimiter = makeRateLimiter({ limit: 20, windowMs: 60 * 1e3 });
 var friendsApiRateLimiter = makeRateLimiter({ limit: 20, windowMs: 60 * 1e3 });
+var chatApiRateLimiter = makeRateLimiter({ limit: 20, windowMs: 60 * 1e3 });
 
 // src/apis/servers.ts
 function createServersApi({ gamesServersApi, withCache, thumbnailsBatch, serversRegion }) {
@@ -1353,6 +1439,76 @@ function createFriendsApi({ friendsApi, withCache }) {
   return { friends, sendFriendRequest, unfriend };
 }
 
+// src/apis/chat.ts
+function normalizeCursor(cursor) {
+  return cursor ? cursor : null;
+}
+function createChatApi({ buildChatApi }) {
+  async function chatConversations(opts) {
+    const { cookie, pageSize = 20, cursor, includeUserData = true } = opts;
+    const client = buildChatApi(cookie);
+    const query = {
+      page_size: pageSize,
+      include_user_data: includeUserData
+    };
+    if (cursor) query.cursor = cursor;
+    const page = await chatApiRateLimiter(
+      () => client.path("get-user-conversations").query(query).middlewares(validate(RobloxChatConversationsPageSchema)).request()
+    );
+    return {
+      conversations: page.conversations,
+      nextCursor: normalizeCursor(page.next_cursor)
+    };
+  }
+  async function chatMessages(opts) {
+    const { cookie, conversationId, pageSize = 30, cursor } = opts;
+    const client = buildChatApi(cookie);
+    const query = {
+      conversation_id: conversationId,
+      page_size: pageSize
+    };
+    if (cursor) query.cursor = cursor;
+    const page = await chatApiRateLimiter(
+      () => client.path("get-conversation-messages").query(query).middlewares(validate(RobloxChatMessagesPageSchema)).request()
+    );
+    return {
+      messages: page.messages,
+      nextCursor: normalizeCursor(page.next_cursor),
+      previousCursor: normalizeCursor(page.previous_cursor)
+    };
+  }
+  async function sendChatMessages(opts) {
+    const { cookie, conversationId, contents } = opts;
+    if (contents.length === 0) return [];
+    const client = buildChatApi(cookie);
+    const result = await chatApiRateLimiter(
+      () => client.path("send-messages").body("overwrite", {
+        conversation_id: conversationId,
+        messages: contents.map((content) => ({ content }))
+      }).middlewares(validate(RobloxChatSendResultSchema)).request()
+    );
+    return result.messages;
+  }
+  async function sendChatMessage(opts) {
+    const [sent] = await sendChatMessages({
+      cookie: opts.cookie,
+      conversationId: opts.conversationId,
+      contents: [opts.content]
+    });
+    return sent ?? null;
+  }
+  async function chatMetadata(opts) {
+    const { cookie, userId } = opts;
+    const client = buildChatApi(cookie);
+    const query = {};
+    if (userId != null) query.userId = userId;
+    return chatApiRateLimiter(
+      () => client.path("metadata").query(query).middlewares(validate(RobloxChatMetadataSchema)).request()
+    );
+  }
+  return { chatConversations, chatMessages, sendChatMessages, sendChatMessage, chatMetadata };
+}
+
 // src/index.ts
 function createRobloxApi({
   cache,
@@ -1375,7 +1531,8 @@ function createRobloxApi({
     gamejoinApi,
     buildGamejoinApi,
     ipgeolocationApi,
-    friendsApi
+    friendsApi,
+    buildChatApi
   } = createNetworkClients({ cookies: cookiesList, oauthTokens, oauthTokenRateLimit, csrfManager });
   const { withCache, ttlSelect, ttlUpsert } = createCacheHelpers(cache, ttl);
   const { authenticated, usersSimple, users } = createUsersApi({ usersApi, usersPlainApi, csrfManager, withCache });
@@ -1389,6 +1546,7 @@ function createRobloxApi({
   const { usersSimpleWithImg, usersWithImg, usersByNamesWithImg } = createWithImgApi({ usersSimple, users, usersByName, thumbnailsBatch });
   const { track } = createTrackApi({ usersByName, usersSimple, serversSimple, thumbnailsBatch, serversRegion });
   const { friends, sendFriendRequest, unfriend } = createFriendsApi({ friendsApi, withCache });
+  const { chatConversations, chatMessages, sendChatMessages, sendChatMessage, chatMetadata } = createChatApi({ buildChatApi });
   return {
     authenticated,
     usersSimple,
@@ -1408,7 +1566,12 @@ function createRobloxApi({
     serversRegion,
     friends,
     sendFriendRequest,
-    unfriend
+    unfriend,
+    chatConversations,
+    chatMessages,
+    sendChatMessages,
+    sendChatMessage,
+    chatMetadata
   };
 }
 // Annotate the CommonJS export names for ESM import in node:
@@ -1416,6 +1579,14 @@ function createRobloxApi({
   DEFAULT_TTL_CONFIG,
   GamejoinResponseSchema,
   RobloxAssetIdSchema,
+  RobloxAuthenticatedUserBaseSchema,
+  RobloxChatConversationSchema,
+  RobloxChatConversationsPageSchema,
+  RobloxChatMessageSchema,
+  RobloxChatMessagesPageSchema,
+  RobloxChatMetadataSchema,
+  RobloxChatSendResultSchema,
+  RobloxChatUserDataSchema,
   RobloxCookieSchema,
   RobloxDisplayNameSchema,
   RobloxFriendEntrySchema,

@@ -27,8 +27,14 @@ export const RobloxUserSchema = RobloxUserSimpleSchema.extend({
     created:                 z.string(),
 })
 
-export type RobloxUserSimple = z.infer<typeof RobloxUserSimpleSchema>
-export type RobloxUser       = z.infer<typeof RobloxUserSchema>
+/** `/v1/users/authenticated`는 id/name/displayName만 준다 (hasVerifiedBadge 없음). */
+export const RobloxAuthenticatedUserBaseSchema = RobloxUserSimpleSchema.extend({
+    hasVerifiedBadge: z.boolean().optional(),
+})
+
+export type RobloxUserSimple            = z.infer<typeof RobloxUserSimpleSchema>
+export type RobloxUser                  = z.infer<typeof RobloxUserSchema>
+export type RobloxAuthenticatedUserBase = z.infer<typeof RobloxAuthenticatedUserBaseSchema>
 
 
 // ── Authenticated user (sub-resources) ──────────────────────
@@ -67,7 +73,7 @@ export type RobloxUserCountryCode = z.infer<typeof RobloxUserCountryCodeSchema>
 export type RobloxUserRoles       = z.infer<typeof RobloxUserRolesSchema>
 
 export type RobloxAuthenticatedUser =
-    RobloxUserSimple
+    RobloxAuthenticatedUserBase
     & Partial<RobloxUserDescription>
     & Partial<RobloxUserBirthdate>
     & Partial<RobloxUserGender>
@@ -98,13 +104,13 @@ export const RobloxThumbnailTargetSchema = RobloxThumbnailTargetBaseSchema.refin
 export const RobloxThumbnailRawSchema = RobloxThumbnailTargetBaseSchema.extend({
     imageUrl: z.string().nullable(),
     state:    z.string(),
-    version:  z.string(),
+    version:  z.string().nullable(),
 })
 
 export const RobloxThumbnailSchema = RobloxThumbnailTargetBaseSchema.extend({
     url:     z.string().nullable(),
     state:   z.string(),
-    version: z.string(),
+    version: z.string().nullable(),
 })
 
 export type RobloxThumbnailTargetBase = z.infer<typeof RobloxThumbnailTargetBaseSchema>
@@ -161,18 +167,116 @@ export type RobloxServersResult<E extends RobloxServerEntry = RobloxServerEntry>
 
 // ── Presence ─────────────────────────────────────────────
 
+/**
+ * 오프라인/비공개 유저는 place 관련 필드가 null로 오고, `lastOnline`은 더 이상
+ * 응답에 포함되지 않는다. 필드가 아예 빠지는 경우도 있어 전부 nullish로 받는다.
+ */
 export const RobloxPresenceEntrySchema = z.object({
     userId:           RobloxUserIdSchema,
     userPresenceType: z.number(),
-    lastLocation:     z.string(),
-    placeId:          RobloxPlaceIdSchema.nullable(),
-    rootPlaceId:      RobloxPlaceIdSchema.nullable(),
-    gameId:           RobloxJobIdSchema.nullable(),
-    universeId:       RobloxUniverseIdSchema.nullable(),
-    lastOnline:       z.string(),
+    lastLocation:     z.string().nullish(),
+    placeId:          RobloxPlaceIdSchema.nullish(),
+    rootPlaceId:      RobloxPlaceIdSchema.nullish(),
+    gameId:           RobloxJobIdSchema.nullish(),
+    universeId:       RobloxUniverseIdSchema.nullish(),
+    lastOnline:       z.string().nullish(),
 })
 
 export type RobloxPresenceEntry = z.infer<typeof RobloxPresenceEntrySchema>
+
+
+// ── Chat (platform-chat-api) ─────────────────────────────
+//
+// 공식 문서화되지 않은 apis.roblox.com/platform-chat-api/v1 엔드포인트의 응답.
+// 필드가 조용히 추가/변경될 수 있어 확실한 것만 필수로 두고 나머지는 nullish로
+// 받는다. zod object는 기본적으로 모르는 키를 조용히 버리므로(strict 아님)
+// 새 필드가 생겨도 검증이 깨지지 않는다.
+
+export const RobloxChatMessageSchema = z.object({
+    id:              z.string(),
+    content:         z.string(),
+    sender_user_id:  RobloxUserIdSchema,
+    created_at:      z.string(),
+    type:            z.string().nullish(),
+    moderation_type: z.string().nullish(),
+    replies_to:      z.string().nullish(),
+    is_deleted:      z.boolean().nullish(),
+    is_previewable:  z.boolean().nullish(),
+    is_badgeable:    z.boolean().nullish(),
+    visibility:      z.string().nullish(),
+    /** send-messages 응답에만 있다 ("success" 등). */
+    status:          z.string().nullish(),
+})
+
+export const RobloxChatUserDataSchema = z.object({
+    id:            RobloxUserIdSchema,
+    name:          z.string().nullish(),
+    display_name:  z.string().nullish(),
+    combined_name: z.string().nullish(),
+    is_verified:   z.boolean().nullish(),
+})
+
+export const RobloxChatConversationSchema = z.object({
+    id:                   z.string(),
+    source:               z.string().nullish(),
+    type:                 z.string().nullish(),
+    name:                 z.string().nullish(),
+    is_default_name:      z.boolean().nullish(),
+    created_by:           RobloxUserIdSchema.nullish(),
+    participant_user_ids: z.array(RobloxUserIdSchema),
+    user_data:            z.record(z.string(), RobloxChatUserDataSchema).nullish(),
+    messages:             z.array(RobloxChatMessageSchema).nullish(),
+    unread_message_count: z.number().nullish(),
+    updated_at:           z.string().nullish(),
+    created_at:           z.string().nullish(),
+    moderation_type:      z.string().nullish(),
+    preview_message:      RobloxChatMessageSchema.nullish(),
+    sort_index:           z.number().nullish(),
+})
+
+export const RobloxChatConversationsPageSchema = z.object({
+    conversations: z.array(RobloxChatConversationSchema),
+    next_cursor:   z.string().nullish(),
+})
+
+export const RobloxChatMessagesPageSchema = z.object({
+    messages:        z.array(RobloxChatMessageSchema),
+    next_cursor:     z.string().nullish(),
+    previous_cursor: z.string().nullish(),
+})
+
+export const RobloxChatSendResultSchema = z.object({
+    messages: z.array(RobloxChatMessageSchema),
+})
+
+/**
+ * `metadata` 엔드포인트의 응답 — 계정의 채팅 기능 플래그/설정 모음.
+ * 다른 chat 엔드포인트와 달리 이것만 camelCase다. 대부분 서버 측 피처 플래그라
+ * 필드가 수시로 바뀔 수 있어, 유용한 것만 타입을 두고 나머지는 passthrough로
+ * 그대로 보존한다(unknown 키를 버리지 않음).
+ */
+export const RobloxChatMetadataSchema = z.object({
+    isChatEnabled:                      z.boolean().nullish(),
+    isChatEnabledByPrivacySetting:      z.string().nullish(),
+    isGroupChatEnabledByPrivacySetting: z.string().nullish(),
+    isChatEnabledByGlobalRules:         z.string().nullish(),
+    isChatVisible:                      z.boolean().nullish(),
+    isChatUserMessagesEnabled:          z.boolean().nullish(),
+    maxConversationTitleLength:         z.number().nullish(),
+    typingInChatFromSenderThrottleMs:   z.number().nullish(),
+    typingInChatForReceiverExpirationMs: z.number().nullish(),
+    validMessageTypesWhiteList:         z.array(z.string()).nullish(),
+    senderTypesForUnknownMessageTypeError: z.array(z.string()).nullish(),
+}).passthrough()
+
+export type RobloxChatMetadata = z.infer<typeof RobloxChatMetadataSchema>
+
+export type RobloxChatMessage            = z.infer<typeof RobloxChatMessageSchema>
+export type RobloxChatUserData           = z.infer<typeof RobloxChatUserDataSchema>
+export type RobloxChatConversation       = z.infer<typeof RobloxChatConversationSchema>
+export type RobloxChatConversationsPage  = z.infer<typeof RobloxChatConversationsPageSchema>
+export type RobloxChatMessagesPage       = z.infer<typeof RobloxChatMessagesPageSchema>
+export type RobloxChatSendResult         = z.infer<typeof RobloxChatSendResultSchema>
 
 
 // ── Place ────────────────────────────────────────────────
@@ -201,10 +305,13 @@ export type RobloxPlaceInfo = z.infer<typeof RobloxPlaceInfoSchema>
 
 // ── Friend ───────────────────────────────────────────────
 
+/** friends 목록은 name/displayName을 빈 문자열로 준다 → undefined로 정규화. */
+const emptyToUndefined = (v: unknown) => (v === '' ? undefined : v)
+
 export const RobloxFriendEntrySchema = z.object({
     id:               RobloxUserIdSchema,
-    name:             RobloxUserNameSchema,
-    displayName:      RobloxDisplayNameSchema,
+    name:             z.preprocess(emptyToUndefined, RobloxUserNameSchema.optional()),
+    displayName:      z.preprocess(emptyToUndefined, RobloxDisplayNameSchema.optional()),
     hasVerifiedBadge: z.boolean().optional(),
     isOnline:         z.boolean().optional(),
     isDeleted:        z.boolean().optional(),
@@ -244,7 +351,7 @@ export type GamejoinResponse = z.infer<typeof GamejoinResponseSchema>
 // ── Place info sub-responses ────────────────────────────────
 
 export const RobloxUniverseFromPlaceRawSchema = z.object({
-    universeId: z.number().optional(),
+    universeId: z.number().nullish(),
 }).passthrough()
 
 export const RobloxUniverseFromPlaceSchema = z.object({

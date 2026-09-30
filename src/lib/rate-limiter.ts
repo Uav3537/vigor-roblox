@@ -35,3 +35,4 @@ export function makeRateLimiter(opts: { limit: number; windowMs: number }) {
 
 export const gamesServersRateLimiter = makeRateLimiter({ limit: 20, windowMs: 60 * 1000 })
 export const friendsApiRateLimiter   = makeRateLimiter({ limit: 20, windowMs: 60 * 1000 })
+export const chatApiRateLimiter      = makeRateLimiter({ limit: 20, windowMs: 60 * 1000 })

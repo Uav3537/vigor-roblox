@@ -15,6 +15,7 @@ import { createPlaceInfoApi } from '@/apis/placeInfo'
 import { createWithImgApi } from '@/apis/withImg'
 import { createTrackApi } from '@/apis/track'
 import { createFriendsApi } from '@/apis/friends'
+import { createChatApi } from '@/apis/chat'
 
 export * from '@/types/branded'
 export * from '@/types/responses'
@@ -46,6 +47,7 @@ export function createRobloxApi({
         buildGamejoinApi,
         ipgeolocationApi,
         friendsApi,
+        buildChatApi,
     } = createNetworkClients({ cookies: cookiesList, oauthTokens, oauthTokenRateLimit, csrfManager })
 
     const { withCache, ttlSelect, ttlUpsert } = createCacheHelpers(cache, ttl)
@@ -61,6 +63,7 @@ export function createRobloxApi({
     const { usersSimpleWithImg, usersWithImg, usersByNamesWithImg } = createWithImgApi({ usersSimple, users, usersByName, thumbnailsBatch })
     const { track } = createTrackApi({ usersByName, usersSimple, serversSimple, thumbnailsBatch, serversRegion })
     const { friends, sendFriendRequest, unfriend } = createFriendsApi({ friendsApi, withCache })
+    const { chatConversations, chatMessages, sendChatMessages, sendChatMessage, chatMetadata } = createChatApi({ buildChatApi })
 
     return {
         authenticated,
@@ -82,6 +85,11 @@ export function createRobloxApi({
         friends,
         sendFriendRequest,
         unfriend,
+        chatConversations,
+        chatMessages,
+        sendChatMessages,
+        sendChatMessage,
+        chatMetadata,
     }
 }
 

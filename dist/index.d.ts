@@ -48,8 +48,17 @@ declare const RobloxUserSchema: z.ZodObject<{
     isBanned: z.ZodBoolean;
     created: z.ZodString;
 }, z.core.$strip>;
+/** `/v1/users/authenticated`는 id/name/displayName만 준다 (hasVerifiedBadge 없음). */
+declare const RobloxAuthenticatedUserBaseSchema: z.ZodObject<{
+    id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+    name: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_UserName", "out">;
+    displayName: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_UserDisplayName", "out">;
+    requestedUsername: z.ZodOptional<z.ZodString>;
+    hasVerifiedBadge: z.ZodOptional<z.ZodBoolean>;
+}, z.core.$strip>;
 type RobloxUserSimple = z.infer<typeof RobloxUserSimpleSchema>;
 type RobloxUser = z.infer<typeof RobloxUserSchema>;
+type RobloxAuthenticatedUserBase = z.infer<typeof RobloxAuthenticatedUserBaseSchema>;
 declare const RobloxUserDescriptionSchema: z.ZodObject<{
     description: z.ZodString;
 }, z.core.$strip>;
@@ -76,7 +85,7 @@ type RobloxUserGender = z.infer<typeof RobloxUserGenderSchema>;
 type RobloxUserAgeBracket = z.infer<typeof RobloxUserAgeBracketSchema>;
 type RobloxUserCountryCode = z.infer<typeof RobloxUserCountryCodeSchema>;
 type RobloxUserRoles = z.infer<typeof RobloxUserRolesSchema>;
-type RobloxAuthenticatedUser = RobloxUserSimple & Partial<RobloxUserDescription> & Partial<RobloxUserBirthdate> & Partial<RobloxUserGender> & Partial<RobloxUserAgeBracket> & Partial<RobloxUserCountryCode> & Partial<RobloxUserRoles>;
+type RobloxAuthenticatedUser = RobloxAuthenticatedUserBase & Partial<RobloxUserDescription> & Partial<RobloxUserBirthdate> & Partial<RobloxUserGender> & Partial<RobloxUserAgeBracket> & Partial<RobloxUserCountryCode> & Partial<RobloxUserRoles>;
 declare const RobloxThumbnailTargetBaseSchema: z.ZodObject<{
     targetId: z.ZodPreprocess<z.ZodOptional<z.ZodUnion<readonly [z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_AssetId", "out">, z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">]>>>;
     token: z.ZodOptional<z.ZodString>;
@@ -102,7 +111,7 @@ declare const RobloxThumbnailRawSchema: z.ZodObject<{
     isCircular: z.ZodOptional<z.ZodBoolean>;
     imageUrl: z.ZodNullable<z.ZodString>;
     state: z.ZodString;
-    version: z.ZodString;
+    version: z.ZodNullable<z.ZodString>;
 }, z.core.$strip>;
 declare const RobloxThumbnailSchema: z.ZodObject<{
     targetId: z.ZodPreprocess<z.ZodOptional<z.ZodUnion<readonly [z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_AssetId", "out">, z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">]>>>;
@@ -113,7 +122,7 @@ declare const RobloxThumbnailSchema: z.ZodObject<{
     isCircular: z.ZodOptional<z.ZodBoolean>;
     url: z.ZodNullable<z.ZodString>;
     state: z.ZodString;
-    version: z.ZodString;
+    version: z.ZodNullable<z.ZodString>;
 }, z.core.$strip>;
 type RobloxThumbnailTargetBase = z.infer<typeof RobloxThumbnailTargetBaseSchema>;
 type RobloxThumbnailTarget = z.infer<typeof RobloxThumbnailTargetSchema>;
@@ -172,17 +181,203 @@ type RobloxServersResult<E extends RobloxServerEntry = RobloxServerEntry> = {
     nextPageCursor: string | null;
     data: E[];
 };
+/**
+ * 오프라인/비공개 유저는 place 관련 필드가 null로 오고, `lastOnline`은 더 이상
+ * 응답에 포함되지 않는다. 필드가 아예 빠지는 경우도 있어 전부 nullish로 받는다.
+ */
 declare const RobloxPresenceEntrySchema: z.ZodObject<{
     userId: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
     userPresenceType: z.ZodNumber;
-    lastLocation: z.ZodString;
-    placeId: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_PlaceId", "out">>;
-    rootPlaceId: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_PlaceId", "out">>;
-    gameId: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_JobId", "out">>;
-    universeId: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UniverseId", "out">>;
-    lastOnline: z.ZodString;
+    lastLocation: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    placeId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_PlaceId", "out">>>;
+    rootPlaceId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_PlaceId", "out">>>;
+    gameId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_JobId", "out">>>;
+    universeId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UniverseId", "out">>>;
+    lastOnline: z.ZodOptional<z.ZodNullable<z.ZodString>>;
 }, z.core.$strip>;
 type RobloxPresenceEntry = z.infer<typeof RobloxPresenceEntrySchema>;
+declare const RobloxChatMessageSchema: z.ZodObject<{
+    id: z.ZodString;
+    content: z.ZodString;
+    sender_user_id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+    created_at: z.ZodString;
+    type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    replies_to: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+}, z.core.$strip>;
+declare const RobloxChatUserDataSchema: z.ZodObject<{
+    id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+    name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    display_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    combined_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    is_verified: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+}, z.core.$strip>;
+declare const RobloxChatConversationSchema: z.ZodObject<{
+    id: z.ZodString;
+    source: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    is_default_name: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    created_by: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">>>;
+    participant_user_ids: z.ZodArray<z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">>;
+    user_data: z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodObject<{
+        id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+        name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        display_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        combined_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        is_verified: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    }, z.core.$strip>>>>;
+    messages: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        content: z.ZodString;
+        sender_user_id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+        created_at: z.ZodString;
+        type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        replies_to: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strip>>>>;
+    unread_message_count: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    updated_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    created_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    preview_message: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        id: z.ZodString;
+        content: z.ZodString;
+        sender_user_id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+        created_at: z.ZodString;
+        type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        replies_to: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strip>>>;
+    sort_index: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+}, z.core.$strip>;
+declare const RobloxChatConversationsPageSchema: z.ZodObject<{
+    conversations: z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        source: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        is_default_name: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        created_by: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">>>;
+        participant_user_ids: z.ZodArray<z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">>;
+        user_data: z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodObject<{
+            id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+            name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            display_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            combined_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            is_verified: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        }, z.core.$strip>>>>;
+        messages: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
+            id: z.ZodString;
+            content: z.ZodString;
+            sender_user_id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+            created_at: z.ZodString;
+            type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            replies_to: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        }, z.core.$strip>>>>;
+        unread_message_count: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        updated_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        created_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        preview_message: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            id: z.ZodString;
+            content: z.ZodString;
+            sender_user_id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+            created_at: z.ZodString;
+            type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            replies_to: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        }, z.core.$strip>>>;
+        sort_index: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    }, z.core.$strip>>;
+    next_cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+}, z.core.$strip>;
+declare const RobloxChatMessagesPageSchema: z.ZodObject<{
+    messages: z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        content: z.ZodString;
+        sender_user_id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+        created_at: z.ZodString;
+        type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        replies_to: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strip>>;
+    next_cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    previous_cursor: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+}, z.core.$strip>;
+declare const RobloxChatSendResultSchema: z.ZodObject<{
+    messages: z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        content: z.ZodString;
+        sender_user_id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+        created_at: z.ZodString;
+        type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        replies_to: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
+/**
+ * `metadata` 엔드포인트의 응답 — 계정의 채팅 기능 플래그/설정 모음.
+ * 다른 chat 엔드포인트와 달리 이것만 camelCase다. 대부분 서버 측 피처 플래그라
+ * 필드가 수시로 바뀔 수 있어, 유용한 것만 타입을 두고 나머지는 passthrough로
+ * 그대로 보존한다(unknown 키를 버리지 않음).
+ */
+declare const RobloxChatMetadataSchema: z.ZodObject<{
+    isChatEnabled: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    isChatEnabledByPrivacySetting: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    isGroupChatEnabledByPrivacySetting: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    isChatEnabledByGlobalRules: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    isChatVisible: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    isChatUserMessagesEnabled: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    maxConversationTitleLength: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    typingInChatFromSenderThrottleMs: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    typingInChatForReceiverExpirationMs: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    validMessageTypesWhiteList: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+    senderTypesForUnknownMessageTypeError: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+}, z.core.$loose>;
+type RobloxChatMetadata = z.infer<typeof RobloxChatMetadataSchema>;
+type RobloxChatMessage = z.infer<typeof RobloxChatMessageSchema>;
+type RobloxChatUserData = z.infer<typeof RobloxChatUserDataSchema>;
+type RobloxChatConversation = z.infer<typeof RobloxChatConversationSchema>;
+type RobloxChatConversationsPage = z.infer<typeof RobloxChatConversationsPageSchema>;
+type RobloxChatMessagesPage = z.infer<typeof RobloxChatMessagesPageSchema>;
+type RobloxChatSendResult = z.infer<typeof RobloxChatSendResultSchema>;
 declare const RobloxPlaceInfoSchema: z.ZodObject<{
     placeId: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_PlaceId", "out">;
     universeId: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UniverseId", "out">>;
@@ -204,8 +399,8 @@ declare const RobloxPlaceInfoSchema: z.ZodObject<{
 type RobloxPlaceInfo = z.infer<typeof RobloxPlaceInfoSchema>;
 declare const RobloxFriendEntrySchema: z.ZodObject<{
     id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
-    name: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_UserName", "out">;
-    displayName: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_UserDisplayName", "out">;
+    name: z.ZodPreprocess<z.ZodOptional<z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_UserName", "out">>>;
+    displayName: z.ZodPreprocess<z.ZodOptional<z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_UserDisplayName", "out">>>;
     hasVerifiedBadge: z.ZodOptional<z.ZodBoolean>;
     isOnline: z.ZodOptional<z.ZodBoolean>;
     isDeleted: z.ZodOptional<z.ZodBoolean>;
@@ -245,7 +440,7 @@ declare const GamejoinResponseSchema: z.ZodObject<{
 }, z.core.$strip>;
 type GamejoinResponse = z.infer<typeof GamejoinResponseSchema>;
 declare const RobloxUniverseFromPlaceRawSchema: z.ZodObject<{
-    universeId: z.ZodOptional<z.ZodNumber>;
+    universeId: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
 }, z.core.$loose>;
 declare const RobloxUniverseFromPlaceSchema: z.ZodObject<{
     placeId: z.ZodNumber;
@@ -281,10 +476,37 @@ declare const RobloxThumbnailRawWithRequestIdSchema: z.ZodObject<{
     isCircular: z.ZodOptional<z.ZodBoolean>;
     imageUrl: z.ZodNullable<z.ZodString>;
     state: z.ZodString;
-    version: z.ZodString;
+    version: z.ZodNullable<z.ZodString>;
     requestId: z.ZodString;
 }, z.core.$strip>;
 type RobloxThumbnailRawWithRequestId = z.infer<typeof RobloxThumbnailRawWithRequestIdSchema>;
+
+/**
+ * 요청에 붙일 인증 수단.
+ * - oauth: `Authorization: Bearer <token>`
+ * - cookie: `Cookie: .ROBLOSECURITY=<cookie>`
+ */
+type RobloxCredential = {
+    kind: 'oauth';
+    value: string;
+} | {
+    kind: 'cookie';
+    value: RobloxCookie;
+};
+type OAuthTokenRateLimit = {
+    limit: number;
+    windowMs: number;
+};
+
+type ChatConversationsResult = {
+    conversations: RobloxChatConversation[];
+    nextCursor: string | null;
+};
+type ChatMessagesResult = {
+    messages: RobloxChatMessage[];
+    nextCursor: string | null;
+    previousCursor: string | null;
+};
 
 interface RobloxApiCache {
     select: <T>(type: string, separators: string[]) => Promise<Array<{
@@ -322,23 +544,6 @@ interface RobloxTtlConfig {
 type ResolvedTtlConfig = Required<RobloxTtlConfig>;
 declare const DEFAULT_TTL_CONFIG: ResolvedTtlConfig;
 declare function resolveTtlConfig(ttl?: RobloxTtlConfig): ResolvedTtlConfig;
-
-/**
- * 요청에 붙일 인증 수단.
- * - oauth: `Authorization: Bearer <token>`
- * - cookie: `Cookie: .ROBLOSECURITY=<cookie>`
- */
-type RobloxCredential = {
-    kind: 'oauth';
-    value: string;
-} | {
-    kind: 'cookie';
-    value: RobloxCookie;
-};
-type OAuthTokenRateLimit = {
-    limit: number;
-    windowMs: number;
-};
 
 interface CreateRobloxApiOptions {
     cache: RobloxApiCache;
@@ -411,7 +616,33 @@ declare function createRobloxApi({ cache, cookies: cookiesList, oauthTokens, oau
     friends: (userId: RobloxUserId) => Promise<RobloxFriendEntry[]>;
     sendFriendRequest: (targetUserId: RobloxUserId) => Promise<void>;
     unfriend: (targetUserId: RobloxUserId) => Promise<void>;
+    chatConversations: (opts: {
+        cookie: RobloxCookie;
+        pageSize?: number;
+        cursor?: string;
+        includeUserData?: boolean;
+    }) => Promise<ChatConversationsResult>;
+    chatMessages: (opts: {
+        cookie: RobloxCookie;
+        conversationId: string;
+        pageSize?: number;
+        cursor?: string;
+    }) => Promise<ChatMessagesResult>;
+    sendChatMessages: (opts: {
+        cookie: RobloxCookie;
+        conversationId: string;
+        contents: string[];
+    }) => Promise<RobloxChatMessage[]>;
+    sendChatMessage: (opts: {
+        cookie: RobloxCookie;
+        conversationId: string;
+        content: string;
+    }) => Promise<RobloxChatMessage | null>;
+    chatMetadata: (opts: {
+        cookie: RobloxCookie;
+        userId?: RobloxUserId;
+    }) => Promise<RobloxChatMetadata>;
 };
 type RobloxApi = ReturnType<typeof createRobloxApi>;
 
-export { type CreateRobloxApiOptions, DEFAULT_TTL_CONFIG, type GamejoinResponse, GamejoinResponseSchema, type OAuthTokenRateLimit, type ResolvedTtlConfig, type RobloxApi, type RobloxApiCache, type RobloxAssetId, RobloxAssetIdSchema, type RobloxAuthenticatedUser, type RobloxCookie, RobloxCookieSchema, type RobloxCredential, type RobloxDisplayName, RobloxDisplayNameSchema, type RobloxFriendEntry, RobloxFriendEntrySchema, type RobloxGameDetailsRaw, RobloxGameDetailsRawSchema, type RobloxGameMediaEntry, RobloxGameMediaEntrySchema, type RobloxIpGeoRaw, RobloxIpGeoRawSchema, type RobloxJobId, RobloxJobIdSchema, type RobloxPlaceId, RobloxPlaceIdSchema, type RobloxPlaceInfo, RobloxPlaceInfoSchema, type RobloxPresenceEntry, RobloxPresenceEntrySchema, type RobloxServerEntry, RobloxServerEntrySchema, type RobloxServerEntryWithLocation, RobloxServerEntryWithLocationSchema, type RobloxServerLocation, RobloxServerLocationSchema, type RobloxServerRaw, RobloxServerRawSchema, type RobloxServersPageRaw, RobloxServersPageRawSchema, type RobloxServersResult, type RobloxThumbnail, type RobloxThumbnailRaw, RobloxThumbnailRawSchema, type RobloxThumbnailRawWithRequestId, RobloxThumbnailRawWithRequestIdSchema, RobloxThumbnailSchema, type RobloxThumbnailTarget, type RobloxThumbnailTargetBase, RobloxThumbnailTargetBaseSchema, RobloxThumbnailTargetSchema, type RobloxTtlConfig, type RobloxUniverseFromPlace, type RobloxUniverseFromPlaceRaw, RobloxUniverseFromPlaceRawSchema, RobloxUniverseFromPlaceSchema, type RobloxUniverseId, RobloxUniverseIdSchema, type RobloxUser, type RobloxUserAgeBracket, RobloxUserAgeBracketSchema, type RobloxUserBirthdate, RobloxUserBirthdateSchema, type RobloxUserCountryCode, RobloxUserCountryCodeSchema, type RobloxUserDescription, RobloxUserDescriptionSchema, type RobloxUserGender, RobloxUserGenderSchema, type RobloxUserId, RobloxUserIdSchema, type RobloxUserName, RobloxUserNameSchema, type RobloxUserRoles, RobloxUserRolesSchema, RobloxUserSchema, type RobloxUserSimple, RobloxUserSimpleSchema, type ServersOpts, type WithImg, createRobloxApi, isRobloxAssetId, isRobloxCookie, isRobloxDisplayName, isRobloxJobId, isRobloxPlaceId, isRobloxUniverseId, isRobloxUserId, isRobloxUserName, resolveTtlConfig, robloxServersResultSchema };
+export { type CreateRobloxApiOptions, DEFAULT_TTL_CONFIG, type GamejoinResponse, GamejoinResponseSchema, type OAuthTokenRateLimit, type ResolvedTtlConfig, type RobloxApi, type RobloxApiCache, type RobloxAssetId, RobloxAssetIdSchema, type RobloxAuthenticatedUser, type RobloxAuthenticatedUserBase, RobloxAuthenticatedUserBaseSchema, type RobloxChatConversation, RobloxChatConversationSchema, type RobloxChatConversationsPage, RobloxChatConversationsPageSchema, type RobloxChatMessage, RobloxChatMessageSchema, type RobloxChatMessagesPage, RobloxChatMessagesPageSchema, type RobloxChatMetadata, RobloxChatMetadataSchema, type RobloxChatSendResult, RobloxChatSendResultSchema, type RobloxChatUserData, RobloxChatUserDataSchema, type RobloxCookie, RobloxCookieSchema, type RobloxCredential, type RobloxDisplayName, RobloxDisplayNameSchema, type RobloxFriendEntry, RobloxFriendEntrySchema, type RobloxGameDetailsRaw, RobloxGameDetailsRawSchema, type RobloxGameMediaEntry, RobloxGameMediaEntrySchema, type RobloxIpGeoRaw, RobloxIpGeoRawSchema, type RobloxJobId, RobloxJobIdSchema, type RobloxPlaceId, RobloxPlaceIdSchema, type RobloxPlaceInfo, RobloxPlaceInfoSchema, type RobloxPresenceEntry, RobloxPresenceEntrySchema, type RobloxServerEntry, RobloxServerEntrySchema, type RobloxServerEntryWithLocation, RobloxServerEntryWithLocationSchema, type RobloxServerLocation, RobloxServerLocationSchema, type RobloxServerRaw, RobloxServerRawSchema, type RobloxServersPageRaw, RobloxServersPageRawSchema, type RobloxServersResult, type RobloxThumbnail, type RobloxThumbnailRaw, RobloxThumbnailRawSchema, type RobloxThumbnailRawWithRequestId, RobloxThumbnailRawWithRequestIdSchema, RobloxThumbnailSchema, type RobloxThumbnailTarget, type RobloxThumbnailTargetBase, RobloxThumbnailTargetBaseSchema, RobloxThumbnailTargetSchema, type RobloxTtlConfig, type RobloxUniverseFromPlace, type RobloxUniverseFromPlaceRaw, RobloxUniverseFromPlaceRawSchema, RobloxUniverseFromPlaceSchema, type RobloxUniverseId, RobloxUniverseIdSchema, type RobloxUser, type RobloxUserAgeBracket, RobloxUserAgeBracketSchema, type RobloxUserBirthdate, RobloxUserBirthdateSchema, type RobloxUserCountryCode, RobloxUserCountryCodeSchema, type RobloxUserDescription, RobloxUserDescriptionSchema, type RobloxUserGender, RobloxUserGenderSchema, type RobloxUserId, RobloxUserIdSchema, type RobloxUserName, RobloxUserNameSchema, type RobloxUserRoles, RobloxUserRolesSchema, RobloxUserSchema, type RobloxUserSimple, RobloxUserSimpleSchema, type ServersOpts, type WithImg, createRobloxApi, isRobloxAssetId, isRobloxCookie, isRobloxDisplayName, isRobloxJobId, isRobloxPlaceId, isRobloxUniverseId, isRobloxUserId, isRobloxUserName, resolveTtlConfig, robloxServersResultSchema };

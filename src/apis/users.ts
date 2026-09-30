@@ -6,6 +6,7 @@ import {
     RobloxUserSimple,
     RobloxUser,
     RobloxAuthenticatedUser,
+    RobloxAuthenticatedUserBase,
     RobloxUserDescription,
     RobloxUserBirthdate,
     RobloxUserGender,
@@ -13,6 +14,7 @@ import {
     RobloxUserCountryCode,
     RobloxUserRoles,
     RobloxUserSimpleSchema,
+    RobloxAuthenticatedUserBaseSchema,
     RobloxUserSchema,
     RobloxUserDescriptionSchema,
     RobloxUserBirthdateSchema,
@@ -43,7 +45,7 @@ export function createUsersApi({ usersApi, usersPlainApi, csrfManager, withCache
             const base = usersPlainApi.middlewares(makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager, winInet: true }))
 
             const [user, description, birthdate, gender, ageBracket, countryCode, roles] = await Promise.allSettled([
-                base.path('users', 'authenticated').middlewares(validate(RobloxUserSimpleSchema)).request<RobloxUserSimple>(),
+                base.path('users', 'authenticated').middlewares(validate(RobloxAuthenticatedUserBaseSchema)).request<RobloxAuthenticatedUserBase>(),
                 base.path('description').middlewares(validate(RobloxUserDescriptionSchema)).request<RobloxUserDescription>(),
                 base.path('birthdate').middlewares(validate(RobloxUserBirthdateSchema)).request<RobloxUserBirthdate>(),
                 base.path('gender').middlewares(validate(RobloxUserGenderSchema)).request<RobloxUserGender>(),
