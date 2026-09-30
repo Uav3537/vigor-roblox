@@ -13,6 +13,13 @@ declare const RobloxPlaceIdSchema: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::R
 declare const RobloxUniverseIdSchema: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UniverseId", "out">;
 declare const RobloxJobIdSchema: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_JobId", "out">;
 declare const RobloxAssetIdSchema: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_AssetId", "out">;
+/**
+ * 채팅 대화 ID. 현재는 UUID 형태지만("05f740cb-…"), group/party 등에서 다른
+ * 형식이 올 수 있어 JobId처럼 UUID를 강제하지 않고 비어있지 않은 문자열만 본다.
+ */
+declare const RobloxConversationIdSchema: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ConversationId", "out">;
+/** 채팅 메시지 ID(현재 UUID). 위와 같은 이유로 형식을 강제하지 않는다. */
+declare const RobloxChatMessageIdSchema: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">;
 type RobloxUserId = z.infer<typeof RobloxUserIdSchema>;
 type RobloxUserName = z.infer<typeof RobloxUserNameSchema>;
 type RobloxDisplayName = z.infer<typeof RobloxDisplayNameSchema>;
@@ -21,6 +28,8 @@ type RobloxPlaceId = z.infer<typeof RobloxPlaceIdSchema>;
 type RobloxUniverseId = z.infer<typeof RobloxUniverseIdSchema>;
 type RobloxJobId = z.infer<typeof RobloxJobIdSchema>;
 type RobloxAssetId = z.infer<typeof RobloxAssetIdSchema>;
+type RobloxConversationId = z.infer<typeof RobloxConversationIdSchema>;
+type RobloxChatMessageId = z.infer<typeof RobloxChatMessageIdSchema>;
 declare function isRobloxUserId(value: number): value is RobloxUserId;
 declare function isRobloxUserName(value: string): value is RobloxUserName;
 declare function isRobloxDisplayName(value: string): value is RobloxDisplayName;
@@ -29,6 +38,8 @@ declare function isRobloxPlaceId(value: number): value is RobloxPlaceId;
 declare function isRobloxUniverseId(value: number): value is RobloxUniverseId;
 declare function isRobloxJobId(value: string): value is RobloxJobId;
 declare function isRobloxAssetId(value: number): value is RobloxAssetId;
+declare function isRobloxConversationId(value: string): value is RobloxConversationId;
+declare function isRobloxChatMessageId(value: string): value is RobloxChatMessageId;
 
 declare const RobloxUserSimpleSchema: z.ZodObject<{
     id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
@@ -197,13 +208,13 @@ declare const RobloxPresenceEntrySchema: z.ZodObject<{
 }, z.core.$strip>;
 type RobloxPresenceEntry = z.infer<typeof RobloxPresenceEntrySchema>;
 declare const RobloxChatMessageSchema: z.ZodObject<{
-    id: z.ZodString;
+    id: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">;
     content: z.ZodString;
     sender_user_id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
     created_at: z.ZodString;
     type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    replies_to: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">>>;
     is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
     is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
     is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
@@ -218,7 +229,7 @@ declare const RobloxChatUserDataSchema: z.ZodObject<{
     is_verified: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
 }, z.core.$strip>;
 declare const RobloxChatConversationSchema: z.ZodObject<{
-    id: z.ZodString;
+    id: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ConversationId", "out">;
     source: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
@@ -233,13 +244,13 @@ declare const RobloxChatConversationSchema: z.ZodObject<{
         is_verified: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
     }, z.core.$strip>>>>;
     messages: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
-        id: z.ZodString;
+        id: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">;
         content: z.ZodString;
         sender_user_id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
         created_at: z.ZodString;
         type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        replies_to: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">>>;
         is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
         is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
         is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
@@ -251,13 +262,13 @@ declare const RobloxChatConversationSchema: z.ZodObject<{
     created_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     preview_message: z.ZodOptional<z.ZodNullable<z.ZodObject<{
-        id: z.ZodString;
+        id: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">;
         content: z.ZodString;
         sender_user_id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
         created_at: z.ZodString;
         type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        replies_to: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">>>;
         is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
         is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
         is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
@@ -268,7 +279,7 @@ declare const RobloxChatConversationSchema: z.ZodObject<{
 }, z.core.$strip>;
 declare const RobloxChatConversationsPageSchema: z.ZodObject<{
     conversations: z.ZodArray<z.ZodObject<{
-        id: z.ZodString;
+        id: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ConversationId", "out">;
         source: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
@@ -283,13 +294,13 @@ declare const RobloxChatConversationsPageSchema: z.ZodObject<{
             is_verified: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
         }, z.core.$strip>>>>;
         messages: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
-            id: z.ZodString;
+            id: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">;
             content: z.ZodString;
             sender_user_id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
             created_at: z.ZodString;
             type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
             moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            replies_to: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">>>;
             is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
             is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
             is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
@@ -301,13 +312,13 @@ declare const RobloxChatConversationsPageSchema: z.ZodObject<{
         created_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         preview_message: z.ZodOptional<z.ZodNullable<z.ZodObject<{
-            id: z.ZodString;
+            id: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">;
             content: z.ZodString;
             sender_user_id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
             created_at: z.ZodString;
             type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
             moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            replies_to: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">>>;
             is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
             is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
             is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
@@ -320,13 +331,13 @@ declare const RobloxChatConversationsPageSchema: z.ZodObject<{
 }, z.core.$strip>;
 declare const RobloxChatMessagesPageSchema: z.ZodObject<{
     messages: z.ZodArray<z.ZodObject<{
-        id: z.ZodString;
+        id: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">;
         content: z.ZodString;
         sender_user_id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
         created_at: z.ZodString;
         type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        replies_to: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">>>;
         is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
         is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
         is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
@@ -338,13 +349,13 @@ declare const RobloxChatMessagesPageSchema: z.ZodObject<{
 }, z.core.$strip>;
 declare const RobloxChatSendResultSchema: z.ZodObject<{
     messages: z.ZodArray<z.ZodObject<{
-        id: z.ZodString;
+        id: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">;
         content: z.ZodString;
         sender_user_id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
         created_at: z.ZodString;
         type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        replies_to: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">>>;
         is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
         is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
         is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
@@ -624,18 +635,18 @@ declare function createRobloxApi({ cache, cookies: cookiesList, oauthTokens, oau
     }) => Promise<ChatConversationsResult>;
     chatMessages: (opts: {
         cookie: RobloxCookie;
-        conversationId: string;
+        conversationId: RobloxConversationId;
         pageSize?: number;
         cursor?: string;
     }) => Promise<ChatMessagesResult>;
     sendChatMessages: (opts: {
         cookie: RobloxCookie;
-        conversationId: string;
+        conversationId: RobloxConversationId;
         contents: string[];
     }) => Promise<RobloxChatMessage[]>;
     sendChatMessage: (opts: {
         cookie: RobloxCookie;
-        conversationId: string;
+        conversationId: RobloxConversationId;
         content: string;
     }) => Promise<RobloxChatMessage | null>;
     chatMetadata: (opts: {
@@ -645,4 +656,4 @@ declare function createRobloxApi({ cache, cookies: cookiesList, oauthTokens, oau
 };
 type RobloxApi = ReturnType<typeof createRobloxApi>;
 
-export { type CreateRobloxApiOptions, DEFAULT_TTL_CONFIG, type GamejoinResponse, GamejoinResponseSchema, type OAuthTokenRateLimit, type ResolvedTtlConfig, type RobloxApi, type RobloxApiCache, type RobloxAssetId, RobloxAssetIdSchema, type RobloxAuthenticatedUser, type RobloxAuthenticatedUserBase, RobloxAuthenticatedUserBaseSchema, type RobloxChatConversation, RobloxChatConversationSchema, type RobloxChatConversationsPage, RobloxChatConversationsPageSchema, type RobloxChatMessage, RobloxChatMessageSchema, type RobloxChatMessagesPage, RobloxChatMessagesPageSchema, type RobloxChatMetadata, RobloxChatMetadataSchema, type RobloxChatSendResult, RobloxChatSendResultSchema, type RobloxChatUserData, RobloxChatUserDataSchema, type RobloxCookie, RobloxCookieSchema, type RobloxCredential, type RobloxDisplayName, RobloxDisplayNameSchema, type RobloxFriendEntry, RobloxFriendEntrySchema, type RobloxGameDetailsRaw, RobloxGameDetailsRawSchema, type RobloxGameMediaEntry, RobloxGameMediaEntrySchema, type RobloxIpGeoRaw, RobloxIpGeoRawSchema, type RobloxJobId, RobloxJobIdSchema, type RobloxPlaceId, RobloxPlaceIdSchema, type RobloxPlaceInfo, RobloxPlaceInfoSchema, type RobloxPresenceEntry, RobloxPresenceEntrySchema, type RobloxServerEntry, RobloxServerEntrySchema, type RobloxServerEntryWithLocation, RobloxServerEntryWithLocationSchema, type RobloxServerLocation, RobloxServerLocationSchema, type RobloxServerRaw, RobloxServerRawSchema, type RobloxServersPageRaw, RobloxServersPageRawSchema, type RobloxServersResult, type RobloxThumbnail, type RobloxThumbnailRaw, RobloxThumbnailRawSchema, type RobloxThumbnailRawWithRequestId, RobloxThumbnailRawWithRequestIdSchema, RobloxThumbnailSchema, type RobloxThumbnailTarget, type RobloxThumbnailTargetBase, RobloxThumbnailTargetBaseSchema, RobloxThumbnailTargetSchema, type RobloxTtlConfig, type RobloxUniverseFromPlace, type RobloxUniverseFromPlaceRaw, RobloxUniverseFromPlaceRawSchema, RobloxUniverseFromPlaceSchema, type RobloxUniverseId, RobloxUniverseIdSchema, type RobloxUser, type RobloxUserAgeBracket, RobloxUserAgeBracketSchema, type RobloxUserBirthdate, RobloxUserBirthdateSchema, type RobloxUserCountryCode, RobloxUserCountryCodeSchema, type RobloxUserDescription, RobloxUserDescriptionSchema, type RobloxUserGender, RobloxUserGenderSchema, type RobloxUserId, RobloxUserIdSchema, type RobloxUserName, RobloxUserNameSchema, type RobloxUserRoles, RobloxUserRolesSchema, RobloxUserSchema, type RobloxUserSimple, RobloxUserSimpleSchema, type ServersOpts, type WithImg, createRobloxApi, isRobloxAssetId, isRobloxCookie, isRobloxDisplayName, isRobloxJobId, isRobloxPlaceId, isRobloxUniverseId, isRobloxUserId, isRobloxUserName, resolveTtlConfig, robloxServersResultSchema };
+export { type CreateRobloxApiOptions, DEFAULT_TTL_CONFIG, type GamejoinResponse, GamejoinResponseSchema, type OAuthTokenRateLimit, type ResolvedTtlConfig, type RobloxApi, type RobloxApiCache, type RobloxAssetId, RobloxAssetIdSchema, type RobloxAuthenticatedUser, type RobloxAuthenticatedUserBase, RobloxAuthenticatedUserBaseSchema, type RobloxChatConversation, RobloxChatConversationSchema, type RobloxChatConversationsPage, RobloxChatConversationsPageSchema, type RobloxChatMessage, type RobloxChatMessageId, RobloxChatMessageIdSchema, RobloxChatMessageSchema, type RobloxChatMessagesPage, RobloxChatMessagesPageSchema, type RobloxChatMetadata, RobloxChatMetadataSchema, type RobloxChatSendResult, RobloxChatSendResultSchema, type RobloxChatUserData, RobloxChatUserDataSchema, type RobloxConversationId, RobloxConversationIdSchema, type RobloxCookie, RobloxCookieSchema, type RobloxCredential, type RobloxDisplayName, RobloxDisplayNameSchema, type RobloxFriendEntry, RobloxFriendEntrySchema, type RobloxGameDetailsRaw, RobloxGameDetailsRawSchema, type RobloxGameMediaEntry, RobloxGameMediaEntrySchema, type RobloxIpGeoRaw, RobloxIpGeoRawSchema, type RobloxJobId, RobloxJobIdSchema, type RobloxPlaceId, RobloxPlaceIdSchema, type RobloxPlaceInfo, RobloxPlaceInfoSchema, type RobloxPresenceEntry, RobloxPresenceEntrySchema, type RobloxServerEntry, RobloxServerEntrySchema, type RobloxServerEntryWithLocation, RobloxServerEntryWithLocationSchema, type RobloxServerLocation, RobloxServerLocationSchema, type RobloxServerRaw, RobloxServerRawSchema, type RobloxServersPageRaw, RobloxServersPageRawSchema, type RobloxServersResult, type RobloxThumbnail, type RobloxThumbnailRaw, RobloxThumbnailRawSchema, type RobloxThumbnailRawWithRequestId, RobloxThumbnailRawWithRequestIdSchema, RobloxThumbnailSchema, type RobloxThumbnailTarget, type RobloxThumbnailTargetBase, RobloxThumbnailTargetBaseSchema, RobloxThumbnailTargetSchema, type RobloxTtlConfig, type RobloxUniverseFromPlace, type RobloxUniverseFromPlaceRaw, RobloxUniverseFromPlaceRawSchema, RobloxUniverseFromPlaceSchema, type RobloxUniverseId, RobloxUniverseIdSchema, type RobloxUser, type RobloxUserAgeBracket, RobloxUserAgeBracketSchema, type RobloxUserBirthdate, RobloxUserBirthdateSchema, type RobloxUserCountryCode, RobloxUserCountryCodeSchema, type RobloxUserDescription, RobloxUserDescriptionSchema, type RobloxUserGender, RobloxUserGenderSchema, type RobloxUserId, RobloxUserIdSchema, type RobloxUserName, RobloxUserNameSchema, type RobloxUserRoles, RobloxUserRolesSchema, RobloxUserSchema, type RobloxUserSimple, RobloxUserSimpleSchema, type ServersOpts, type WithImg, createRobloxApi, isRobloxAssetId, isRobloxChatMessageId, isRobloxConversationId, isRobloxCookie, isRobloxDisplayName, isRobloxJobId, isRobloxPlaceId, isRobloxUniverseId, isRobloxUserId, isRobloxUserName, resolveTtlConfig, robloxServersResultSchema };

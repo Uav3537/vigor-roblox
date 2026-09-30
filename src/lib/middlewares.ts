@@ -34,7 +34,13 @@ export function makeHeaderMiddlewares(opts: {
             const cookie = getCookie()
             ctx.record.cookie = cookie
 
+            // setHeaders는 헤더 객체를 통째로 교체하므로, vigor가 body에서 추론해
+            // 붙인 Content-Type(object body → application/json) 등 기존 헤더를 먼저
+            // 펼쳐서 보존한다. 안 그러면 POST가 415 Unsupported Media Type로 실패한다.
+            const existingOptions = ctx.options as { headers?: Record<string, string> } | undefined
+            const existing = (existingOptions?.headers ?? {}) as Record<string, string>
             const headers: Record<string, string> = {
+                ...existing,
                 Cookie: `.ROBLOSECURITY=${cookie}`,
             }
             if (winInet) headers['User-Agent'] = 'Roblox/WinInet'

@@ -26,11 +26,13 @@ __export(index_exports, {
   RobloxAuthenticatedUserBaseSchema: () => RobloxAuthenticatedUserBaseSchema,
   RobloxChatConversationSchema: () => RobloxChatConversationSchema,
   RobloxChatConversationsPageSchema: () => RobloxChatConversationsPageSchema,
+  RobloxChatMessageIdSchema: () => RobloxChatMessageIdSchema,
   RobloxChatMessageSchema: () => RobloxChatMessageSchema,
   RobloxChatMessagesPageSchema: () => RobloxChatMessagesPageSchema,
   RobloxChatMetadataSchema: () => RobloxChatMetadataSchema,
   RobloxChatSendResultSchema: () => RobloxChatSendResultSchema,
   RobloxChatUserDataSchema: () => RobloxChatUserDataSchema,
+  RobloxConversationIdSchema: () => RobloxConversationIdSchema,
   RobloxCookieSchema: () => RobloxCookieSchema,
   RobloxDisplayNameSchema: () => RobloxDisplayNameSchema,
   RobloxFriendEntrySchema: () => RobloxFriendEntrySchema,
@@ -66,6 +68,8 @@ __export(index_exports, {
   RobloxUserSimpleSchema: () => RobloxUserSimpleSchema,
   createRobloxApi: () => createRobloxApi,
   isRobloxAssetId: () => isRobloxAssetId,
+  isRobloxChatMessageId: () => isRobloxChatMessageId,
+  isRobloxConversationId: () => isRobloxConversationId,
   isRobloxCookie: () => isRobloxCookie,
   isRobloxDisplayName: () => isRobloxDisplayName,
   isRobloxJobId: () => isRobloxJobId,
@@ -137,7 +141,10 @@ function makeHeaderMiddlewares(opts) {
   let builder = import_vigor_fetch.vigor.builders.fetch.middlewares().before("intercept", async (ctx, api) => {
     const cookie = getCookie();
     ctx.record.cookie = cookie;
+    const existingOptions = ctx.options;
+    const existing = existingOptions?.headers ?? {};
     const headers = {
+      ...existing,
       Cookie: `.ROBLOSECURITY=${cookie}`
     };
     if (winInet) headers["User-Agent"] = "Roblox/WinInet";
@@ -479,6 +486,8 @@ var RobloxPlaceIdSchema = import_zod.z.number().int().positive().brand();
 var RobloxUniverseIdSchema = import_zod.z.number().int().positive().brand();
 var RobloxJobIdSchema = import_zod.z.string().uuid("JobId must be a valid UUID").brand();
 var RobloxAssetIdSchema = import_zod.z.number().int().positive().brand();
+var RobloxConversationIdSchema = import_zod.z.string().min(1).brand();
+var RobloxChatMessageIdSchema = import_zod.z.string().min(1).brand();
 function isRobloxUserId(value) {
   return RobloxUserIdSchema.safeParse(value).success;
 }
@@ -502,6 +511,12 @@ function isRobloxJobId(value) {
 }
 function isRobloxAssetId(value) {
   return RobloxAssetIdSchema.safeParse(value).success;
+}
+function isRobloxConversationId(value) {
+  return RobloxConversationIdSchema.safeParse(value).success;
+}
+function isRobloxChatMessageId(value) {
+  return RobloxChatMessageIdSchema.safeParse(value).success;
 }
 
 // src/types/responses.ts
@@ -607,13 +622,13 @@ var RobloxPresenceEntrySchema = import_zod2.z.object({
   lastOnline: import_zod2.z.string().nullish()
 });
 var RobloxChatMessageSchema = import_zod2.z.object({
-  id: import_zod2.z.string(),
+  id: RobloxChatMessageIdSchema,
   content: import_zod2.z.string(),
   sender_user_id: RobloxUserIdSchema,
   created_at: import_zod2.z.string(),
   type: import_zod2.z.string().nullish(),
   moderation_type: import_zod2.z.string().nullish(),
-  replies_to: import_zod2.z.string().nullish(),
+  replies_to: RobloxChatMessageIdSchema.nullish(),
   is_deleted: import_zod2.z.boolean().nullish(),
   is_previewable: import_zod2.z.boolean().nullish(),
   is_badgeable: import_zod2.z.boolean().nullish(),
@@ -629,7 +644,7 @@ var RobloxChatUserDataSchema = import_zod2.z.object({
   is_verified: import_zod2.z.boolean().nullish()
 });
 var RobloxChatConversationSchema = import_zod2.z.object({
-  id: import_zod2.z.string(),
+  id: RobloxConversationIdSchema,
   source: import_zod2.z.string().nullish(),
   type: import_zod2.z.string().nullish(),
   name: import_zod2.z.string().nullish(),
@@ -1582,11 +1597,13 @@ function createRobloxApi({
   RobloxAuthenticatedUserBaseSchema,
   RobloxChatConversationSchema,
   RobloxChatConversationsPageSchema,
+  RobloxChatMessageIdSchema,
   RobloxChatMessageSchema,
   RobloxChatMessagesPageSchema,
   RobloxChatMetadataSchema,
   RobloxChatSendResultSchema,
   RobloxChatUserDataSchema,
+  RobloxConversationIdSchema,
   RobloxCookieSchema,
   RobloxDisplayNameSchema,
   RobloxFriendEntrySchema,
@@ -1622,6 +1639,8 @@ function createRobloxApi({
   RobloxUserSimpleSchema,
   createRobloxApi,
   isRobloxAssetId,
+  isRobloxChatMessageId,
+  isRobloxConversationId,
   isRobloxCookie,
   isRobloxDisplayName,
   isRobloxJobId,

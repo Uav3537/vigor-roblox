@@ -7,6 +7,8 @@ import {
     RobloxUniverseIdSchema,
     RobloxJobIdSchema,
     RobloxAssetIdSchema,
+    RobloxConversationIdSchema,
+    RobloxChatMessageIdSchema,
 } from './branded'
 
 
@@ -193,13 +195,13 @@ export type RobloxPresenceEntry = z.infer<typeof RobloxPresenceEntrySchema>
 // 새 필드가 생겨도 검증이 깨지지 않는다.
 
 export const RobloxChatMessageSchema = z.object({
-    id:              z.string(),
+    id:              RobloxChatMessageIdSchema,
     content:         z.string(),
     sender_user_id:  RobloxUserIdSchema,
     created_at:      z.string(),
     type:            z.string().nullish(),
     moderation_type: z.string().nullish(),
-    replies_to:      z.string().nullish(),
+    replies_to:      RobloxChatMessageIdSchema.nullish(),
     is_deleted:      z.boolean().nullish(),
     is_previewable:  z.boolean().nullish(),
     is_badgeable:    z.boolean().nullish(),
@@ -217,7 +219,7 @@ export const RobloxChatUserDataSchema = z.object({
 })
 
 export const RobloxChatConversationSchema = z.object({
-    id:                   z.string(),
+    id:                   RobloxConversationIdSchema,
     source:               z.string().nullish(),
     type:                 z.string().nullish(),
     name:                 z.string().nullish(),

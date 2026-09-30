@@ -1,4 +1,4 @@
-import { RobloxCookie, RobloxUserId } from '@/types/branded'
+import { RobloxCookie, RobloxUserId, RobloxConversationId } from '@/types/branded'
 import {
     RobloxChatConversation,
     RobloxChatConversationsPageSchema,
@@ -75,7 +75,7 @@ export function createChatApi({ buildChatApi }: ChatApiDeps) {
      */
     async function chatMessages(opts: {
         cookie:         RobloxCookie
-        conversationId: string
+        conversationId: RobloxConversationId
         pageSize?:      number
         cursor?:        string
     }): Promise<ChatMessagesResult> {
@@ -113,7 +113,7 @@ export function createChatApi({ buildChatApi }: ChatApiDeps) {
      */
     async function sendChatMessages(opts: {
         cookie:         RobloxCookie
-        conversationId: string
+        conversationId: RobloxConversationId
         contents:       string[]
     }): Promise<RobloxChatMessage[]> {
         const { cookie, conversationId, contents } = opts
@@ -138,7 +138,7 @@ export function createChatApi({ buildChatApi }: ChatApiDeps) {
     /** 한 대화에 단일 메시지를 보내는 간편 함수. */
     async function sendChatMessage(opts: {
         cookie:         RobloxCookie
-        conversationId: string
+        conversationId: RobloxConversationId
         content:        string
     }): Promise<RobloxChatMessage | null> {
         const [sent] = await sendChatMessages({

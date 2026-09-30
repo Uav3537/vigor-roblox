@@ -57,7 +57,10 @@ function makeHeaderMiddlewares(opts) {
   let builder = vigor.builders.fetch.middlewares().before("intercept", async (ctx, api) => {
     const cookie = getCookie();
     ctx.record.cookie = cookie;
+    const existingOptions = ctx.options;
+    const existing = existingOptions?.headers ?? {};
     const headers = {
+      ...existing,
       Cookie: `.ROBLOSECURITY=${cookie}`
     };
     if (winInet) headers["User-Agent"] = "Roblox/WinInet";
@@ -399,6 +402,8 @@ var RobloxPlaceIdSchema = z.number().int().positive().brand();
 var RobloxUniverseIdSchema = z.number().int().positive().brand();
 var RobloxJobIdSchema = z.string().uuid("JobId must be a valid UUID").brand();
 var RobloxAssetIdSchema = z.number().int().positive().brand();
+var RobloxConversationIdSchema = z.string().min(1).brand();
+var RobloxChatMessageIdSchema = z.string().min(1).brand();
 function isRobloxUserId(value) {
   return RobloxUserIdSchema.safeParse(value).success;
 }
@@ -422,6 +427,12 @@ function isRobloxJobId(value) {
 }
 function isRobloxAssetId(value) {
   return RobloxAssetIdSchema.safeParse(value).success;
+}
+function isRobloxConversationId(value) {
+  return RobloxConversationIdSchema.safeParse(value).success;
+}
+function isRobloxChatMessageId(value) {
+  return RobloxChatMessageIdSchema.safeParse(value).success;
 }
 
 // src/types/responses.ts
@@ -527,13 +538,13 @@ var RobloxPresenceEntrySchema = z2.object({
   lastOnline: z2.string().nullish()
 });
 var RobloxChatMessageSchema = z2.object({
-  id: z2.string(),
+  id: RobloxChatMessageIdSchema,
   content: z2.string(),
   sender_user_id: RobloxUserIdSchema,
   created_at: z2.string(),
   type: z2.string().nullish(),
   moderation_type: z2.string().nullish(),
-  replies_to: z2.string().nullish(),
+  replies_to: RobloxChatMessageIdSchema.nullish(),
   is_deleted: z2.boolean().nullish(),
   is_previewable: z2.boolean().nullish(),
   is_badgeable: z2.boolean().nullish(),
@@ -549,7 +560,7 @@ var RobloxChatUserDataSchema = z2.object({
   is_verified: z2.boolean().nullish()
 });
 var RobloxChatConversationSchema = z2.object({
-  id: z2.string(),
+  id: RobloxConversationIdSchema,
   source: z2.string().nullish(),
   type: z2.string().nullish(),
   name: z2.string().nullish(),
@@ -1501,11 +1512,13 @@ export {
   RobloxAuthenticatedUserBaseSchema,
   RobloxChatConversationSchema,
   RobloxChatConversationsPageSchema,
+  RobloxChatMessageIdSchema,
   RobloxChatMessageSchema,
   RobloxChatMessagesPageSchema,
   RobloxChatMetadataSchema,
   RobloxChatSendResultSchema,
   RobloxChatUserDataSchema,
+  RobloxConversationIdSchema,
   RobloxCookieSchema,
   RobloxDisplayNameSchema,
   RobloxFriendEntrySchema,
@@ -1541,6 +1554,8 @@ export {
   RobloxUserSimpleSchema,
   createRobloxApi,
   isRobloxAssetId,
+  isRobloxChatMessageId,
+  isRobloxConversationId,
   isRobloxCookie,
   isRobloxDisplayName,
   isRobloxJobId,
