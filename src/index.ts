@@ -39,7 +39,7 @@ export function createRobloxApi({
         usersPlainApi,
         thumbnailsApi,
         gamesApi,
-        gamesServersApi,
+        buildGamesServersApi,
         presenceApi,
         buildPresenceApi,
         apisRoblox,
@@ -58,7 +58,7 @@ export function createRobloxApi({
     const { thumbnailAssets, thumbnailsBatch } = createThumbnailsApi({ thumbnailsApi, withCache })
     const { extractIps } = createGamejoinApi({ gamejoinApi, buildGamejoinApi, ttlSelect, ttlUpsert })
     const { serversRegion } = createServersRegionApi({ ipgeolocationApi, ipgeolocationKey, extractIps, ttlSelect, ttlUpsert })
-    const { serversSimple, servers } = createServersApi({ gamesServersApi, withCache, thumbnailsBatch, serversRegion })
+    const { serversSimple, servers } = createServersApi({ buildGamesServersApi, withCache, thumbnailsBatch, serversRegion })
     const { placeInfo } = createPlaceInfoApi({ apisRoblox, gamesApi, withCache, thumbnailAssets })
     const { usersSimpleWithImg, usersWithImg, usersByNamesWithImg } = createWithImgApi({ usersSimple, users, usersByName, thumbnailsBatch })
     const { track } = createTrackApi({ usersByName, usersSimple, serversSimple, thumbnailsBatch, serversRegion })

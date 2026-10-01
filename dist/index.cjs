@@ -43,6 +43,10 @@ __export(index_exports, {
   RobloxPlaceIdSchema: () => RobloxPlaceIdSchema,
   RobloxPlaceInfoSchema: () => RobloxPlaceInfoSchema,
   RobloxPresenceEntrySchema: () => RobloxPresenceEntrySchema,
+  RobloxPrivateServerEntrySchema: () => RobloxPrivateServerEntrySchema,
+  RobloxPrivateServerEntryWithLocationSchema: () => RobloxPrivateServerEntryWithLocationSchema,
+  RobloxPrivateServerRawSchema: () => RobloxPrivateServerRawSchema,
+  RobloxPrivateServersPageRawSchema: () => RobloxPrivateServersPageRawSchema,
   RobloxServerEntrySchema: () => RobloxServerEntrySchema,
   RobloxServerEntryWithLocationSchema: () => RobloxServerEntryWithLocationSchema,
   RobloxServerLocationSchema: () => RobloxServerLocationSchema,
@@ -360,9 +364,14 @@ function createNetworkClients(opts) {
   const gamesApi = import_vigor_fetch2.vigor.fetch("https://games.roblox.com/v1").middlewares(credentialMiddlewares()).settings((s) => s.unretryStatus(429).maxRestarts(CREDENTIAL_MAX_RESTARTS)).retry(
     (r) => r.settings((s) => s.maxAttempts(5)).algorithms((a) => a.backoff({ initial: 1e3, multiplier: 2.5 }))
   );
-  const gamesServersApi = import_vigor_fetch2.vigor.fetch("https://games.roblox.com/v1").middlewares(credentialMiddlewares({ allowOAuth: false })).settings((s) => s.unretryStatus(429).maxRestarts(CREDENTIAL_MAX_RESTARTS)).retry(
-    (r) => r.settings((s) => s.maxAttempts(5)).algorithms((a) => a.backoff({ initial: 1e3, multiplier: 2.5 }))
-  );
+  const gamesServersCredentialMiddlewares = credentialMiddlewares({ allowOAuth: false });
+  function buildGamesServersApi(cookie) {
+    const middlewares = cookie ? makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager }) : gamesServersCredentialMiddlewares;
+    return import_vigor_fetch2.vigor.fetch("https://games.roblox.com/v1").middlewares(middlewares).settings((s) => s.unretryStatus(429).maxRestarts(CREDENTIAL_MAX_RESTARTS)).retry(
+      (r) => r.settings((s) => s.maxAttempts(5)).algorithms((a) => a.backoff({ initial: 1e3, multiplier: 2.5 }))
+    );
+  }
+  const gamesServersApi = buildGamesServersApi();
   const presenceCredentialMiddlewares = credentialMiddlewares();
   function buildPresenceApi(cookie) {
     const middlewares = cookie ? makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager }) : presenceCredentialMiddlewares;
@@ -401,6 +410,7 @@ function createNetworkClients(opts) {
     thumbnailsApi,
     gamesApi,
     gamesServersApi,
+    buildGamesServersApi,
     presenceApi,
     buildPresenceApi,
     apisRoblox,
@@ -585,9 +595,17 @@ var RobloxServerEntrySchema = import_zod2.z.object({
   jobId: RobloxJobIdSchema,
   maxPlayers: import_zod2.z.number(),
   playing: import_zod2.z.number(),
-  fps: import_zod2.z.number(),
-  ping: import_zod2.z.number(),
+  /** Roblox가 측정값이 없는 서버(막 생성된 서버 등)에는 fps/ping을 주지 않는다. */
+  fps: import_zod2.z.number().optional(),
+  ping: import_zod2.z.number().optional(),
   playerImgs: import_zod2.z.array(import_zod2.z.string())
+});
+var RobloxPrivateServerEntrySchema = RobloxServerEntrySchema.extend({
+  jobId: RobloxJobIdSchema.nullable(),
+  name: import_zod2.z.string(),
+  vipServerId: import_zod2.z.number(),
+  accessCode: import_zod2.z.string().nullable(),
+  owner: RobloxAuthenticatedUserBaseSchema.nullable()
 });
 var RobloxServerLocationSchema = import_zod2.z.object({
   ip: import_zod2.z.string(),
@@ -602,6 +620,9 @@ var RobloxServerLocationSchema = import_zod2.z.object({
   timezone: import_zod2.z.string()
 });
 var RobloxServerEntryWithLocationSchema = RobloxServerEntrySchema.extend({
+  location: RobloxServerLocationSchema.nullable()
+});
+var RobloxPrivateServerEntryWithLocationSchema = RobloxPrivateServerEntrySchema.extend({
   location: RobloxServerLocationSchema.nullable()
 });
 function robloxServersResultSchema(entrySchema) {
@@ -717,11 +738,24 @@ var RobloxServerRawSchema = import_zod2.z.object({
   id: RobloxJobIdSchema,
   maxPlayers: import_zod2.z.number(),
   playing: import_zod2.z.number(),
-  fps: import_zod2.z.number(),
-  ping: import_zod2.z.number(),
+  fps: import_zod2.z.number().optional(),
+  ping: import_zod2.z.number().optional(),
   playerTokens: import_zod2.z.array(import_zod2.z.string())
 }).passthrough();
 var RobloxServersPageRawSchema = robloxServersResultSchema(RobloxServerRawSchema);
+var RobloxPrivateServerRawSchema = import_zod2.z.object({
+  id: RobloxJobIdSchema.nullish(),
+  maxPlayers: import_zod2.z.number(),
+  playing: import_zod2.z.number().nullish(),
+  fps: import_zod2.z.number().optional(),
+  ping: import_zod2.z.number().optional(),
+  playerTokens: import_zod2.z.array(import_zod2.z.string()).nullish(),
+  name: import_zod2.z.string(),
+  vipServerId: import_zod2.z.number(),
+  accessCode: import_zod2.z.string().nullish(),
+  owner: RobloxAuthenticatedUserBaseSchema.passthrough().nullish()
+}).passthrough();
+var RobloxPrivateServersPageRawSchema = robloxServersResultSchema(RobloxPrivateServerRawSchema);
 var GamejoinResponseSchema = import_zod2.z.object({
   joinScript: import_zod2.z.object({
     MachineAddress: import_zod2.z.string().optional(),
@@ -1209,61 +1243,106 @@ var friendsApiRateLimiter = makeRateLimiter({ limit: 20, windowMs: 60 * 1e3 });
 var chatApiRateLimiter = makeRateLimiter({ limit: 20, windowMs: 60 * 1e3 });
 
 // src/apis/servers.ts
-function createServersApi({ gamesServersApi, withCache, thumbnailsBatch, serversRegion }) {
-  async function serversSimple(opts) {
+function createServersApi({ buildGamesServersApi, withCache, thumbnailsBatch, serversRegion }) {
+  const poolClient = buildGamesServersApi();
+  async function fetchPages(opts) {
+    const { client, path, schema, count, cursor } = opts;
+    let nextCursor = cursor ?? null;
+    let prevCursor = null;
+    const data = [];
+    for (let i = 0; i < count; i++) {
+      const page = await gamesServersRateLimiter(
+        () => client.path(...path).query({ limit: 100, ...nextCursor ? { cursor: nextCursor } : {} }).middlewares(validate(schema)).request()
+      );
+      if (i === 0) prevCursor = page.previousPageCursor;
+      nextCursor = page.nextPageCursor;
+      data.push(...page.data);
+      if (!nextCursor) break;
+    }
+    return { previousPageCursor: prevCursor, nextPageCursor: nextCursor, data };
+  }
+  async function playerImgMap(tokens, thumbnailFormat) {
+    const thumbTargets = tokens.map((token) => ({ token, type: "AvatarHeadShot", size: "150x150", format: "Png", ...thumbnailFormat }));
+    const thumbResults = await thumbnailsBatch(thumbTargets, thumbnailFormat);
+    return new Map(thumbResults.map((t) => [t.token, t.url]));
+  }
+  function toImgs(tokens, thumbMap) {
+    return tokens.map((tok) => thumbMap.get(tok)).filter((url) => url != null);
+  }
+  async function fetchServers(opts, client) {
     const { placeId, count = 1, serverType = "Public", cursor, thumbnailFormat } = opts;
-    const cacheKey = `${placeId}:${serverType}:${count}:${cursor ?? ""}`;
+    if (serverType === "Private") {
+      const page2 = await fetchPages({
+        client,
+        count,
+        cursor,
+        path: ["games", placeId, "private-servers"],
+        schema: RobloxPrivateServersPageRawSchema
+      });
+      const thumbMap2 = await playerImgMap(page2.data.flatMap((s) => s.playerTokens ?? []), thumbnailFormat);
+      return {
+        ...page2,
+        data: page2.data.map((s) => ({
+          jobId: s.id ?? null,
+          maxPlayers: s.maxPlayers,
+          playing: s.playing ?? 0,
+          fps: s.fps,
+          ping: s.ping,
+          playerImgs: toImgs(s.playerTokens ?? [], thumbMap2),
+          name: s.name,
+          vipServerId: s.vipServerId,
+          accessCode: s.accessCode ?? null,
+          owner: s.owner ? { id: s.owner.id, name: s.owner.name, displayName: s.owner.displayName, hasVerifiedBadge: s.owner.hasVerifiedBadge } : null
+        }))
+      };
+    }
+    const page = await fetchPages({
+      client,
+      count,
+      cursor,
+      path: ["games", placeId, "servers", serverType],
+      schema: RobloxServersPageRawSchema
+    });
+    const thumbMap = await playerImgMap(page.data.flatMap((s) => s.playerTokens), thumbnailFormat);
+    return {
+      ...page,
+      data: page.data.map((s) => ({
+        jobId: s.id,
+        maxPlayers: s.maxPlayers,
+        playing: s.playing,
+        fps: s.fps,
+        ping: s.ping,
+        playerImgs: toImgs(s.playerTokens, thumbMap)
+      }))
+    };
+  }
+  async function serversSimple(opts) {
+    const { placeId, count = 1, serverType = "Public", cursor, cookie } = opts;
+    const client = cookie ? buildGamesServersApi(cookie) : poolClient;
+    const accountScoped = serverType !== "Public";
+    if (accountScoped && !cookie) return fetchServers(opts, client);
+    const accountKey = accountScoped ? await cookieHash(cookie) : "shared";
+    const cacheKey = `${placeId}:${serverType}:${count}:${cursor ?? ""}:${accountKey}`;
     const [result] = await withCache({
       type: "serversSimple",
       ttlKey: "serversSimple",
       keys: [cacheKey],
       getKey: () => cacheKey,
       fallback: { previousPageCursor: null, nextPageCursor: null, data: [] },
-      fetchMissing: async () => {
-        let nextCursor = cursor ?? null;
-        let prevCursor = null;
-        const rawData = [];
-        for (let i = 0; i < count; i++) {
-          const page = await gamesServersRateLimiter(
-            () => (
-              // OAuth 토큰으로는 playerTokens가 오지 않으므로 쿠키 전용 클라이언트를 쓴다.
-              gamesServersApi.path("games", placeId, "servers", serverType).query({ limit: 100, ...nextCursor ? { cursor: nextCursor } : {} }).middlewares(validate(RobloxServersPageRawSchema)).request()
-            )
-          );
-          if (i === 0) prevCursor = page.previousPageCursor;
-          nextCursor = page.nextPageCursor;
-          rawData.push(...page.data);
-          if (!nextCursor) break;
-        }
-        const thumbTargets = rawData.flatMap((s) => s.playerTokens.map((token) => ({ token, type: "AvatarHeadShot", size: "150x150", format: "Png", ...thumbnailFormat })));
-        const thumbResults = await thumbnailsBatch(thumbTargets, thumbnailFormat);
-        const thumbMap = new Map(thumbResults.map((t) => [t.token, t.url]));
-        return [{
-          previousPageCursor: prevCursor,
-          nextPageCursor: nextCursor,
-          data: rawData.map((s) => ({
-            jobId: s.id,
-            maxPlayers: s.maxPlayers,
-            playing: s.playing,
-            fps: s.fps,
-            ping: s.ping,
-            playerImgs: s.playerTokens.map((tok) => thumbMap.get(tok)).filter((url) => url != null)
-          }))
-        }];
-      }
+      fetchMissing: async () => [await fetchServers(opts, client)]
     });
     return result;
   }
   async function servers(opts) {
     const result = await serversSimple(opts);
-    const jobIds = result.data.map((s) => s.jobId);
+    const jobIds = result.data.map((s) => s.jobId).filter((id) => id != null);
     const locationList = await serversRegion({ placeId: opts.placeId, jobIds }).catch(() => []);
     const locationMap = new Map(locationList.map((l) => [l.jobId, l]));
     return {
       ...result,
       data: result.data.map((s) => ({
         ...s,
-        location: locationMap.get(s.jobId) ?? null
+        location: s.jobId != null ? locationMap.get(s.jobId) ?? null : null
       }))
     };
   }
@@ -1539,7 +1618,7 @@ function createRobloxApi({
     usersPlainApi,
     thumbnailsApi,
     gamesApi,
-    gamesServersApi,
+    buildGamesServersApi,
     presenceApi,
     buildPresenceApi,
     apisRoblox,
@@ -1556,7 +1635,7 @@ function createRobloxApi({
   const { thumbnailAssets, thumbnailsBatch } = createThumbnailsApi({ thumbnailsApi, withCache });
   const { extractIps } = createGamejoinApi({ gamejoinApi, buildGamejoinApi, ttlSelect, ttlUpsert });
   const { serversRegion } = createServersRegionApi({ ipgeolocationApi, ipgeolocationKey, extractIps, ttlSelect, ttlUpsert });
-  const { serversSimple, servers } = createServersApi({ gamesServersApi, withCache, thumbnailsBatch, serversRegion });
+  const { serversSimple, servers } = createServersApi({ buildGamesServersApi, withCache, thumbnailsBatch, serversRegion });
   const { placeInfo } = createPlaceInfoApi({ apisRoblox, gamesApi, withCache, thumbnailAssets });
   const { usersSimpleWithImg, usersWithImg, usersByNamesWithImg } = createWithImgApi({ usersSimple, users, usersByName, thumbnailsBatch });
   const { track } = createTrackApi({ usersByName, usersSimple, serversSimple, thumbnailsBatch, serversRegion });
@@ -1614,6 +1693,10 @@ function createRobloxApi({
   RobloxPlaceIdSchema,
   RobloxPlaceInfoSchema,
   RobloxPresenceEntrySchema,
+  RobloxPrivateServerEntrySchema,
+  RobloxPrivateServerEntryWithLocationSchema,
+  RobloxPrivateServerRawSchema,
+  RobloxPrivateServersPageRawSchema,
   RobloxServerEntrySchema,
   RobloxServerEntryWithLocationSchema,
   RobloxServerLocationSchema,

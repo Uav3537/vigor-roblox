@@ -127,9 +127,22 @@ export const RobloxServerEntrySchema = z.object({
     jobId:      RobloxJobIdSchema,
     maxPlayers: z.number(),
     playing:    z.number(),
-    fps:        z.number(),
-    ping:       z.number(),
+    /** Roblox가 측정값이 없는 서버(막 생성된 서버 등)에는 fps/ping을 주지 않는다. */
+    fps:        z.number().optional(),
+    ping:       z.number().optional(),
     playerImgs: z.array(z.string()),
+})
+
+/**
+ * 비공개 서버(VIP 서버) 항목. 서버가 실행 중이 아니면 jobId가 없으므로 null이다.
+ * `accessCode`는 요청 계정이 서버 소유자일 때만 온다.
+ */
+export const RobloxPrivateServerEntrySchema = RobloxServerEntrySchema.extend({
+    jobId:       RobloxJobIdSchema.nullable(),
+    name:        z.string(),
+    vipServerId: z.number(),
+    accessCode:  z.string().nullable(),
+    owner:       RobloxAuthenticatedUserBaseSchema.nullable(),
 })
 
 export const RobloxServerLocationSchema = z.object({
@@ -149,6 +162,10 @@ export const RobloxServerEntryWithLocationSchema = RobloxServerEntrySchema.exten
     location: RobloxServerLocationSchema.nullable(),
 })
 
+export const RobloxPrivateServerEntryWithLocationSchema = RobloxPrivateServerEntrySchema.extend({
+    location: RobloxServerLocationSchema.nullable(),
+})
+
 export function robloxServersResultSchema<E extends z.ZodTypeAny>(entrySchema: E) {
     return z.object({
         previousPageCursor: z.string().nullable(),
@@ -160,7 +177,9 @@ export function robloxServersResultSchema<E extends z.ZodTypeAny>(entrySchema: E
 export type RobloxServerEntry             = z.infer<typeof RobloxServerEntrySchema>
 export type RobloxServerEntryWithLocation = z.infer<typeof RobloxServerEntryWithLocationSchema>
 export type RobloxServerLocation          = z.infer<typeof RobloxServerLocationSchema>
-export type RobloxServersResult<E extends RobloxServerEntry = RobloxServerEntry> = {
+export type RobloxPrivateServerEntry             = z.infer<typeof RobloxPrivateServerEntrySchema>
+export type RobloxPrivateServerEntryWithLocation = z.infer<typeof RobloxPrivateServerEntryWithLocationSchema>
+export type RobloxServersResult<E = RobloxServerEntry> = {
     previousPageCursor: string | null
     nextPageCursor:     string | null
     data:               E[]
@@ -329,8 +348,8 @@ export const RobloxServerRawSchema = z.object({
     id:           RobloxJobIdSchema,
     maxPlayers:   z.number(),
     playing:      z.number(),
-    fps:          z.number(),
-    ping:         z.number(),
+    fps:          z.number().optional(),
+    ping:         z.number().optional(),
     playerTokens: z.array(z.string()),
 }).passthrough()
 
@@ -338,6 +357,25 @@ export type RobloxServerRaw = z.infer<typeof RobloxServerRawSchema>
 
 export const RobloxServersPageRawSchema = robloxServersResultSchema(RobloxServerRawSchema)
 export type RobloxServersPageRaw = z.infer<typeof RobloxServersPageRawSchema>
+
+/** `/v1/games/{placeId}/private-servers` 항목. 실행 중이 아닌 서버는 id/playing/fps/ping이 없다. */
+export const RobloxPrivateServerRawSchema = z.object({
+    id:           RobloxJobIdSchema.nullish(),
+    maxPlayers:   z.number(),
+    playing:      z.number().nullish(),
+    fps:          z.number().optional(),
+    ping:         z.number().optional(),
+    playerTokens: z.array(z.string()).nullish(),
+    name:         z.string(),
+    vipServerId:  z.number(),
+    accessCode:   z.string().nullish(),
+    owner:        RobloxAuthenticatedUserBaseSchema.passthrough().nullish(),
+}).passthrough()
+
+export type RobloxPrivateServerRaw = z.infer<typeof RobloxPrivateServerRawSchema>
+
+export const RobloxPrivateServersPageRawSchema = robloxServersResultSchema(RobloxPrivateServerRawSchema)
+export type RobloxPrivateServersPageRaw = z.infer<typeof RobloxPrivateServersPageRawSchema>
 
 
 export const GamejoinResponseSchema = z.object({

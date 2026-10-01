@@ -1,3 +1,4 @@
+import * as zod from 'zod';
 import { z } from 'zod';
 
 declare const RobloxUserIdSchema: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
@@ -143,9 +144,31 @@ declare const RobloxServerEntrySchema: z.ZodObject<{
     jobId: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_JobId", "out">;
     maxPlayers: z.ZodNumber;
     playing: z.ZodNumber;
-    fps: z.ZodNumber;
-    ping: z.ZodNumber;
+    fps: z.ZodOptional<z.ZodNumber>;
+    ping: z.ZodOptional<z.ZodNumber>;
     playerImgs: z.ZodArray<z.ZodString>;
+}, z.core.$strip>;
+/**
+ * 비공개 서버(VIP 서버) 항목. 서버가 실행 중이 아니면 jobId가 없으므로 null이다.
+ * `accessCode`는 요청 계정이 서버 소유자일 때만 온다.
+ */
+declare const RobloxPrivateServerEntrySchema: z.ZodObject<{
+    maxPlayers: z.ZodNumber;
+    playing: z.ZodNumber;
+    fps: z.ZodOptional<z.ZodNumber>;
+    ping: z.ZodOptional<z.ZodNumber>;
+    playerImgs: z.ZodArray<z.ZodString>;
+    jobId: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_JobId", "out">>;
+    name: z.ZodString;
+    vipServerId: z.ZodNumber;
+    accessCode: z.ZodNullable<z.ZodString>;
+    owner: z.ZodNullable<z.ZodObject<{
+        id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+        name: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_UserName", "out">;
+        displayName: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_UserDisplayName", "out">;
+        requestedUsername: z.ZodOptional<z.ZodString>;
+        hasVerifiedBadge: z.ZodOptional<z.ZodBoolean>;
+    }, z.core.$strip>>;
 }, z.core.$strip>;
 declare const RobloxServerLocationSchema: z.ZodObject<{
     ip: z.ZodString;
@@ -163,9 +186,39 @@ declare const RobloxServerEntryWithLocationSchema: z.ZodObject<{
     jobId: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_JobId", "out">;
     maxPlayers: z.ZodNumber;
     playing: z.ZodNumber;
-    fps: z.ZodNumber;
-    ping: z.ZodNumber;
+    fps: z.ZodOptional<z.ZodNumber>;
+    ping: z.ZodOptional<z.ZodNumber>;
     playerImgs: z.ZodArray<z.ZodString>;
+    location: z.ZodNullable<z.ZodObject<{
+        ip: z.ZodString;
+        jobId: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_JobId", "out">;
+        countryCode: z.ZodString;
+        countryName: z.ZodString;
+        regionName: z.ZodString;
+        city: z.ZodString;
+        latitude: z.ZodNumber;
+        longitude: z.ZodNumber;
+        isp: z.ZodString;
+        timezone: z.ZodString;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
+declare const RobloxPrivateServerEntryWithLocationSchema: z.ZodObject<{
+    maxPlayers: z.ZodNumber;
+    playing: z.ZodNumber;
+    fps: z.ZodOptional<z.ZodNumber>;
+    ping: z.ZodOptional<z.ZodNumber>;
+    playerImgs: z.ZodArray<z.ZodString>;
+    jobId: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_JobId", "out">>;
+    name: z.ZodString;
+    vipServerId: z.ZodNumber;
+    accessCode: z.ZodNullable<z.ZodString>;
+    owner: z.ZodNullable<z.ZodObject<{
+        id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+        name: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_UserName", "out">;
+        displayName: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_UserDisplayName", "out">;
+        requestedUsername: z.ZodOptional<z.ZodString>;
+        hasVerifiedBadge: z.ZodOptional<z.ZodBoolean>;
+    }, z.core.$strip>>;
     location: z.ZodNullable<z.ZodObject<{
         ip: z.ZodString;
         jobId: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_JobId", "out">;
@@ -187,7 +240,9 @@ declare function robloxServersResultSchema<E extends z.ZodTypeAny>(entrySchema: 
 type RobloxServerEntry = z.infer<typeof RobloxServerEntrySchema>;
 type RobloxServerEntryWithLocation = z.infer<typeof RobloxServerEntryWithLocationSchema>;
 type RobloxServerLocation = z.infer<typeof RobloxServerLocationSchema>;
-type RobloxServersResult<E extends RobloxServerEntry = RobloxServerEntry> = {
+type RobloxPrivateServerEntry = z.infer<typeof RobloxPrivateServerEntrySchema>;
+type RobloxPrivateServerEntryWithLocation = z.infer<typeof RobloxPrivateServerEntryWithLocationSchema>;
+type RobloxServersResult<E = RobloxServerEntry> = {
     previousPageCursor: string | null;
     nextPageCursor: string | null;
     data: E[];
@@ -422,8 +477,8 @@ declare const RobloxServerRawSchema: z.ZodObject<{
     id: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_JobId", "out">;
     maxPlayers: z.ZodNumber;
     playing: z.ZodNumber;
-    fps: z.ZodNumber;
-    ping: z.ZodNumber;
+    fps: z.ZodOptional<z.ZodNumber>;
+    ping: z.ZodOptional<z.ZodNumber>;
     playerTokens: z.ZodArray<z.ZodString>;
 }, z.core.$loose>;
 type RobloxServerRaw = z.infer<typeof RobloxServerRawSchema>;
@@ -434,12 +489,55 @@ declare const RobloxServersPageRawSchema: z.ZodObject<{
         id: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_JobId", "out">;
         maxPlayers: z.ZodNumber;
         playing: z.ZodNumber;
-        fps: z.ZodNumber;
-        ping: z.ZodNumber;
+        fps: z.ZodOptional<z.ZodNumber>;
+        ping: z.ZodOptional<z.ZodNumber>;
         playerTokens: z.ZodArray<z.ZodString>;
     }, z.core.$loose>>;
 }, z.core.$strip>;
 type RobloxServersPageRaw = z.infer<typeof RobloxServersPageRawSchema>;
+/** `/v1/games/{placeId}/private-servers` 항목. 실행 중이 아닌 서버는 id/playing/fps/ping이 없다. */
+declare const RobloxPrivateServerRawSchema: z.ZodObject<{
+    id: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_JobId", "out">>>;
+    maxPlayers: z.ZodNumber;
+    playing: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    fps: z.ZodOptional<z.ZodNumber>;
+    ping: z.ZodOptional<z.ZodNumber>;
+    playerTokens: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+    name: z.ZodString;
+    vipServerId: z.ZodNumber;
+    accessCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    owner: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+        name: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_UserName", "out">;
+        displayName: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_UserDisplayName", "out">;
+        requestedUsername: z.ZodOptional<z.ZodString>;
+        hasVerifiedBadge: z.ZodOptional<z.ZodBoolean>;
+    }, z.core.$loose>>>;
+}, z.core.$loose>;
+type RobloxPrivateServerRaw = z.infer<typeof RobloxPrivateServerRawSchema>;
+declare const RobloxPrivateServersPageRawSchema: z.ZodObject<{
+    previousPageCursor: z.ZodNullable<z.ZodString>;
+    nextPageCursor: z.ZodNullable<z.ZodString>;
+    data: z.ZodArray<z.ZodObject<{
+        id: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_JobId", "out">>>;
+        maxPlayers: z.ZodNumber;
+        playing: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        fps: z.ZodOptional<z.ZodNumber>;
+        ping: z.ZodOptional<z.ZodNumber>;
+        playerTokens: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+        name: z.ZodString;
+        vipServerId: z.ZodNumber;
+        accessCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        owner: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+            name: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_UserName", "out">;
+            displayName: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_UserDisplayName", "out">;
+            requestedUsername: z.ZodOptional<z.ZodString>;
+            hasVerifiedBadge: z.ZodOptional<z.ZodBoolean>;
+        }, z.core.$loose>>>;
+    }, z.core.$loose>>;
+}, z.core.$strip>;
+type RobloxPrivateServersPageRaw = z.infer<typeof RobloxPrivateServersPageRawSchema>;
 declare const GamejoinResponseSchema: z.ZodObject<{
     joinScript: z.ZodOptional<z.ZodObject<{
         MachineAddress: z.ZodOptional<z.ZodString>;
@@ -574,10 +672,22 @@ interface CreateRobloxApiOptions {
     /** Per-resource cache TTL overrides. See RobloxTtlConfig for defaults / disabling. */
     ttl?: RobloxTtlConfig;
 }
+/**
+ * - `Public`: 공개 서버
+ * - `Friend`: 요청 계정의 친구가 있는 서버
+ * - `Private`: 요청 계정이 접근할 수 있는 비공개(VIP) 서버
+ */
+type RobloxServerType = 'Public' | 'Friend' | 'Private';
 interface ServersOpts {
     placeId: RobloxPlaceId;
     count?: number;
-    serverType?: 'Public' | 'Friend';
+    serverType?: RobloxServerType;
+    /**
+     * 이 계정 쿠키로 조회한다. `Friend`/`Private`은 계정에 따라 결과가 달라지므로
+     * 원하는 계정(예: 대상 유저의 친구 계정)의 쿠키를 지정해야 한다.
+     * 미지정이면 풀에서 임의의 쿠키를 쓴다.
+     */
+    cookie?: RobloxCookie;
     cursor?: string;
     thumbnailFormat?: Partial<RobloxThumbnailTarget>;
 }
@@ -596,8 +706,48 @@ declare function createRobloxApi({ cache, cookies: cookiesList, oauthTokens, oau
         format?: string;
     }) => Promise<RobloxThumbnail[]>;
     thumbnailsBatch: (targets: RobloxThumbnailTarget[], formatDefaults?: Partial<RobloxThumbnailTarget>) => Promise<RobloxThumbnail[]>;
-    serversSimple: (opts: ServersOpts) => Promise<RobloxServersResult<RobloxServerEntry>>;
-    servers: (opts: ServersOpts) => Promise<RobloxServersResult<RobloxServerEntryWithLocation>>;
+    serversSimple: {
+        (opts: ServersOpts & {
+            serverType: "Private";
+        }): Promise<RobloxServersResult<RobloxPrivateServerEntry>>;
+        (opts: ServersOpts & {
+            serverType?: "Public" | "Friend";
+        }): Promise<RobloxServersResult<RobloxServerEntry>>;
+        (opts: ServersOpts): Promise<RobloxServersResult<{
+            jobId: string & zod.$brand<"RobloxApi::Roblox_JobId">;
+            maxPlayers: number;
+            playing: number;
+            playerImgs: string[];
+            fps?: number | undefined;
+            ping?: number | undefined;
+        } | {
+            maxPlayers: number;
+            playing: number;
+            playerImgs: string[];
+            jobId: (string & zod.$brand<"RobloxApi::Roblox_JobId">) | null;
+            name: string;
+            vipServerId: number;
+            accessCode: string | null;
+            owner: {
+                id: number & zod.$brand<"RobloxApi::Roblox_UserId">;
+                name: string & zod.$brand<"RobloxApi::Roblox_UserName">;
+                displayName: string & zod.$brand<"RobloxApi::Roblox_UserDisplayName">;
+                requestedUsername?: string | undefined;
+                hasVerifiedBadge?: boolean | undefined;
+            } | null;
+            fps?: number | undefined;
+            ping?: number | undefined;
+        }>>;
+    };
+    servers: {
+        (opts: ServersOpts & {
+            serverType: "Private";
+        }): Promise<RobloxServersResult<RobloxPrivateServerEntryWithLocation>>;
+        (opts: ServersOpts & {
+            serverType?: "Public" | "Friend";
+        }): Promise<RobloxServersResult<RobloxServerEntryWithLocation>>;
+        (opts: ServersOpts): Promise<RobloxServersResult<RobloxServerEntryWithLocation | RobloxPrivateServerEntryWithLocation>>;
+    };
     presence: (userIds: RobloxUserId[], opts?: {
         cookie?: RobloxCookie;
     }) => Promise<RobloxPresenceEntry[]>;
@@ -656,4 +806,4 @@ declare function createRobloxApi({ cache, cookies: cookiesList, oauthTokens, oau
 };
 type RobloxApi = ReturnType<typeof createRobloxApi>;
 
-export { type CreateRobloxApiOptions, DEFAULT_TTL_CONFIG, type GamejoinResponse, GamejoinResponseSchema, type OAuthTokenRateLimit, type ResolvedTtlConfig, type RobloxApi, type RobloxApiCache, type RobloxAssetId, RobloxAssetIdSchema, type RobloxAuthenticatedUser, type RobloxAuthenticatedUserBase, RobloxAuthenticatedUserBaseSchema, type RobloxChatConversation, RobloxChatConversationSchema, type RobloxChatConversationsPage, RobloxChatConversationsPageSchema, type RobloxChatMessage, type RobloxChatMessageId, RobloxChatMessageIdSchema, RobloxChatMessageSchema, type RobloxChatMessagesPage, RobloxChatMessagesPageSchema, type RobloxChatMetadata, RobloxChatMetadataSchema, type RobloxChatSendResult, RobloxChatSendResultSchema, type RobloxChatUserData, RobloxChatUserDataSchema, type RobloxConversationId, RobloxConversationIdSchema, type RobloxCookie, RobloxCookieSchema, type RobloxCredential, type RobloxDisplayName, RobloxDisplayNameSchema, type RobloxFriendEntry, RobloxFriendEntrySchema, type RobloxGameDetailsRaw, RobloxGameDetailsRawSchema, type RobloxGameMediaEntry, RobloxGameMediaEntrySchema, type RobloxIpGeoRaw, RobloxIpGeoRawSchema, type RobloxJobId, RobloxJobIdSchema, type RobloxPlaceId, RobloxPlaceIdSchema, type RobloxPlaceInfo, RobloxPlaceInfoSchema, type RobloxPresenceEntry, RobloxPresenceEntrySchema, type RobloxServerEntry, RobloxServerEntrySchema, type RobloxServerEntryWithLocation, RobloxServerEntryWithLocationSchema, type RobloxServerLocation, RobloxServerLocationSchema, type RobloxServerRaw, RobloxServerRawSchema, type RobloxServersPageRaw, RobloxServersPageRawSchema, type RobloxServersResult, type RobloxThumbnail, type RobloxThumbnailRaw, RobloxThumbnailRawSchema, type RobloxThumbnailRawWithRequestId, RobloxThumbnailRawWithRequestIdSchema, RobloxThumbnailSchema, type RobloxThumbnailTarget, type RobloxThumbnailTargetBase, RobloxThumbnailTargetBaseSchema, RobloxThumbnailTargetSchema, type RobloxTtlConfig, type RobloxUniverseFromPlace, type RobloxUniverseFromPlaceRaw, RobloxUniverseFromPlaceRawSchema, RobloxUniverseFromPlaceSchema, type RobloxUniverseId, RobloxUniverseIdSchema, type RobloxUser, type RobloxUserAgeBracket, RobloxUserAgeBracketSchema, type RobloxUserBirthdate, RobloxUserBirthdateSchema, type RobloxUserCountryCode, RobloxUserCountryCodeSchema, type RobloxUserDescription, RobloxUserDescriptionSchema, type RobloxUserGender, RobloxUserGenderSchema, type RobloxUserId, RobloxUserIdSchema, type RobloxUserName, RobloxUserNameSchema, type RobloxUserRoles, RobloxUserRolesSchema, RobloxUserSchema, type RobloxUserSimple, RobloxUserSimpleSchema, type ServersOpts, type WithImg, createRobloxApi, isRobloxAssetId, isRobloxChatMessageId, isRobloxConversationId, isRobloxCookie, isRobloxDisplayName, isRobloxJobId, isRobloxPlaceId, isRobloxUniverseId, isRobloxUserId, isRobloxUserName, resolveTtlConfig, robloxServersResultSchema };
+export { type CreateRobloxApiOptions, DEFAULT_TTL_CONFIG, type GamejoinResponse, GamejoinResponseSchema, type OAuthTokenRateLimit, type ResolvedTtlConfig, type RobloxApi, type RobloxApiCache, type RobloxAssetId, RobloxAssetIdSchema, type RobloxAuthenticatedUser, type RobloxAuthenticatedUserBase, RobloxAuthenticatedUserBaseSchema, type RobloxChatConversation, RobloxChatConversationSchema, type RobloxChatConversationsPage, RobloxChatConversationsPageSchema, type RobloxChatMessage, type RobloxChatMessageId, RobloxChatMessageIdSchema, RobloxChatMessageSchema, type RobloxChatMessagesPage, RobloxChatMessagesPageSchema, type RobloxChatMetadata, RobloxChatMetadataSchema, type RobloxChatSendResult, RobloxChatSendResultSchema, type RobloxChatUserData, RobloxChatUserDataSchema, type RobloxConversationId, RobloxConversationIdSchema, type RobloxCookie, RobloxCookieSchema, type RobloxCredential, type RobloxDisplayName, RobloxDisplayNameSchema, type RobloxFriendEntry, RobloxFriendEntrySchema, type RobloxGameDetailsRaw, RobloxGameDetailsRawSchema, type RobloxGameMediaEntry, RobloxGameMediaEntrySchema, type RobloxIpGeoRaw, RobloxIpGeoRawSchema, type RobloxJobId, RobloxJobIdSchema, type RobloxPlaceId, RobloxPlaceIdSchema, type RobloxPlaceInfo, RobloxPlaceInfoSchema, type RobloxPresenceEntry, RobloxPresenceEntrySchema, type RobloxPrivateServerEntry, RobloxPrivateServerEntrySchema, type RobloxPrivateServerEntryWithLocation, RobloxPrivateServerEntryWithLocationSchema, type RobloxPrivateServerRaw, RobloxPrivateServerRawSchema, type RobloxPrivateServersPageRaw, RobloxPrivateServersPageRawSchema, type RobloxServerEntry, RobloxServerEntrySchema, type RobloxServerEntryWithLocation, RobloxServerEntryWithLocationSchema, type RobloxServerLocation, RobloxServerLocationSchema, type RobloxServerRaw, RobloxServerRawSchema, type RobloxServerType, type RobloxServersPageRaw, RobloxServersPageRawSchema, type RobloxServersResult, type RobloxThumbnail, type RobloxThumbnailRaw, RobloxThumbnailRawSchema, type RobloxThumbnailRawWithRequestId, RobloxThumbnailRawWithRequestIdSchema, RobloxThumbnailSchema, type RobloxThumbnailTarget, type RobloxThumbnailTargetBase, RobloxThumbnailTargetBaseSchema, RobloxThumbnailTargetSchema, type RobloxTtlConfig, type RobloxUniverseFromPlace, type RobloxUniverseFromPlaceRaw, RobloxUniverseFromPlaceRawSchema, RobloxUniverseFromPlaceSchema, type RobloxUniverseId, RobloxUniverseIdSchema, type RobloxUser, type RobloxUserAgeBracket, RobloxUserAgeBracketSchema, type RobloxUserBirthdate, RobloxUserBirthdateSchema, type RobloxUserCountryCode, RobloxUserCountryCodeSchema, type RobloxUserDescription, RobloxUserDescriptionSchema, type RobloxUserGender, RobloxUserGenderSchema, type RobloxUserId, RobloxUserIdSchema, type RobloxUserName, RobloxUserNameSchema, type RobloxUserRoles, RobloxUserRolesSchema, RobloxUserSchema, type RobloxUserSimple, RobloxUserSimpleSchema, type ServersOpts, type WithImg, createRobloxApi, isRobloxAssetId, isRobloxChatMessageId, isRobloxConversationId, isRobloxCookie, isRobloxDisplayName, isRobloxJobId, isRobloxPlaceId, isRobloxUniverseId, isRobloxUserId, isRobloxUserName, resolveTtlConfig, robloxServersResultSchema };

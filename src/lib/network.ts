@@ -63,17 +63,26 @@ export function createNetworkClients(opts: {
         )
 
     /**
-     * 서버 목록 전용 games 클라이언트 (쿠키만 사용).
+     * 서버 목록 전용 games 클라이언트 빌더 (쿠키만 사용).
      * OAuth 토큰으로 요청하면 응답의 playerTokens가 비어서 플레이어 프로필 이미지를 만들 수 없다.
-     * 쿠키 로테이션 + 429 쿨다운은 동일하게 적용된다.
+     * `cookie`를 지정하면 그 계정 쿠키를 고정으로 쓰고, 미지정이면 쿠키 로테이션 + 429 쿨다운을 쓴다.
+     * 친구 서버/비공개 서버 목록은 요청 계정 기준으로만 보이므로 계정을 고정할 수 있어야 한다.
      */
-    const gamesServersApi = vigor.fetch('https://games.roblox.com/v1')
-        .middlewares(credentialMiddlewares({ allowOAuth: false }))
-        .settings(s => s.unretryStatus(429).maxRestarts(CREDENTIAL_MAX_RESTARTS))
-        .retry(r => r
-            .settings(s => s.maxAttempts(5))
-            .algorithms(a => a.backoff({ initial: 1000, multiplier: 2.5 }))
-        )
+    const gamesServersCredentialMiddlewares = credentialMiddlewares({ allowOAuth: false })
+    function buildGamesServersApi(cookie?: RobloxCookie) {
+        const middlewares = cookie
+            ? makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager })
+            : gamesServersCredentialMiddlewares
+
+        return vigor.fetch('https://games.roblox.com/v1')
+            .middlewares(middlewares)
+            .settings(s => s.unretryStatus(429).maxRestarts(CREDENTIAL_MAX_RESTARTS))
+            .retry(r => r
+                .settings(s => s.maxAttempts(5))
+                .algorithms(a => a.backoff({ initial: 1000, multiplier: 2.5 }))
+            )
+    }
+    const gamesServersApi = buildGamesServersApi()
 
     /**
      * presenceApi 빌더. `cookie`를 지정하면 그 계정 쿠키를 고정으로 쓰고,
@@ -164,6 +173,7 @@ export function createNetworkClients(opts: {
         thumbnailsApi,
         gamesApi,
         gamesServersApi,
+        buildGamesServersApi,
         presenceApi,
         buildPresenceApi,
         apisRoblox,

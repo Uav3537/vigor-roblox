@@ -25,10 +25,23 @@ export interface CreateRobloxApiOptions {
     ttl?:             RobloxTtlConfig
 }
 
+/**
+ * - `Public`: 공개 서버
+ * - `Friend`: 요청 계정의 친구가 있는 서버
+ * - `Private`: 요청 계정이 접근할 수 있는 비공개(VIP) 서버
+ */
+export type RobloxServerType = 'Public' | 'Friend' | 'Private'
+
 export interface ServersOpts {
     placeId:          RobloxPlaceId
     count?:           number
-    serverType?:      'Public' | 'Friend'
+    serverType?:      RobloxServerType
+    /**
+     * 이 계정 쿠키로 조회한다. `Friend`/`Private`은 계정에 따라 결과가 달라지므로
+     * 원하는 계정(예: 대상 유저의 친구 계정)의 쿠키를 지정해야 한다.
+     * 미지정이면 풀에서 임의의 쿠키를 쓴다.
+     */
+    cookie?:          RobloxCookie
     cursor?:          string
     thumbnailFormat?: Partial<RobloxThumbnailTarget>
 }
