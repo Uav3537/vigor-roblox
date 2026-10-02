@@ -216,7 +216,9 @@ export type RobloxPresenceEntry = z.infer<typeof RobloxPresenceEntrySchema>
 export const RobloxChatMessageSchema = z.object({
     id:              RobloxChatMessageIdSchema,
     content:         z.string(),
-    sender_user_id:  RobloxUserIdSchema,
+    // null on messages with no user sender (system/announcement rows that
+    // appear in a conversation's preview messages).
+    sender_user_id:  RobloxUserIdSchema.nullable(),
     created_at:      z.string(),
     type:            z.string().nullish(),
     moderation_type: z.string().nullish(),

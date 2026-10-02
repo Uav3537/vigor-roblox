@@ -557,7 +557,9 @@ var RobloxPresenceEntrySchema = z2.object({
 var RobloxChatMessageSchema = z2.object({
   id: RobloxChatMessageIdSchema,
   content: z2.string(),
-  sender_user_id: RobloxUserIdSchema,
+  // null on messages with no user sender (system/announcement rows that
+  // appear in a conversation's preview messages).
+  sender_user_id: RobloxUserIdSchema.nullable(),
   created_at: z2.string(),
   type: z2.string().nullish(),
   moderation_type: z2.string().nullish(),

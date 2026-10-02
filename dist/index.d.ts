@@ -265,7 +265,7 @@ type RobloxPresenceEntry = z.infer<typeof RobloxPresenceEntrySchema>;
 declare const RobloxChatMessageSchema: z.ZodObject<{
     id: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">;
     content: z.ZodString;
-    sender_user_id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+    sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">>;
     created_at: z.ZodString;
     type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
@@ -301,7 +301,7 @@ declare const RobloxChatConversationSchema: z.ZodObject<{
     messages: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
         id: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">;
         content: z.ZodString;
-        sender_user_id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+        sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">>;
         created_at: z.ZodString;
         type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
@@ -319,7 +319,7 @@ declare const RobloxChatConversationSchema: z.ZodObject<{
     preview_message: z.ZodOptional<z.ZodNullable<z.ZodObject<{
         id: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">;
         content: z.ZodString;
-        sender_user_id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+        sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">>;
         created_at: z.ZodString;
         type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
@@ -351,7 +351,7 @@ declare const RobloxChatConversationsPageSchema: z.ZodObject<{
         messages: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
             id: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">;
             content: z.ZodString;
-            sender_user_id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+            sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">>;
             created_at: z.ZodString;
             type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
             moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
@@ -369,7 +369,7 @@ declare const RobloxChatConversationsPageSchema: z.ZodObject<{
         preview_message: z.ZodOptional<z.ZodNullable<z.ZodObject<{
             id: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">;
             content: z.ZodString;
-            sender_user_id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+            sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">>;
             created_at: z.ZodString;
             type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
             moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
@@ -388,7 +388,7 @@ declare const RobloxChatMessagesPageSchema: z.ZodObject<{
     messages: z.ZodArray<z.ZodObject<{
         id: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">;
         content: z.ZodString;
-        sender_user_id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+        sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">>;
         created_at: z.ZodString;
         type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
@@ -406,7 +406,7 @@ declare const RobloxChatSendResultSchema: z.ZodObject<{
     messages: z.ZodArray<z.ZodObject<{
         id: z.core.$ZodBranded<z.ZodString, "RobloxApi::Roblox_ChatMessageId", "out">;
         content: z.ZodString;
-        sender_user_id: z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">;
+        sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxApi::Roblox_UserId", "out">>;
         created_at: z.ZodString;
         type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
