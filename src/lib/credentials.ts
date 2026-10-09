@@ -9,6 +9,12 @@ export type RobloxCredential =
     | { kind: 'oauth';  value: string }
     | { kind: 'cookie'; value: RobloxCookie }
 
+/**
+ * browser 모드에서 쿠키 자리에 들어가는 값. 실제 인증은 브라우저의 쿠키 저장소가 하고,
+ * 이 값은 전송되지 않는다 — 쿠키 풀/CSRF 토큰/계정별 캐시의 키로만 쓰인다.
+ */
+export const BROWSER_SESSION = 'browser-session' as RobloxCookie
+
 export type OAuthTokenRateLimit = { limit: number; windowMs: number }
 
 export const DEFAULT_OAUTH_TOKEN_RATE_LIMIT: OAuthTokenRateLimit = { limit: 4, windowMs: 60 * 1000 }

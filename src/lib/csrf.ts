@@ -4,6 +4,9 @@ export class CsrfTokenManager {
     private tokenMap = new Map<string, string>()
     private pendingMap = new Map<string, Promise<string>>()
 
+    /** `browser`면 Cookie 헤더 대신 브라우저의 쿠키 저장소로 인증한다. */
+    constructor(private browser = false) {}
+
     get(cookie: RobloxCookie): string | null {
         return this.tokenMap.get(cookie) ?? null
     }
@@ -22,16 +25,23 @@ export class CsrfTokenManager {
 
         const pending = (async (): Promise<string> => {
             try {
-                const response = await fetch('https://accountinformation.roblox.com/v1/description', {
-                    method:  'POST',
-                    headers: {
-                        'Cookie':          `.ROBLOSECURITY=${cookie}`,
-                        'User-Agent':      'Roblox/WinInet',
-                        'Content-Type':    'application/json',
-                        'Content-Length':  '2',
-                    },
-                    body: '{}',
-                })
+                const response = await fetch('https://accountinformation.roblox.com/v1/description', this.browser
+                    ? {
+                        method:      'POST',
+                        credentials: 'include',
+                        headers:     { 'Content-Type': 'application/json' },
+                        body:        '{}',
+                    }
+                    : {
+                        method:  'POST',
+                        headers: {
+                            'Cookie':          `.ROBLOSECURITY=${cookie}`,
+                            'User-Agent':      'Roblox/WinInet',
+                            'Content-Type':    'application/json',
+                            'Content-Length':  '2',
+                        },
+                        body: '{}',
+                    })
                 const token = response.headers.get('x-csrf-token')
                 if (!token) throw new Error('CSRF token not found in response headers')
                 this.tokenMap.set(cookie, token)

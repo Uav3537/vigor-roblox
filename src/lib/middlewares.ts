@@ -20,14 +20,18 @@ export function isFetchFailed(cause: unknown): cause is VigorFetchError<'FETCH_F
  * Builds the before/after middleware chain that attaches the ROBLOSECURITY cookie
  * (and optionally a WinInet user-agent + CSRF token) to every request, with
  * automatic CSRF token refresh + retry on a 403 response.
+ *
+ * `browser`면 Cookie/User-Agent를 붙이지 않는다 (브라우저가 금지하거나 preflight를
+ * 유발하는 헤더). 인증은 클라이언트의 `credentials: "include"`가 맡는다.
  */
 export function makeHeaderMiddlewares(opts: {
     getCookie:   () => RobloxCookie
     csrfManager: CsrfTokenManager
     winInet?:    boolean
     csrf?:       boolean
+    browser?:    boolean
 }) {
-    const { getCookie, csrfManager, winInet = false, csrf = false } = opts
+    const { getCookie, csrfManager, winInet = false, csrf = false, browser = false } = opts
 
     let builder = vigor.builders.fetch.middlewares()
         .before("intercept", async (ctx, api) => {
@@ -39,11 +43,11 @@ export function makeHeaderMiddlewares(opts: {
             // 펼쳐서 보존한다. 안 그러면 POST가 415 Unsupported Media Type로 실패한다.
             const existingOptions = ctx.options as { headers?: Record<string, string> } | undefined
             const existing = (existingOptions?.headers ?? {}) as Record<string, string>
-            const headers: Record<string, string> = {
-                ...existing,
-                Cookie: `.ROBLOSECURITY=${cookie}`,
+            const headers: Record<string, string> = { ...existing }
+            if (!browser) {
+                headers['Cookie'] = `.ROBLOSECURITY=${cookie}`
+                if (winInet) headers['User-Agent'] = 'Roblox/WinInet'
             }
-            if (winInet) headers['User-Agent'] = 'Roblox/WinInet'
             if (csrf)    headers['X-CSRF-Token'] = await csrfManager.getOrRefresh(cookie)
 
             api.setHeaders(headers)
@@ -108,8 +112,9 @@ export function makeCredentialMiddlewares(opts: {
     pool:       CredentialPool
     allowOAuth: boolean
     winInet?:   boolean
+    browser?:   boolean
 }) {
-    const { pool, allowOAuth, winInet = false } = opts
+    const { pool, allowOAuth, winInet = false, browser = false } = opts
 
     return vigor.builders.fetch.middlewares()
         .before("intercept", async (ctx, api) => {
@@ -119,8 +124,8 @@ export function makeCredentialMiddlewares(opts: {
 
             const headers: Record<string, string> = baseHeaders(ctx)
             if (credential.kind === 'oauth') headers['Authorization'] = `Bearer ${credential.value}`
-            else headers['Cookie'] = `.ROBLOSECURITY=${credential.value}`
-            if (winInet) headers['User-Agent'] = 'Roblox/WinInet'
+            else if (!browser) headers['Cookie'] = `.ROBLOSECURITY=${credential.value}`
+            if (winInet && !browser) headers['User-Agent'] = 'Roblox/WinInet'
 
             api.setHeaders(headers)
             return ctx

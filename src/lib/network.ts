@@ -17,29 +17,35 @@ export function createNetworkClients(opts: {
     oauthTokens:      string[]
     oauthTokenRateLimit?: OAuthTokenRateLimit
     csrfManager:      CsrfTokenManager
+    /** 브라우저의 쿠키 저장소로 인증한다. Cookie/User-Agent 헤더를 붙이지 않는다. */
+    browser?:         boolean
 }) {
-    const { cookies, oauthTokens, oauthTokenRateLimit, csrfManager } = opts
+    const { cookies, oauthTokens, oauthTokenRateLimit, csrfManager, browser = false } = opts
+
+    /** Roblox 호스트용 클라이언트. browser 모드에서는 브라우저의 쿠키를 실어 보낸다. */
+    const requestOptions: RequestInit = browser ? { credentials: 'include' } : {}
+    const robloxFetch = (origin: string) => vigor.fetch(origin).options('merge', requestOptions)
 
     const pickCookie = createCookieRotator(cookies)
 
     /** rate limit은 엔드포인트 단위라 클라이언트마다 별도의 풀(쿨다운/쿠키 사용 횟수)을 쓴다. */
     function credentialMiddlewares({ winInet = false, allowOAuth = true }: { winInet?: boolean, allowOAuth?: boolean } = {}) {
         const pool = createCredentialPool({ cookies, oauthTokens, tokenLimit: oauthTokenRateLimit })
-        return makeCredentialMiddlewares({ pool, allowOAuth, winInet })
+        return makeCredentialMiddlewares({ pool, allowOAuth, winInet, browser })
     }
 
-    const poolCookieMiddlewares        = makeHeaderMiddlewares({ getCookie: pickCookie, csrfManager })
-    const poolCookieWinInetMiddlewares = makeHeaderMiddlewares({ getCookie: pickCookie, csrfManager, winInet: true })
-    const poolCookieCsrfMiddlewares    = makeHeaderMiddlewares({ getCookie: pickCookie, csrfManager, winInet: true, csrf: true })
+    const poolCookieMiddlewares        = makeHeaderMiddlewares({ browser, getCookie: pickCookie, csrfManager })
+    const poolCookieWinInetMiddlewares = makeHeaderMiddlewares({ browser, getCookie: pickCookie, csrfManager, winInet: true })
+    const poolCookieCsrfMiddlewares    = makeHeaderMiddlewares({ browser, getCookie: pickCookie, csrfManager, winInet: true, csrf: true })
 
     /** 인증 미들웨어가 없는 users 클라이언트. 호출부에서 특정 쿠키를 붙일 때(authenticated) 쓴다. */
-    const usersPlainApi = vigor.fetch('https://users.roblox.com/v1')
+    const usersPlainApi = robloxFetch('https://users.roblox.com/v1')
         .retry(r => r
             .settings(s => s.maxAttempts(7))
             .algorithms(a => a.backoff({ initial: 200, unit: 800, multiplier: 1.7 }))
         )
 
-    const usersApi = vigor.fetch('https://users.roblox.com/v1')
+    const usersApi = robloxFetch('https://users.roblox.com/v1')
         .middlewares(credentialMiddlewares({ winInet: true }))
         .settings(s => s.unretryStatus(429).maxRestarts(CREDENTIAL_MAX_RESTARTS))
         .retry(r => r
@@ -47,14 +53,14 @@ export function createNetworkClients(opts: {
             .algorithms(a => a.backoff({ initial: 200, unit: 800, multiplier: 1.7 }))
         )
 
-    const thumbnailsApi = vigor.fetch('https://thumbnails.roblox.com/v1')
+    const thumbnailsApi = robloxFetch('https://thumbnails.roblox.com/v1')
         .middlewares(poolCookieWinInetMiddlewares)
         .retry(r => r
             .settings(s => s.maxAttempts(5))
             .algorithms(a => a.backoff({ initial: 1000, multiplier: 2.5 }))
         )
 
-    const gamesApi = vigor.fetch('https://games.roblox.com/v1')
+    const gamesApi = robloxFetch('https://games.roblox.com/v1')
         .middlewares(credentialMiddlewares())
         .settings(s => s.unretryStatus(429).maxRestarts(CREDENTIAL_MAX_RESTARTS))
         .retry(r => r
@@ -71,10 +77,10 @@ export function createNetworkClients(opts: {
     const gamesServersCredentialMiddlewares = credentialMiddlewares({ allowOAuth: false })
     function buildGamesServersApi(cookie?: RobloxCookie) {
         const middlewares = cookie
-            ? makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager })
+            ? makeHeaderMiddlewares({ browser, getCookie: () => cookie, csrfManager })
             : gamesServersCredentialMiddlewares
 
-        return vigor.fetch('https://games.roblox.com/v1')
+        return robloxFetch('https://games.roblox.com/v1')
             .middlewares(middlewares)
             .settings(s => s.unretryStatus(429).maxRestarts(CREDENTIAL_MAX_RESTARTS))
             .retry(r => r
@@ -93,10 +99,10 @@ export function createNetworkClients(opts: {
     const presenceCredentialMiddlewares = credentialMiddlewares()
     function buildPresenceApi(cookie?: RobloxCookie) {
         const middlewares = cookie
-            ? makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager })
+            ? makeHeaderMiddlewares({ browser, getCookie: () => cookie, csrfManager })
             : presenceCredentialMiddlewares
 
-        return vigor.fetch('https://presence.roblox.com/v1')
+        return robloxFetch('https://presence.roblox.com/v1')
             .middlewares(middlewares)
             .settings(s => s.unretryStatus(429).maxRestarts(CREDENTIAL_MAX_RESTARTS))
             .retry(r => r
@@ -106,7 +112,7 @@ export function createNetworkClients(opts: {
     }
     const presenceApi = buildPresenceApi()
 
-    const apisRoblox = vigor.fetch('https://apis.roblox.com')
+    const apisRoblox = robloxFetch('https://apis.roblox.com')
         .middlewares(poolCookieMiddlewares)
         .retry(r => r
             .settings(s => s.maxAttempts(5))
@@ -121,10 +127,10 @@ export function createNetworkClients(opts: {
      */
     function buildGamejoinApi(cookie?: RobloxCookie) {
         const middlewares = cookie
-            ? makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager, winInet: true })
+            ? makeHeaderMiddlewares({ browser, getCookie: () => cookie, csrfManager, winInet: true })
             : poolCookieWinInetMiddlewares
 
-        return vigor.fetch('https://gamejoin.roblox.com/v1')
+        return robloxFetch('https://gamejoin.roblox.com/v1')
             .middlewares(middlewares)
             .retry(r => r
                 .settings(s => s.maxAttempts(7))
@@ -139,7 +145,7 @@ export function createNetworkClients(opts: {
             .algorithms(a => a.backoff({ initial: 500, multiplier: 2 }))
         )
 
-    const friendsApi = vigor.fetch('https://friends.roblox.com/v1')
+    const friendsApi = robloxFetch('https://friends.roblox.com/v1')
         .middlewares(poolCookieCsrfMiddlewares)
         .retry(r => r
             .settings(s => s.maxAttempts(5))
@@ -154,10 +160,10 @@ export function createNetworkClients(opts: {
      */
     function buildChatApi(cookie?: RobloxCookie) {
         const middlewares = cookie
-            ? makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager, winInet: true, csrf: true })
+            ? makeHeaderMiddlewares({ browser, getCookie: () => cookie, csrfManager, winInet: true, csrf: true })
             : poolCookieCsrfMiddlewares
 
-        return vigor.fetch('https://apis.roblox.com/platform-chat-api/v1')
+        return robloxFetch('https://apis.roblox.com/platform-chat-api/v1')
             .middlewares(middlewares)
             .retry(r => r
                 .settings(s => s.maxAttempts(5))

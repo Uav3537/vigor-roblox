@@ -35,14 +35,15 @@ export type UsersApiDeps = {
     usersPlainApi: ReturnType<typeof createNetworkClients>['usersPlainApi']
     csrfManager: CsrfTokenManager
     withCache:   ReturnType<typeof createCacheHelpers>['withCache']
+    browser?:    boolean
 }
 
-export function createUsersApi({ usersApi, usersPlainApi, csrfManager, withCache }: UsersApiDeps) {
+export function createUsersApi({ usersApi, usersPlainApi, csrfManager, withCache, browser = false }: UsersApiDeps) {
 
     async function authenticated(cookies: RobloxCookie[]): Promise<RobloxAuthenticatedUser[]> {
         const results = await vigor.all(...cookies.map(cookie => async () => {
             // 특정 계정 기준 조회이므로 인증 풀(OAuth/쿠키 로테이션)이 없는 클라이언트를 쓴다.
-            const base = usersPlainApi.middlewares(makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager, winInet: true }))
+            const base = usersPlainApi.middlewares(makeHeaderMiddlewares({ getCookie: () => cookie, csrfManager, winInet: true, browser }))
 
             const [user, description, birthdate, gender, ageBracket, countryCode, roles] = await Promise.allSettled([
                 base.path('users', 'authenticated').middlewares(validate(RobloxAuthenticatedUserBaseSchema)).request<RobloxAuthenticatedUserBase>(),
