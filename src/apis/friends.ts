@@ -13,6 +13,18 @@ export type FriendsApiDeps = {
     withCache:  ReturnType<typeof createCacheHelpers>['withCache']
 }
 
+/**
+ * friends 목록에는 실제 유저가 아닌 자리표시 항목이 섞여 온다
+ * (`{ id: -1, name: "", displayName: "" }` — 숨겨진 친구로 보임). id가 양수가 아니므로
+ * 스키마 검증 전에 걸러내지 않으면 목록 전체가 ZodError로 실패한다.
+ */
+const FriendListSchema = z.preprocess(
+    (list) => Array.isArray(list)
+        ? list.filter((entry) => typeof entry?.id === 'number' && entry.id > 0)
+        : list,
+    z.array(RobloxFriendEntrySchema),
+)
+
 export function createFriendsApi({ friendsApi, withCache }: FriendsApiDeps) {
 
     async function friends(userId: RobloxUserId): Promise<RobloxFriendEntry[]> {
@@ -26,7 +38,7 @@ export function createFriendsApi({ friendsApi, withCache }: FriendsApiDeps) {
                 const list = await friendsApiRateLimiter(() =>
                     friendsApi
                         .path('users', userId, 'friends')
-                        .middlewares(pickKeyValidated('data', z.array(RobloxFriendEntrySchema)))
+                        .middlewares(pickKeyValidated('data', FriendListSchema))
                         .request<RobloxFriendEntry[]>()
                 )
                 return [list]

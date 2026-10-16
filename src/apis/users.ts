@@ -65,7 +65,11 @@ export function createUsersApi({ usersApi, usersPlainApi, csrfManager, withCache
                 ...(countryCode.status === 'fulfilled' ? countryCode.value : {}),
                 ...(roles.status       === 'fulfilled' ? roles.value       : {}),
             } satisfies RobloxAuthenticatedUser
-        })).request<RobloxAuthenticatedUser[]>()
+        }))
+        // 기본값은 allSettled 방식이라 실패한 쿠키 자리에 에러 객체가 그대로 들어온다.
+        // 그러면 호출부가 에러를 유저로 착각하므로, 하나라도 실패하면 reject한다.
+        .settings(s => s.failFast(true))
+        .request<RobloxAuthenticatedUser[]>()
 
         return results
     }
