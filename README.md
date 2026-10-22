@@ -2,11 +2,12 @@
 
 A typed client for Roblox's web APIs, built on [vigor-fetch](https://www.npmjs.com/package/vigor-fetch).
 
-- Users, presence, friends, thumbnails, server lists, place info and chat behind one object
-- Every response validated with [zod](https://zod.dev) before it reaches you
-- Read-through caching against a store you provide, with a TTL per resource
-- Credential rotation across several cookies and OAuth tokens, with per-credential rate-limit cooldown
-- Two modes: `node` for servers that hold cookies, `browser` for code running on roblox.com
+- Users, thumbnails, presence, games (with gamejoin), friends, groups, badges and chat behind one object
+- Every lookup takes an array. Calls made in the same tick are batched into as few requests as each endpoint allows
+- When several endpoints return the same result, the library picks between them by their remaining rate limit, so you never choose an endpoint
+- Every response validated with [zod](https://zod.dev); ids are branded types
+- Read-through caching against a store you provide, with typed tuple keys and default TTLs
+- Two modes: `node` for servers that hold cookies, `extension` for browser extensions (and scripts running on roblox.com)
 
 ## Install
 
@@ -19,234 +20,316 @@ Ships ESM and CommonJS builds with type declarations. It uses the global `fetch`
 ## Quick start
 
 ```ts
-import { createRobloxApi, RobloxCookieSchema, RobloxUserIdSchema } from "vigor-roblox"
+import { vigorRoblox, RobloxUserIdSchema } from "vigor-roblox"
 
-const roblox = createRobloxApi({
-    cache,                                             // see "Cache" below
-    cookies: [RobloxCookieSchema.parse(process.env.ROBLOX_COOKIE)],
-    ipgeolocationKey: process.env.IPGEOLOCATION_KEY!,
-})
+const roblox = vigorRoblox.mode("node")
 
-const [user] = await roblox.usersSimple([RobloxUserIdSchema.parse(1)])
-console.log(user.name)
+const ids = [1, 156].map(id => RobloxUserIdSchema.parse(id))
+const users = await roblox.users.getUsers(ids, { thumbnail: true })
+console.log(users[0].name, users[0].thumbnail.imageUrl)
 ```
 
-## Modes
+## Setup
 
-`createRobloxApi` takes a `type` of `"node"` or `"browser"`. It defaults to `"node"`.
-
-### Node (default)
-
-Authenticates by attaching credentials to each request itself.
+The client is an immutable builder. Every stage is already a client, so you can stop at any point and use `.users`, `.games` and so on.
 
 ```ts
-const roblox = createRobloxApi({
-    type: "node",            // optional
-    cache,
-    cookies,
-    oauthTokens,             // optional
-    oauthTokenRateLimit,     // optional
-    ipgeolocationKey,
-    ttl,                     // optional
+import { vigorRoblox, RobloxCookieSchema, RobloxMemoryCache } from "vigor-roblox"
+
+const roblox = vigorRoblox
+    .mode("node")
+    .cookies(process.env.COOKIES!.split(",").map(c => RobloxCookieSchema.parse(c)))
+    .retry({ maxAttempts: 5, timeout: 20_000 })
+    .geolocation(process.env.IPGEOLOCATION_KEY!)     // optional, for server locations
+    .cache(new RobloxMemoryCache())
+    .ttl({ presence: { get: 10_000 } })               // optional, overrides defaults
+```
+
+| Stage | Description |
+| --- | --- |
+| `mode("node" \| "extension")` | `node` attaches cookies itself. `extension` sends `credentials: "include"` and uses whatever account the browser is signed in to (see [Extensions](#extensions)). |
+| `cookies(list \| store)` | Node only. `.ROBLOSECURITY` cookies, one per request. An array becomes an in-memory round-robin pool. See [Cookie pools](#cookie-pools). |
+| `onCookieRejected(fn)` | Node only. Called with the cookie and a reason when Roblox rejects it (`401`, or `403` for a banned account). Replaces the default, which drops the cookie from the pool. |
+| `rateLimits(store)` | Syncs rate limit state with a store you provide. See [Rate limits](#rate-limits). |
+| `retry(options)` | Attempts and per-attempt timeout for every request. |
+| `geolocation(key)` | [ipgeolocation.io](https://ipgeolocation.io) key, needed for server locations. |
+| `cache(store)` | Turns caching on. See [Cache](#cache). |
+| `ttl(ttl)` | Only after `cache`. Per-method TTL overrides; calling it again merges per method. |
+
+### Cookie pools
+
+`cookies(list)` wraps the array in `RobloxMemoryCookies`, a round-robin pool held in process memory. To change cookies while the client runs, create the pool yourself and keep a reference:
+
+```ts
+import { RobloxMemoryCookies } from "vigor-roblox"
+
+const pool = new RobloxMemoryCookies(cookies)
+const roblox = vigorRoblox.mode("node").cookies(pool)
+
+pool.add(newCookie)
+pool.remove(oldCookie)
+```
+
+An in-memory pool does not survive serverless platforms (Vercel, Lambda...). Every cold start begins the rotation at the first cookie again, and a cookie removed on one instance is still in use on the others. Pass a `RobloxCookieStore` backed by shared storage instead:
+
+```ts
+import type { RobloxCookie, RobloxCookieStore } from "vigor-roblox"
+
+const store: RobloxCookieStore = {
+    // Rotating a Redis list atomically gives every instance one shared rotation.
+    next: async () => (await redis.lmove("cookies", "cookies", "LEFT", "RIGHT")) as RobloxCookie | null,
+    remove: async cookie => { await redis.lrem("cookies", 0, cookie) },
+}
+
+const roblox = vigorRoblox.mode("node").cookies(store)
+```
+
+`next()` may return `null`, in which case the request goes out without a cookie. When a pool is set, the client treats it as rotating even if it happens to be empty (see [Pinning an account](#pinning-an-account)).
+
+#### Rejected cookies
+
+A cookie is rejected when a request that carried it gets one of these answers. The reason is passed to the handler:
+
+| Reason | Response | Meaning |
+| --- | --- | --- |
+| `"unauthorized"` | `401` | The cookie expired or was logged out. |
+| `"moderated"` | `403` "User is moderated" | The account is banned. It still signs in, but authenticated APIs refuse it. A temporary ban lifts later. |
+
+Other `403`s (CSRF token, missing permission, challenge) are not cookie problems and don't reject it. When a cookie is rejected:
+
+1. By default the store's `remove(cookie)` is called. `RobloxMemoryCookies` drops it from the array. A store without `remove` does nothing.
+2. `onCookieRejected(fn)` replaces that default completely. The pool is left as it is unless your handler changes it, so you decide whether to delete the cookie from your database, flag it for review, or keep it.
+3. If the request came from the pool, it is sent again with the next cookie once the handler finishes. A request made through `.as(cookie)` fails with the original error after the handler runs.
+
+```ts
+const roblox = vigorRoblox
+    .mode("node")
+    .cookies(store)
+    .onCookieRejected(async (cookie, reason) => {
+        await db.cookies.update({ where: { value: cookie }, data: { status: reason } })
+    })
+```
+
+Concurrent rejections of the same cookie call the handler once. The handler also runs for cookies given to `.as(cookie)`.
+
+### Pinning an account
+
+Some answers depend on who asks: chat, friend statuses, online friends, playability, friend and private server lists. Use `.as(cookie)` to get a client fixed to one account. Calling it again with the same cookie returns the same client, so its requests keep being batched together.
+
+```ts
+const me = roblox.as(cookie)
+const conversations = await me.chat.listConversations()
+```
+
+APIs that answer for "me" throw if the client has a cookie pool, because each request could come from a different account. In extension mode the signed-in account is used.
+
+### Extensions
+
+Roblox APIs only allow cross-origin requests from `https://www.roblox.com`, so `extension` mode works from an extension's service worker, popup or offscreen page (host permissions skip CORS) and from scripts running on roblox.com (content scripts, userscripts). A regular web page is blocked by CORS in either mode and needs its own backend running `node` mode.
+
+Authentication is left to the browser's cookies. A `fetch` cannot set `User-Agent`, which gamejoin requires, so `robloxDnrRules()` returns a `declarativeNetRequest` rule that does it:
+
+```ts
+import { vigorRoblox, robloxDnrRules } from "vigor-roblox"
+
+const rules = robloxDnrRules({ firstRuleId: 1000 })
+await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds: rules.map(r => r.id), addRules: rules })
+
+const roblox = vigorRoblox.mode("extension")
+```
+
+| Option | Description |
+| --- | --- |
+| `firstRuleId` | Id of the first rule; each rule takes the next id. Default `1`. |
+| `priority` | Default `1`. |
+| `extensionOnly` | Limits the rule to the extension's own requests (`tabIds: [-1]`, session rules only). By default it applies to every request to `gamejoin.roblox.com`. |
+
+The manifest needs the `declarativeNetRequest` (or `declarativeNetRequestWithHostAccess`) permission and `*://*.roblox.com/*` host permission.
+
+## Conventions
+
+- **Lookups take arrays and return results in input order.** Ask for one item with a one-element array. Missing items are dropped (thumbnails come back with `state: "Error"` instead, presence comes back offline).
+- **Paged lists take one entity.** Methods that walk a cursor (`getUsernameHistory`, `getServerPage`, `getUserGames`, `getFollowers`, ...) take a single id plus a query, since a cursor belongs to one list.
+- **Ids are branded.** Parse plain values with the matching schema, for example `RobloxPlaceIdSchema.parse(1818)`. The same goes for cookies (`RobloxCookieSchema`), job ids, conversation ids and server IPs.
+- **Creators are discriminated unions.** A field that can point to a user or a group (`game.creator`, `group.owner`, a recommendation's `creator`) is a `RobloxCreator`. Check `type` and `id` narrows to `RobloxUserId` or `RobloxGroupId`. Any other type comes back as `"Unknown"`, with the original value in `rawType`. A thumbnail's `targetId` has the id type of the target you asked for.
+
+  ```ts
+  if (game.creator.type === "Group") await roblox.groups.getGroups([game.creator.id])
+  ```
+- **One function per result.** If two endpoints return the same data, there is still one method. The library routes each call by remaining rate limit and falls back to the other endpoint on `429`, `403`, `5xx` or a response that no longer matches its schema.
+
+## Services
+
+### `users`
+
+| Method | Description |
+| --- | --- |
+| `getUsers(ids, { excludeBannedUsers?, thumbnail? })` | Name, display name, verified badge. Batched across three endpoints (200 per request on the fastest). |
+| `getUserDetails(ids, { thumbnail? })` | Adds description, join date and ban status. One request per user, 30 per minute. |
+| `getUsersByNames(names, { excludeBannedUsers?, thumbnail? })` | Resolves current or previous usernames, case-insensitive. |
+| `searchUsers(query)`, `getUsernameHistory(id, query)` | Paged. |
+| `getAuthenticated()`, `getAgeBracket()`, `getCountryCode()`, `getRoles()` | The signed-in account. |
+| `getBirthdate()`, `setBirthdate()`, `getDescription()`, `setDescription()`, `getGender()`, `setGender()` | Account settings. |
+| `validateDisplayName()`, `validateUserDisplayName()`, `setDisplayName()` | Display names. |
+
+`thumbnail: true` attaches a 150×150 PNG headshot to each user. Pass an object to pick the type and size, for example `{ type: "Avatar", size: "420x420" }`.
+
+### `thumbnails`
+
+```ts
+const images = await roblox.thumbnails.get([
+    { type: "AvatarHeadShot", targetId: userId, size: "48x48", isCircular: true },
+    { type: "GameIcon", targetId: universeId },
+    { type: "AvatarHeadShot", token: playerToken },   // tokens from server lists
+])
+```
+
+`get` takes any mix of avatar, asset, game, badge, game pass, bundle, group, outfit and developer product targets. Each target type only accepts the sizes and formats Roblox supports for it. Requests go through the batch endpoint (60 per second, 100 targets each) and spill over to the per-type endpoints when it is busy. Pending thumbnails are polled until they finish.
+
+`getGameThumbnails(universeIds, query)` returns each universe's screenshot list.
+
+### `presence`
+
+`get(userIds)` returns online status and, when visible to the requesting account, the game and server. 50 users per request, 60 requests per minute.
+
+### `games`
+
+| Method | Description |
+| --- | --- |
+| `getPlaces(placeIds)` | Place → universe → details, votes, icon and thumbnails in one call. |
+| `getServers(placeId, { count, serverType, players, address, location })` | Walks the server list until `count` servers are collected (whole pages), with player headshots, gamejoin addresses and locations. |
+| `findUsers(placeId, userIds, { maxServers, presence, serverType, address, location })` | Which server of a place each user is in. Walks the server list and matches player headshots against each user's headshot, stopping once everyone is found. Presence is asked in parallel as a hint and never waited on unless someone is still missing: a visible server in this place is used, a user confirmed in another place is dropped, and offline or hidden users keep being searched. `presence: false` skips it. Needs a signed-in account. The server list only carries up to 5 player tokens per server, so a user who is in a server can still be missed; users with a default avatar, or sharing an avatar with another target, can't be matched by headshot. |
+| `getGames`, `getUniverseIds`, `getPlaceDetails`, `getProductInfo`, `getPlayability`, `getVotes`, `getFavoriteCounts`, `getMedia` | Batched lookups. |
+| `getServerPage(placeId, query)` | One page of servers. Spread over three endpoints, each limited to 3 requests per minute per IP. |
+| `getServerAddresses(targets)`, `getServerLocations(ips)` | gamejoin addresses (needs a signed-in account; full servers have none) and IP locations. |
+| `getRecommendations`, `getUserGames`, `getUserFavoriteGames`, `getGroupGames` | Paged lists. |
+| `getFavorited`, `setFavorited`, `getUserVotes`, `setUserVote` | The requesting account's favorites and votes. |
+| `getPrivateServers`, `getMyPrivateServers`, `getPrivateServerDetails`, `getPrivateServersEnabled`, `getPrivateServerInvites`, `createPrivateServer`, `updatePrivateServer`, `updatePrivateServerPermissions`, `updatePrivateServerSubscription` | Private servers. |
+
+gamejoin only answers requests whose `User-Agent` looks like the Roblox client. Node mode sends `Roblox/WinInet` itself. A `fetch` cannot set that header, so in extension mode addresses come back with `status: 12` and no IP unless the `robloxDnrRules()` rules are installed.
+
+### `friends`
+
+| Method | Description |
+| --- | --- |
+| `getFriends(ids, { thumbnail? })` | Friend lists with names filled in from `users` (the friends API returns empty names). |
+| `getFriendCounts`, `getFollowerCounts`, `getFollowingCounts` | Counts. |
+| `getFollowers`, `getFollowings`, `searchFriends`, `getMetadata` | Paged lists and page metadata. |
+| `getFriendStatuses`, `getAreFriends`, `getFollowingStatuses`, `getOnlineFriends`, `getInactiveFriends`, `getFriendRequests`, `getTrustedFriendRequests`, `getFriendRequestCount` | Relative to the requesting account. |
+| `sendFriendRequest`, `acceptFriendRequest`, `declineFriendRequest`, `declineAllFriendRequests`, `unfriend`, `follow`, `unfollow` | Actions. Friend requests may require a captcha. |
+
+### `groups`
+
+| Method | Description |
+| --- | --- |
+| `getGroups(ids, { thumbnail? })` | Name, description, owner id and creation date. 100 groups per request, 1 request per second. `thumbnail` attaches the group icon. |
+| `getGroupDetails(ids, { thumbnail? })` | Member count, owner name, shout and entry settings. One request per group, only 7 per minute. |
+| `getRoles(groupIds)`, `getRolesByIds(roleIds)` | A group's roles with member counts; roles looked up by id (100 per request). |
+| `getUserGroups(userIds)`, `getPrimaryGroups(userIds)` | Groups and roles of users, spread over the v1 and v2 endpoints; primary groups (users without one are left out). |
+| `getMembers`, `getRoleMembers`, `searchGroups`, `getNameHistory`, `getRelationships` | Paged lists. `lookupGroups(name)` puts an exact name match first. |
+| `getGuestPermissions`, `getFeatureFreezes`, `getFeaturedEvents`, `getMetadata`, `getConfigurationMetadata`, `getSearchMetadata` | Public lookups. |
+| `getMemberships`, `getPolicies`, `getSocialLinks`, `getEmotes`, `getPendingGroups`, `getFriendsGroups` | Relative to the requesting account. |
+| `joinGroup`, `leaveGroup`, `setPrimaryGroup`, `removePrimaryGroup`, `setNotificationPreference`, `createGroup` | The requesting account's actions. `createGroup` costs Robux. |
+| `getRolePermissions`, `getUserPermissions`, `createRole`, `updateRole`, `deleteRole`, `updateRolePermissions`, `setMemberRole`, `removeMember` | Roles and members. `getRolePermissions` asks for every role at once and falls back to one role at a time when the account isn't the owner. |
+| `getJoinRequests`, `getJoinRequestsByUsers`, `acceptJoinRequests`, `declineJoinRequests`, `getBans`, `getBannedUsers`, `banUser`, `unbanUser`, `getAuditLog` | Moderation. Accepting or declining one user uses the single endpoint, several use the batch endpoint. |
+| `getSettings`, `updateSettings`, `getConfigurations`, `getFeatures`, `getFeaturesBlocked`, `updateFeatures`, `setName`, `setDescription`, `setShout`, `setIcon` | Configuration. |
+| `getSocialLinks`, `createSocialLink`, `updateSocialLink`, `deleteSocialLink`, `getKeywords`, `createKeywords`, `updateKeyword`, `deleteKeyword`, `setFeaturedEvent`, `removeFeaturedEvent` | Social links, forum keyword block list and featured events. |
+| `getRelationshipRequests`, `acceptRelationshipRequests`, `declineRelationshipRequests`, `createRelationship`, `deleteRelationship` | Allies and enemies. |
+| `getPayouts`, `getPayoutRestrictions`, `payout`, `setRecurringPayouts` | Group funds. `payout` sends an idempotency key so a retried request doesn't pay twice. |
+| `changeOwner`, `claimOwnership`, `evaluateCommunityTier`, `deactivateGroup` | Ownership and lifecycle. |
+
+Management methods need the matching group permission and fail with `403` otherwise.
+
+### `badges`
+
+| Method | Description |
+| --- | --- |
+| `getBadges(ids, { thumbnail? })` | Badge details, award statistics and the awarding game. One request per badge (600 per minute). `thumbnail` attaches the badge icon. |
+| `getUniverseBadges(universeId, query)` | A game's badges, paged. `sortBy` is `"Rank"` or `"DateCreated"`. |
+| `getUserBadges(userId, query)` | Badges a user has, paged, with the creator (`RobloxCreator`) and the place that awarded each one. Needs a cookie. |
+| `getAwardedDates(userId, badgeIds)` | Whether the user has each badge, and when they got it. Results are in input order, and `awardedDate` is `null` for badges the user doesn't have (a badge that doesn't exist also comes back as `null`). Needs a cookie. Uses the batch endpoint (100 per request, 10 per minute) and the single one (100 per minute), and falls back to the single one when the batch endpoint asks for a challenge. Only awarded dates are cached. |
+| `getFreeQuotas(universeIds)`, `getMetadata()` | Free badges left today (UTC) per game; creation price and length limits. |
+| `createBadge`, `updateBadge`, `setIcon`, `removeBadge` | Create a badge (multipart, optional icon; costs Robux beyond the daily free quota), rename or disable one, replace its icon, or remove a badge from the requesting account. |
+
+### `chat`
+
+`listConversations`, `getConversations`, `searchConversations`, `getMessages`, `searchMessages`, `getUnreadCounts`, `getMetadata`, `sendMessages`, `markRead`, `setTyping`, `createConversations`, `renameConversations`, `addUsers`, `removeUsers`.
+
+These use Roblox's `platform-chat-api`, which is undocumented and may change without notice. Accounts without chat access (see `getMetadata().isChatUserMessagesEnabled`) get `403 chat_disabled_for_user` when sending.
+
+## Rate limits
+
+Roblox limits most endpoints per IP. The client reads `x-ratelimit-*` headers to track each endpoint's remaining budget, shared by every client built from the same `vigorRoblox.mode()` chain. A request that would exceed the budget waits for the window to reset or goes to another endpoint that returns the same data. A `429` reroutes instead of waiting inside the retry engine, and repeated `429`s back off (1, 2, 4 ... up to 60 seconds) even when the headers claim budget is left, which some endpoints do.
+
+This state lives in memory by default, which is lost whenever the context restarts: a content script on every page load, an MV3 service worker after it idles, a serverless function on every cold start. Separate tabs and instances on the same IP also each start probing from scratch. `rateLimits(store)` syncs it with storage you choose:
+
+```ts
+const roblox = vigorRoblox.mode("extension").rateLimits({
+    get: async bucket => (await chrome.storage.local.get(`rl:${bucket}`))[`rl:${bucket}`],
+    set: (bucket, state) => chrome.storage.local.set({ [`rl:${bucket}`]: state }),
+    watch: listener => chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== "local") return
+        for (const [key, change] of Object.entries(changes)) {
+            if (key.startsWith("rl:") && change.newValue) listener(key.slice(3), change.newValue)
+        }
+    }),
 })
 ```
 
-| Option | Type | Description |
-| --- | --- | --- |
-| `cache` | `RobloxApiCache` | Where cached responses are stored. Required. |
-| `cookies` | `RobloxCookie[]` | `.ROBLOSECURITY` cookies to rotate through. |
-| `oauthTokens` | `string[]` | OAuth 2.0 access tokens. Used ahead of cookies for the users, games and presence APIs. |
-| `oauthTokenRateLimit` | `{ limit, windowMs }` | How often one OAuth token may be used before falling back to a cookie. Defaults to 4 per minute. |
-| `ipgeolocationKey` | `string` | [ipgeolocation.io](https://ipgeolocation.io) API key, used to resolve server locations. |
-| `ttl` | `RobloxTtlConfig` | Cache TTL overrides. |
+- A state is `{ remaining, resetAt, strikes }`. `resetAt` is epoch milliseconds, so it compares across tabs and machines.
+- `get` runs when a bucket is first used and again after its window has passed. Requests on that bucket wait for it.
+- `set` runs without being awaited whenever a response updates the state. Its errors are ignored.
+- `watch` is optional and pushes changes made elsewhere. Your own writes coming back are harmless.
+- Incoming state is merged conservatively (lower `remaining`, later `resetAt`). Requests in flight stay local. Nothing is atomic, so contexts probing at the same moment can overshoot slightly, and the resulting `429` is shared like any other state.
 
-`cookies` and `oauthTokens` are held by reference, not copied. Push, splice or replace entries in the arrays you passed and the next request sees the change, which is how you rotate or refresh credentials without rebuilding the client.
-
-Requests that do not need a particular account pick the least recently used credential. When Roblox rate-limits one, that credential rests until its limit resets and the request is retried with another.
-
-> Roblox ties a session to the region it was signed in from. A cookie that was created in a user's browser and is then used from your server can get that session reset, signing the user out. Use node mode with accounts you own, and use browser mode for anything that should act as the visitor.
-
-### Browser
-
-Takes no cookies. Requests are sent with `credentials: "include"`, so they are authenticated by whatever Roblox account the browser is signed in to.
-
-```ts
-const roblox = createRobloxApi({ type: "browser", cache })
-
-const me = await roblox.authenticated()
-const { conversations } = await roblox.chatConversations({})
-```
-
-| Option | Type | Description |
-| --- | --- | --- |
-| `type` | `"browser"` | Required to select this mode. |
-| `cache` | `RobloxApiCache` | Where cached responses are stored. Required. |
-| `ttl` | `RobloxTtlConfig` | Cache TTL overrides. |
-
-Things to know:
-
-- **It only works from a roblox.com origin**, such as a browser extension script running on a Roblox page. Anywhere else the requests are cross-site and Roblox's CORS policy rejects them.
-- **No method accepts a cookie.** Methods that take a `cookie` in node mode drop that parameter, and `authenticated()` takes no arguments and resolves to the one signed-in user.
-- **`gamejoin`, `serversRegion`, `servers` and `track` are not available.** They depend on Roblox's game-join endpoint, which only answers Roblox's own client. Use `serversSimple` for server lists and resolve locations from a server running node mode.
-- **Use a cache that lives no longer than the page**, such as an in-memory `Map`. Account-scoped entries are not keyed by account in this mode, so a persistent store would serve one account's results to the next one that signs in.
+On serverless platforms, whether instances share an IP depends on the provider, so check before sharing one budget between them.
 
 ## Cache
 
-You supply the storage. The client calls two methods:
-
 ```ts
-interface RobloxApiCache {
-    select<T>(type: string, separators: string[]): Promise<Array<{ separator: string; data: T }>>
-    upsert<T>(type: string, expire: number, items: Array<{ separator: string; data: T }>): Promise<void>
+interface RobloxCacheStore {
+    get<K extends RobloxCacheKey>(key: K): RobloxCacheValue<K> | undefined | Promise<...>
+    set<K extends RobloxCacheKey>(key: K, value: RobloxCacheValue<K>, ttl: number): void | Promise<void>
 }
 ```
 
-`type` is the resource name and `separator` identifies one entry within it. `select` returns only the entries it has; anything missing is fetched and passed to `upsert`. `expire` is in milliseconds.
-
-A minimal in-memory implementation:
+Keys are tuples, `[service, method, ...arguments]`, so a store can route them with a `switch`:
 
 ```ts
-import type { RobloxApiCache } from "vigor-roblox"
-
-const store = new Map<string, { data: unknown; expiresAt: number }>()
-
-const cache: RobloxApiCache = {
-    async select<T>(type: string, separators: string[]) {
-        const now = Date.now()
-        const hits: Array<{ separator: string; data: T }> = []
-        for (const separator of separators) {
-            const entry = store.get(`${type}:${separator}`)
-            if (entry && entry.expiresAt > now) hits.push({ separator, data: entry.data as T })
+const store: RobloxCacheStore = {
+    get(key) {
+        const k: RobloxCacheKey = key
+        switch (k[0]) {
+            case "presence": return redis.get(`presence:${k[2]}:${k[3]}`)   // viewer, userId
+            default:         return memory.get(robloxCacheKeyString(k))
         }
-        return hits
     },
-    async upsert<T>(type: string, expire: number, items: Array<{ separator: string; data: T }>) {
-        const expiresAt = Date.now() + expire
-        for (const item of items) store.set(`${type}:${item.separator}`, { data: item.data, expiresAt })
-    },
+    set(key, value, ttl) { /* ... */ },
 }
 ```
+
+- `RobloxCacheEntry` lists every key with the value stored under it. `robloxCacheKeyString(key)` turns a key into a stable string.
+- Array lookups are cached per item. Missing items, pending thumbnails and thumbnails requested by token are not cached.
+- Keys whose answer depends on the account include a viewer: `"extension"`, `"anonymous"` or `cookie:<hash>` (never the cookie itself). While cookies rotate, those entries are not cached at all.
+- `RobloxMemoryCache` is an in-process implementation that sweeps expired entries once a minute.
 
 ### TTLs
 
-Pass `ttl` to override any of these, in milliseconds. Setting a key to `0` turns caching off for that resource: every call fetches and nothing is read or written.
+Every method has a default TTL (`RobloxDefaultTtl`), used whenever a cache is set. Override per method with `.ttl()`. A TTL of `0` is passed to the store like any other value: `get` and `set` are still called, and the store decides what `0` means (`RobloxMemoryCache` doesn't store it).
 
-| Key | Default |
+| Service | Defaults |
 | --- | --- |
-| `usersSimple` | 24 hours |
-| `users` | 24 hours |
-| `usernames` | 30 minutes |
-| `thumbnails` | 48 hours |
-| `thumbnailAssets` | 48 hours |
-| `serversSimple` | 5 seconds |
-| `friends` | 10 minutes |
-| `placeInfo` | 1 hour |
-| `presence` | 30 seconds |
-| `gamejoin` | 30 minutes |
-| `serverLocationJob` | 12 hours |
-| `serverLocationMachine` | 2 days |
-| `serverLocationIp` | 31 days |
-
-## API
-
-Signatures below are for node mode. In browser mode, drop every `cookie` parameter.
-
-### Users
-
-| Method | Returns |
-| --- | --- |
-| `usersSimple(userIds)` | Id, name and display name for each user. |
-| `users(userIds)` | Full profiles, including description and creation date. |
-| `usersByName(usernames)` | Users looked up by username. |
-| `usersSimpleWithImg(userIds)` | `usersSimple` plus an `img` headshot URL. |
-| `usersWithImg(userIds)` | `users` plus an `img` headshot URL. |
-| `usersByNamesWithImg(usernames)` | `usersByName` plus an `img` headshot URL. |
-| `authenticated(cookies)` | The account behind each cookie, with description, birthdate, gender, age bracket, country and roles where Roblox returns them. |
-
-### Presence and friends
-
-| Method | Returns |
-| --- | --- |
-| `presence(userIds, { cookie }?)` | Online status for each user. |
-| `friends(userId)` | A user's friends list. |
-| `sendFriendRequest(userId)` | Sends a friend request. |
-| `unfriend(userId)` | Removes a friend. |
-
-What presence reveals depends on who is asking, since privacy settings take friendship into account. Pass `cookie` to ask as a specific account; those results are cached per account. Without it a pooled credential is used and the result is not cached.
-
-`sendFriendRequest` and `unfriend` act as a pooled account in node mode, and as the signed-in user in browser mode.
-
-### Thumbnails
-
-| Method | Returns |
-| --- | --- |
-| `thumbnailsBatch(targets, defaults?)` | Thumbnails for a mixed list of targets. Each target names either a `targetId` or a `token`. |
-| `thumbnailAssets({ assetIds, size?, format? })` | Asset thumbnails. |
-
-Targets default to `AvatarHeadShot`, `150x150`, `Png`. Thumbnails that Roblox has not finished rendering are left out of the result.
-
-### Servers
-
-| Method | Returns |
-| --- | --- |
-| `serversSimple(opts)` | One or more pages of a place's servers, with player headshots. |
-| `servers(opts)` | `serversSimple` plus a `location` for each server. Node only. |
-| `serversRegion({ placeId, jobIds })` | The location of specific servers. Node only. |
-| `gamejoin(placeId, jobId, { cookie }?)` | A server's public IP and machine address. Node only. |
-| `track({ placeId, targets })` | Finds which server of a place each target user is in, by matching headshots. Node only. |
-
-```ts
-const page = await roblox.serversSimple({
-    placeId,
-    serverType: "Public",   // "Public" | "Friend" | "Private", defaults to "Public"
-    count: 2,               // pages of 100 to walk, defaults to 1
-    cursor,                 // continue from a previous result's nextPageCursor
-})
-```
-
-`Friend` and `Private` lists are specific to the requesting account. In node mode, pass the `cookie` of the account whose view you want; without one the request uses a pooled cookie and the result is not cached. A private server that is not running has a `jobId` of `null`.
-
-### Places
-
-| Method | Returns |
-| --- | --- |
-| `placeInfo(placeIds)` | Name, description, creator, player and visit counts, and logo URLs for each place. |
-
-### Chat
-
-Chat is always read and written as one account, so in node mode every method requires a `cookie`.
-
-| Method | Returns |
-| --- | --- |
-| `chatConversations({ cookie, pageSize?, cursor?, includeUserData? })` | `{ conversations, nextCursor }` |
-| `chatMessages({ cookie, conversationId, pageSize?, cursor? })` | `{ messages, nextCursor, previousCursor }`, newest first. |
-| `sendChatMessage({ cookie, conversationId, content })` | The sent message, or `null`. |
-| `sendChatMessages({ cookie, conversationId, contents })` | The sent messages. |
-| `chatMetadata({ cookie, userId? })` | The account's chat settings and feature flags. |
-
-These use Roblox's `platform-chat-api`, which is undocumented and may change without notice.
-
-## Types and validation
-
-Ids and cookies are branded types, so a plain `number` or `string` is not accepted where a `RobloxUserId` or `RobloxCookie` is expected. Each has a zod schema and a type guard:
-
-```ts
-import { RobloxPlaceIdSchema, isRobloxJobId } from "vigor-roblox"
-
-const placeId = RobloxPlaceIdSchema.parse(Number(input))   // throws if invalid
-
-if (isRobloxJobId(value)) {
-    // value is a RobloxJobId here
-}
-```
-
-Available for `UserId`, `UserName`, `DisplayName`, `Cookie`, `PlaceId`, `UniverseId`, `JobId`, `AssetId`, `ConversationId` and `ChatMessageId`, as `Roblox<Name>Schema` and `isRoblox<Name>`.
-
-Response schemas and their inferred types are exported under the same naming, for example `RobloxUserSimpleSchema` and `RobloxUserSimple`. `RobloxApi` is the type of a node-mode client and `RobloxBrowserApi` the type of a browser-mode one.
+| users | `getUsers` 24 h, `getUserDetails` 1 h, `getUsersByNames` 30 min, `getUsernameHistory` 1 h |
+| thumbnails | `get` 24 h, `getGameThumbnails` 1 h |
+| presence | `get` 30 s |
+| games | `getUniverseIds` 30 d, `getServerLocations` 31 d, `getServerAddresses` 30 min, details/media/products 1 h, votes/counts/playability/games 5 min |
+| friends | 10 min |
+| groups | `getGroups`, `getRoles`, `getRolesByIds` 1 h, `getGroupDetails`, `getUserGroups` 10 min |
+| badges | `getBadges` 10 min, `getAwardedDates` 24 h |
 
 ## Errors
 
-A request that fails after its retries throws the underlying vigor-fetch error. A response that does not match its schema throws a `ZodError`.
+A request that fails after its retries, on its last available endpoint, throws the underlying vigor-fetch error (`findFetchFailed(error)` digs out the HTTP failure). A response that does not match its schema throws a `ZodError`. APIs that need a pinned account throw before sending anything.
 
 ## License
 

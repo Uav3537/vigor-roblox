@@ -1,6 +1,6 @@
 {
   "name": "vigor-roblox",
-  "version": "4.0.0",
+  "version": "5.0.0",
   "description": "",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -21,7 +21,7 @@
   },
   "scripts": {
     "build": "tsup",
-    "test": "node test.js",
+    "test": "node test.js && node --test \"test/*.test.mjs\"",
     "typecheck": "tsc --noEmit"
   },
   "files": [
@@ -34,7 +34,7 @@
   "author": "Uav1010",
   "license": "MIT",
   "dependencies": {
-    "vigor-fetch": "^4.1.0",
+    "vigor-fetch": "^5.1.0",
     "zod": "^4.4.3"
   },
   "type": "module",

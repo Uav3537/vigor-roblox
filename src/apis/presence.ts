@@ -1,82 +1,64 @@
-import { z } from 'zod'
-import { vigor } from 'vigor-fetch'
+import { RobloxBatcher, captureHeaders, type RobloxBatchRoute } from "@/core/batcher"
+import { resolveTtl, type RobloxConfig } from "@/core/config"
+import { cached, validate } from "@/core/http"
+import { viewerKey } from "@/core/viewer"
+import { RobloxUserPresencesResponseSchema, RobloxUserPresenceSchema, type RobloxUserPresence } from "@/types/presence"
+import type { RobloxUserId } from "@/types/users"
 
-import { RobloxUserId, RobloxCookie } from '@/types/branded'
-import { RobloxPresenceEntry, RobloxPresenceEntrySchema } from '@/types/responses'
+/** `.ttl({ presence: { ... } })`로 캐시할 수 있는 메서드. `get`은 유저 한 명씩 캐시한다. */
+export type RobloxPresenceCacheable = "get"
 
-import { createNetworkClients } from '@/lib/network'
-import { createCacheHelpers } from '@/lib/cache'
-import { pickKeyValidated } from '@/lib/middlewares'
-import { chunk, cookieHash } from '@/lib/tools'
+const ORIGIN = "https://presence.roblox.com"
 
-export type PresenceApiDeps = {
-    presenceApi:      ReturnType<typeof createNetworkClients>['presenceApi']
-    buildPresenceApi: ReturnType<typeof createNetworkClients>['buildPresenceApi']
-    ttlSelect:        ReturnType<typeof createCacheHelpers>['ttlSelect']
-    ttlUpsert:        ReturnType<typeof createCacheHelpers>['ttlUpsert']
+/** POST /v1/presence/users 한 번에 보낼 수 있는 최대 개수 (51개부터 400 code 3) */
+const MULTI_GET_LIMIT = 50
+
+/** presence API의 유일한 엔드포인트. 60회/분 (2026-10 실측, IP 단위) */
+const usersRoute: RobloxBatchRoute<RobloxUserId, RobloxUserPresence> = {
+    bucket: "presence POST /v1/presence/users",
+    limit:  MULTI_GET_LIMIT,
+    group:  () => "",
+    async send(http, userIds, onHeaders) {
+        const res = await http()
+            .path("v1", "presence", "users")
+            .body("overwrite", { userIds })
+            .middlewares(captureHeaders(onHeaders))
+            .middlewares(validate(RobloxUserPresencesResponseSchema))
+            .request()
+        const byId = new Map(res.userPresences.map(p => [p.userId, p]))
+        // 서버는 없는 유저도 Offline으로 준다. 빠진 게 있으면 같은 모양으로 채운다.
+        return userIds.map(id => byId.get(id) ?? RobloxUserPresenceSchema.parse({
+            userId: id, userPresenceType: 0, lastLocation: null, placeId: null, rootPlaceId: null, gameId: null, universeId: null,
+        }))
+    },
 }
 
-export function createPresenceApi({ presenceApi, buildPresenceApi, ttlSelect, ttlUpsert }: PresenceApiDeps) {
+/** presence.roblox.com */
+export class RobloxPresenceApi {
+    private readonly batcher
 
-    async function fetchPresenceRaw(
-        userIds: RobloxUserId[],
-        client:  ReturnType<typeof buildPresenceApi>
-    ): Promise<RobloxPresenceEntry[]> {
-        const grouped = await vigor.all(
-            ...chunk(userIds, 50).map(group => () =>
-                client
-                    .path('presence', 'users')
-                    .body("overwrite", { userIds: group })
-                    .middlewares(pickKeyValidated('userPresences', z.array(RobloxPresenceEntrySchema)))
-                    .request<RobloxPresenceEntry[]>()
-            )
-        ).request<RobloxPresenceEntry[][]>()
-        return grouped.flat()
+    constructor(private readonly config: RobloxConfig) {
+        this.batcher = new RobloxBatcher(config, ORIGIN, [usersRoute])
+    }
+
+    private ttl(method: RobloxPresenceCacheable) {
+        return resolveTtl(this.config, "presence", method)
     }
 
     /**
-     * 유저들의 presence(접속 상태)를 조회한다.
-     *
-     * presence는 요청 계정과 대상 유저의 친구 관계 등 프라이버시 설정에 따라
-     * 결과가 달라질 수 있다.
-     *
-     * - `opts.cookie` 지정: 그 계정 기준으로 조회하고, 계정별로 분리된 캐시를
-     *   사용한다 (`{cookieHash}:{userId}` 키).
-     * - 미지정: 풀에서 임의의 계정으로 조회한다. 어느 계정 관점인지 특정할 수
-     *   없는 결과라 캐시하지 않고 매번 새로 fetch한다.
+     * 유저들의 접속 상태. 결과는 입력과 같은 순서다. 한 명만 필요하면 원소 하나짜리 배열을 넣는다.
+     * 같은 틱에 들어온 호출은 50명씩 모아서 보내고, 한도(60회/분)가 차면 풀릴 때까지 기다린다.
+     * 게임 정보는 요청 계정에 따라 다르게 보일 수 있다 — 특정 계정 관점이 필요하면 `.as(cookie)`를 쓴다.
      */
-    async function presence(
-        userIds: RobloxUserId[],
-        opts?:   { cookie?: RobloxCookie }
-    ): Promise<RobloxPresenceEntry[]> {
-        if (userIds.length === 0) return []
-
-        if (!opts?.cookie) {
-            return fetchPresenceRaw(userIds, presenceApi)
-        }
-
-        const accountKey = await cookieHash(opts.cookie)
-        const client      = buildPresenceApi(opts.cookie)
-        const cacheKeys   = userIds.map(id => `${accountKey}:${id}`)
-
-        const cached  = await ttlSelect<RobloxPresenceEntry>('presence', 'presence', cacheKeys)
-        const hitMap  = new Map(cached.map(({ separator, data }) => [separator, data]))
-        const missIds = userIds.filter(id => !hitMap.has(`${accountKey}:${id}`))
-
-        if (missIds.length > 0) {
-            const fetched = await fetchPresenceRaw(missIds, client)
-            await ttlUpsert<RobloxPresenceEntry>(
-                'presence', 'presence',
-                fetched.map(entry => ({ separator: `${accountKey}:${entry.userId}`, data: entry }))
-            )
-            fetched.forEach(entry => hitMap.set(`${accountKey}:${entry.userId}`, entry))
-        }
-
-        return userIds.flatMap(id => {
-            const entry = hitMap.get(`${accountKey}:${id}`)
-            return entry ? [entry] : []
-        })
+    get(userIds: readonly RobloxUserId[]): Promise<RobloxUserPresence[]> {
+        return Promise.all(userIds.map(id => this.load(id)))
     }
 
-    return { presence }
+    private async load(userId: RobloxUserId): Promise<RobloxUserPresence> {
+        const run = () => this.batcher.load(String(userId), userId)
+        const ttl = this.ttl("get")
+        const viewer = this.config.cache ? await viewerKey(this.config) : null
+        if (viewer === null) return run()
+        return cached(this.config, ["presence", "get", viewer, userId], ttl, run)
+    }
 }
