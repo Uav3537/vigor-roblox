@@ -1,7 +1,7 @@
 // dist를 대상으로 배처/레이트리밋/캐시 동작을 확인한다. 네트워크는 쓰지 않는다 (fetch를 바꿔 끼운다).
 import { test, beforeEach } from "node:test"
 import assert from "node:assert/strict"
-import { vigorRoblox, RobloxMemoryCache, RobloxMemoryCookies, RobloxCookieSchema, robloxDnrRules } from "../dist/index.js"
+import { vigorRoblox, RobloxMemoryCache, RobloxMemoryCookies, RobloxCookieSchema, RobloxIpAddressSchema, robloxDnrRules } from "../dist/index.js"
 
 /** path → (url, init) => { status, body, headers?, delay? } */
 let routes = {}
@@ -268,4 +268,29 @@ test("403 \"User is moderated\"도 쿠키 거부로 처리하고 이유를 넘�
     routes["GET users/v1/users/authenticated"] = () => ({ status: 403, body: { errors: [{ code: 0, message: "Forbidden" }] } })
     await assert.rejects(client.as(cookie("good")).users.getAuthenticated())
     assert.equal(seen.length, 1)
+})
+
+test("geolocation 콜백은 캐시에 없는 IP만 중복 없이 한 번에 받고, 돌려준 값을 그대로 쓴다. null을 준 IP는 빠진다", async () => {
+    const asked = []
+    const made = new Map()
+    const geolocate = ips => {
+        asked.push([...ips])
+        return ips.map(ip => {
+            if (ip === "10.0.0.3") return null
+            const location = { countryCode: ip === "10.0.0.1" ? "US" : "KR", extra: { asn: 22697 } }
+            made.set(ip, location)
+            return location
+        })
+    }
+    const ip = s => RobloxIpAddressSchema.parse(s)
+    const games = vigorRoblox.mode("node").geolocation(geolocate).cache(new RobloxMemoryCache()).games
+    const first = await games.getServerLocations([ip("10.0.0.1"), ip("10.0.0.2"), ip("10.0.0.1"), ip("10.0.0.3")])
+    assert.deepEqual(first.map(l => [l.ip, l.location.countryCode]), [["10.0.0.1", "US"], ["10.0.0.2", "KR"], ["10.0.0.1", "US"]])
+    assert.equal(first[0].location, made.get("10.0.0.1"))
+    await games.getServerLocations([ip("10.0.0.2"), ip("10.0.0.4")])
+    assert.deepEqual(asked, [["10.0.0.1", "10.0.0.2", "10.0.0.3"], ["10.0.0.4"]])
+})
+
+test("geolocation 콜백이 없으면 위치를 물을 때 에러", async () => {
+    await assert.rejects(vigorRoblox.mode("node").games.getServerLocations([RobloxIpAddressSchema.parse("10.0.0.1")]), /geolocation/)
 })

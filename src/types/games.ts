@@ -357,17 +357,28 @@ export type RobloxServerAddress = {
     dataCenterId:   number | null
 }
 
-/** 서버 위치. ipgeolocation.io 결과를 옮긴 것 */
-export type RobloxServerLocation = {
-    ip:          RobloxIpAddress
-    countryCode: string
-    countryName: string
-    region:      string
-    city:        string
-    latitude:    number
-    longitude:   number
-    isp:         string
-    timezone:    string
+/**
+ * IP → 위치 콜백. 결과는 `ips`와 같은 순서이고, 모르는 IP는 null(또는 undefined)이다.
+ * 캐시에 없는 IP만 중복 없이 넘어온다. 한 번에 받을 수 없는 서비스라면 콜백 안에서 나눠 부른다.
+ * 라이브러리는 돌려준 값을 해석하지 않고 서버에 그대로 붙인다 — 어떤 모양이든 되고,
+ * 그 타입 `L`이 `getServers`/`findUsers`/`getServerLocations` 결과의 위치 타입이 된다.
+ *
+ * ```ts
+ * // ip-api.com 묶음 조회 (100개씩)
+ * const geolocate = async (ips: RobloxIpAddress[]) => {
+ *     const res = await fetch("http://ip-api.com/batch?fields=status,countryCode,lat,lon", { method: "POST", body: JSON.stringify(ips) })
+ *     const rows: { status: string, countryCode: string, lat: number, lon: number }[] = await res.json()
+ *     return rows.map(r => r.status === "success" ? r : null)
+ * }
+ * ```
+ */
+export type RobloxGeolocator<L = unknown> =
+    (ips: RobloxIpAddress[]) => readonly (L | null | undefined)[] | Promise<readonly (L | null | undefined)[]>
+
+/** `getServerLocations` 결과의 항목. `location`은 콜백이 돌려준 값 그대로다 */
+export type RobloxServerLocation<L = unknown> = {
+    ip:       RobloxIpAddress
+    location: L
 }
 
 
@@ -383,17 +394,17 @@ export type RobloxPlace = {
     thumbnails:  RobloxThumbnail[]
 }
 
-/** `getServers` 결과의 항목 */
-export type RobloxServerInfo = RobloxServer & {
+/** `getServers` 결과의 항목. `L`은 `.geolocation(fn)` 콜백이 돌려주는 위치 타입 */
+export type RobloxServerInfo<L = unknown> = RobloxServer & {
     /** 플레이어 헤드샷. `players` 옵션이 false거나 토큰이 없으면 빈 배열 */
     players:  RobloxThumbnail[]
     /** `address`/`location` 옵션을 켰을 때만 */
     address:  RobloxServerAddress | null
-    location: RobloxServerLocation | null
+    location: L | null
 }
 
-/** `findUsers` 결과의 항목 */
-export type RobloxUserServer = {
+/** `findUsers` 결과의 항목. `L`은 `.geolocation(fn)` 콜백이 돌려주는 위치 타입 */
+export type RobloxUserServer<L = unknown> = {
     userId:   RobloxUserId
     /** 어떻게 찾았는지. 못 찾았으면 null */
     foundBy:  "presence" | "headshot" | null
@@ -402,7 +413,7 @@ export type RobloxUserServer = {
     server:   RobloxServer | null
     /** `address`/`location` 옵션을 켰을 때만 */
     address:  RobloxServerAddress | null
-    location: RobloxServerLocation | null
+    location: L | null
 }
 
 

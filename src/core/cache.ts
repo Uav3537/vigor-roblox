@@ -4,7 +4,7 @@ import type { RobloxThumbnail, RobloxThumbnailTarget, RobloxUniverseThumbnails, 
 import type { RobloxUserPresence } from "@/types/presence"
 import type {
     RobloxGame, RobloxGameMedia, RobloxGamePlayability, RobloxGameProduct, RobloxGameVotes,
-    RobloxIpAddress, RobloxPlaceDetails, RobloxServerAddress, RobloxServerLocation,
+    RobloxIpAddress, RobloxPlaceDetails, RobloxServerAddress,
 } from "@/types/games"
 import type { RobloxBadge } from "@/types/badges"
 import type { RobloxGroup, RobloxGroupDetail, RobloxGroupRole, RobloxGroupRoleDetail, RobloxGroupRoleId, RobloxUserGroupRole } from "@/types/groups"
@@ -41,7 +41,8 @@ export type RobloxCacheEntry =
     | { key: ["games", "getFavoriteCounts", universeId: RobloxUniverseId], value: number }
     | { key: ["games", "getMedia", universeId: RobloxUniverseId, all: boolean], value: RobloxGameMedia[] }
     | { key: ["games", "getServerAddresses", jobId: RobloxJobId], value: RobloxServerAddress }
-    | { key: ["games", "getServerLocations", ip: RobloxIpAddress], value: RobloxServerLocation }
+    /** 값은 `.geolocation(fn)` 콜백이 돌려준 값 그대로다. 모양은 사용자가 정하므로 타입을 알 수 없다 */
+    | { key: ["games", "getServerLocations", ip: RobloxIpAddress], value: unknown }
     // friends
     | { key: ["friends", "getFriends", userId: RobloxUserId], value: RobloxUserId[] }
     | { key: ["friends", "getFriendCounts", userId: RobloxUserId], value: number }

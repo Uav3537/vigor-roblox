@@ -1,6 +1,7 @@
 import type { RobloxCacheStore } from "./cache"
 import type { RobloxCookie, RobloxCookieRejectedHandler, RobloxCookieStore } from "./cookies"
 import type { RobloxRateLimiter } from "./ratelimit"
+import type { RobloxGeolocator } from "@/types/games"
 import type { RobloxUsersCacheable } from "@/apis/users"
 import type { RobloxThumbnailsCacheable } from "@/apis/thumbnails"
 import type { RobloxPresenceCacheable } from "@/apis/presence"
@@ -113,6 +114,6 @@ export type RobloxConfig = {
     readonly csrf: Map<string, string>
     /** 엔드포인트별 레이트리밋 상태. Roblox 한도는 IP 단위라 체인 전체가 공유한다. `.rateLimits(store)`로 밖과 동기화할 수 있다. */
     readonly rateLimits: RobloxRateLimiter
-    /** ipgeolocation.io API 키. 있으면 서버 위치를 조회할 수 있다. */
-    readonly geolocationKey: string | null
+    /** IP → 위치 콜백. 있으면 서버 위치를 조회할 수 있다. */
+    readonly geolocate: RobloxGeolocator | null
 }

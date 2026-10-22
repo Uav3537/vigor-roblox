@@ -40,7 +40,7 @@ const roblox = vigorRoblox
     .mode("node")
     .cookies(process.env.COOKIES!.split(",").map(c => RobloxCookieSchema.parse(c)))
     .retry({ maxAttempts: 5, timeout: 20_000 })
-    .geolocation(process.env.IPGEOLOCATION_KEY!)     // optional, for server locations
+    .geolocation(geolocate)                           // optional, IP → location for servers
     .cache(new RobloxMemoryCache())
     .ttl({ presence: { get: 10_000 } })               // optional, overrides defaults
 ```
@@ -52,7 +52,7 @@ const roblox = vigorRoblox
 | `onCookieRejected(fn)` | Node only. Called with the cookie and a reason when Roblox rejects it (`401`, or `403` for a banned account). Replaces the default, which drops the cookie from the pool. |
 | `rateLimits(store)` | Syncs rate limit state with a store you provide. See [Rate limits](#rate-limits). |
 | `retry(options)` | Attempts and per-attempt timeout for every request. |
-| `geolocation(key)` | [ipgeolocation.io](https://ipgeolocation.io) key, needed for server locations. |
+| `geolocation(fn)` | IP → location callback, needed for server locations. Whatever it returns is attached to servers as is, with its type. See [Server locations](#server-locations). |
 | `cache(store)` | Turns caching on. See [Cache](#cache). |
 | `ttl(ttl)` | Only after `cache`. Per-method TTL overrides; calling it again merges per method. |
 
@@ -146,6 +146,33 @@ const roblox = vigorRoblox.mode("extension")
 
 The manifest needs the `declarativeNetRequest` (or `declarativeNetRequestWithHostAccess`) permission and `*://*.roblox.com/*` host permission.
 
+### Server locations
+
+The library doesn't pick a geolocation provider. `geolocation(fn)` takes a callback that maps IPs to locations, so you can use any service or a local database. The library never reads what you return. It attaches the value to each server as is, and its type flows through, so `getServers`, `findUsers` and `getServerLocations` are typed with whatever your callback returns. Anything you derive from it, such as distance or expected ping, belongs in your application.
+
+```ts
+import type { RobloxIpAddress } from "vigor-roblox"
+
+// ip-api.com's batch endpoint, 100 IPs per request
+async function geolocate(ips: RobloxIpAddress[]) {
+    const res = await fetch("http://ip-api.com/batch?fields=status,countryCode,city,lat,lon", {
+        method: "POST",
+        body: JSON.stringify(ips),
+    })
+    const rows: { status: string, countryCode: string, city: string, lat: number, lon: number }[] = await res.json()
+    return rows.map(r => r.status === "success" ? r : null)
+}
+
+const roblox = vigorRoblox.mode("node").cookies(cookies).geolocation(geolocate)
+const { data } = await roblox.games.getServers(placeId, { location: true })
+data[0].location?.countryCode   // typed from your callback
+```
+
+- Return one entry per IP, in the same order. Return `null` or `undefined` for an IP you can't place, and it is left out.
+- The callback only receives IPs that aren't cached, with duplicates removed, all in one call. If your provider takes one IP at a time or caps batch size, split the list inside the callback.
+- `getServerLocations(ips)` returns `{ ip, location }`, where `location` is your value.
+- When a cache is set, results are cached for 31 days. The store receives your value as is, typed as `unknown`. `null` results are not cached.
+
 ## Conventions
 
 - **Lookups take arrays and return results in input order.** Ask for one item with a one-element array. Missing items are dropped (thumbnails come back with `state: "Error"` instead, presence comes back offline).
@@ -201,7 +228,7 @@ const images = await roblox.thumbnails.get([
 | `findUsers(placeId, userIds, { maxServers, presence, serverType, address, location })` | Which server of a place each user is in. Walks the server list and matches player headshots against each user's headshot, stopping once everyone is found. Presence is asked in parallel as a hint and never waited on unless someone is still missing: a visible server in this place is used, a user confirmed in another place is dropped, and offline or hidden users keep being searched. `presence: false` skips it. Needs a signed-in account. The server list only carries up to 5 player tokens per server, so a user who is in a server can still be missed; users with a default avatar, or sharing an avatar with another target, can't be matched by headshot. |
 | `getGames`, `getUniverseIds`, `getPlaceDetails`, `getProductInfo`, `getPlayability`, `getVotes`, `getFavoriteCounts`, `getMedia` | Batched lookups. |
 | `getServerPage(placeId, query)` | One page of servers. Spread over three endpoints, each limited to 3 requests per minute per IP. |
-| `getServerAddresses(targets)`, `getServerLocations(ips)` | gamejoin addresses (needs a signed-in account; full servers have none) and IP locations. |
+| `getServerAddresses(targets)`, `getServerLocations(ips)` | gamejoin addresses (needs a signed-in account; full servers have none) and IP locations from your `geolocation` callback. IPs the callback can't place are left out. |
 | `getRecommendations`, `getUserGames`, `getUserFavoriteGames`, `getGroupGames` | Paged lists. |
 | `getFavorited`, `setFavorited`, `getUserVotes`, `setUserVote` | The requesting account's favorites and votes. |
 | `getPrivateServers`, `getMyPrivateServers`, `getPrivateServerDetails`, `getPrivateServersEnabled`, `getPrivateServerInvites`, `createPrivateServer`, `updatePrivateServer`, `updatePrivateServerPermissions`, `updatePrivateServerSubscription` | Private servers. |

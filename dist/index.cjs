@@ -1526,7 +1526,7 @@ var import_zod8 = __toESM(require("zod"), 1);
 var GAMES = "https://games.roblox.com";
 var APIS = "https://apis.roblox.com";
 var GAMEJOIN = "https://gamejoin.roblox.com";
-var GEOLOCATION = "https://api.ipgeolocation.io";
+var GEOLOCATE_MISSING = "\uC11C\uBC84 \uC704\uCE58\uB97C \uC870\uD68C\uD558\uB824\uBA74 .geolocation(fn)\uC73C\uB85C IP \u2192 \uC704\uCE58 \uCF5C\uBC31\uC744 \uB123\uC5B4\uC57C \uD55C\uB2E4.";
 var CLIENT_USER_AGENT = "Roblox/WinInet";
 var SERVER_PAGE_LIMIT = 100;
 var V2_CURSOR = "v2:";
@@ -1629,41 +1629,6 @@ var addressRoute = {
     }];
   }
 };
-var GeolocationSchema = import_zod8.default.object({
-  ip: import_zod8.default.string(),
-  country_code2: import_zod8.default.string().nullish(),
-  country_name: import_zod8.default.string().nullish(),
-  state_prov: import_zod8.default.string().nullish(),
-  city: import_zod8.default.string().nullish(),
-  latitude: import_zod8.default.union([import_zod8.default.string(), import_zod8.default.number()]).nullish(),
-  longitude: import_zod8.default.union([import_zod8.default.string(), import_zod8.default.number()]).nullish(),
-  isp: import_zod8.default.string().nullish(),
-  time_zone: import_zod8.default.object({ name: import_zod8.default.string().nullish() }).nullish()
-});
-function geolocationRoute(key) {
-  return {
-    bucket: "ipgeolocation GET /ipgeo",
-    origin: GEOLOCATION,
-    limit: 1,
-    group: () => "",
-    async send(http, [ip], onHeaders) {
-      const apiKey = key();
-      if (!apiKey) throw new Error("\uC11C\uBC84 \uC704\uCE58\uB97C \uC870\uD68C\uD558\uB824\uBA74 .geolocation(key)\uB85C ipgeolocation.io \uD0A4\uB97C \uB123\uC5B4\uC57C \uD55C\uB2E4.");
-      const res = await http().path("ipgeo").query({ apiKey, ip, fields: "country_code2,country_name,state_prov,city,latitude,longitude,isp,time_zone" }).middlewares(captureHeaders(onHeaders)).middlewares(validate(GeolocationSchema)).request();
-      return [{
-        ip,
-        countryCode: res.country_code2 ?? "",
-        countryName: res.country_name ?? "",
-        region: res.state_prov ?? "",
-        city: res.city ?? "",
-        latitude: Number(res.latitude ?? 0),
-        longitude: Number(res.longitude ?? 0),
-        isp: res.isp ?? "",
-        timezone: res.time_zone?.name ?? ""
-      }];
-    }
-  };
-}
 var RobloxGamesApi = class {
   constructor(config, thumbnails, presence) {
     this.config = config;
@@ -1824,7 +1789,6 @@ var RobloxGamesApi = class {
       myRoute("games GET /v1/private-servers/my-private-servers", "private-servers")
     ]);
     this.addresses = new RobloxBatcher(config, GAMEJOIN, [addressRoute], { userAgent: CLIENT_USER_AGENT });
-    this.locations = new RobloxBatcher(config, GEOLOCATION, [geolocationRoute(() => this.config.geolocationKey)]);
   }
   config;
   thumbnails;
@@ -1848,7 +1812,6 @@ var RobloxGamesApi = class {
   groupGames;
   myPrivateServers;
   addresses;
-  locations;
   ttl(method) {
     return resolveTtl(this.config, "games", method);
   }
@@ -1962,14 +1925,32 @@ var RobloxGamesApi = class {
       (r) => r.ip !== null
     )));
   }
-  /** IP → 위치 (ipgeolocation.io). `.geolocation(key)`가 필요하다. */
+  /**
+   * IP → 위치. `.geolocation(fn)`으로 넣은 콜백에 캐시에 없는 IP를 중복 없이 한 번에 넘긴다.
+   * 결과는 입력 순서이고 `location`은 콜백이 돌려준 값 그대로다. 콜백이 null을 준 IP는 빼고, 캐시하지 않는다.
+   */
   async getServerLocations(ips) {
-    return Promise.all(ips.map((ip) => cached(
-      this.config,
-      ["games", "getServerLocations", ip],
-      this.ttl("getServerLocations"),
-      () => this.locations.load(ip, ip)
-    )));
+    const geolocate = this.config.geolocate;
+    if (!geolocate) throw new Error(GEOLOCATE_MISSING);
+    const store = this.config.cache;
+    const ttl = this.ttl("getServerLocations");
+    const known = /* @__PURE__ */ new Map();
+    const unique = [...new Set(ips)];
+    if (store) await Promise.all(unique.map(async (ip) => {
+      const hit = await store.get(["games", "getServerLocations", ip]);
+      if (hit !== void 0 && hit !== null) known.set(ip, hit);
+    }));
+    const misses = unique.filter((ip) => !known.has(ip));
+    if (misses.length) {
+      const results = await geolocate(misses);
+      await Promise.all(misses.map(async (ip, i) => {
+        const location = results[i];
+        if (location === null || location === void 0) return;
+        known.set(ip, location);
+        if (store) await store.set(["games", "getServerLocations", ip], location, ttl);
+      }));
+    }
+    return found2(ips.map((ip) => known.has(ip) ? { ip, location: known.get(ip) } : null));
   }
   /** GET /v1/games/{placeId}/private-servers — 내가 들어갈 수 있는 비공개 서버 */
   getPrivateServers(placeId, query = {}) {
@@ -2052,7 +2033,7 @@ var RobloxGamesApi = class {
    */
   async getServers(placeId, opts = {}) {
     const { count = 100, players = {}, address = false, location = false, ...query } = opts;
-    if (location && !this.config.geolocationKey) throw new Error("location\uC744 \uC4F0\uB824\uBA74 .geolocation(key)\uB85C ipgeolocation.io \uD0A4\uB97C \uB123\uC5B4\uC57C \uD55C\uB2E4.");
+    if (location && !this.config.geolocate) throw new Error(GEOLOCATE_MISSING);
     const servers = [];
     let cursor = query.cursor ?? null;
     do {
@@ -2066,7 +2047,7 @@ var RobloxGamesApi = class {
       address || location ? this.getServerAddresses(data.map((s) => ({ placeId, jobId: s.id }))) : null
     ]);
     const ips = [...new Set(addresses?.map((a) => a.ip).filter((ip) => ip !== null) ?? [])];
-    const locations = location ? new Map((await this.getServerLocations(ips)).map((l) => [l.ip, l])) : null;
+    const locations = location ? new Map((await this.getServerLocations(ips)).map((l) => [l.ip, l.location])) : null;
     let offset = 0;
     return {
       nextPageCursor: cursor,
@@ -2094,7 +2075,7 @@ var RobloxGamesApi = class {
    */
   async findUsers(placeId, userIds, opts = {}) {
     const { maxServers = 1e3, presence = true, address = false, location = false, ...query } = opts;
-    if (location && !this.config.geolocationKey) throw new Error("location\uC744 \uC4F0\uB824\uBA74 .geolocation(key)\uB85C ipgeolocation.io \uD0A4\uB97C \uB123\uC5B4\uC57C \uD55C\uB2E4.");
+    if (location && !this.config.geolocate) throw new Error(GEOLOCATE_MISSING);
     if (!this.auth()) throw new Error("\uC11C\uBC84 \uBAA9\uB85D\uC5D0\uC11C \uC720\uC800\uB97C \uCC3E\uC73C\uB824\uBA74 \uD50C\uB808\uC774\uC5B4 \uD1A0\uD070\uC774 \uD544\uC694\uD574 \uC778\uC99D\uD574\uC57C \uD55C\uB2E4.");
     const targets = [...new Set(userIds)];
     const hits = /* @__PURE__ */ new Map();
@@ -2138,7 +2119,7 @@ var RobloxGamesApi = class {
     const jobIds = [...new Set([...hits.values()].map((f) => f.jobId))];
     const addresses = address || location ? new Map((await this.getServerAddresses(jobIds.map((jobId) => ({ placeId, jobId })))).map((a) => [a.jobId, a])) : null;
     const ips = [...new Set([...addresses?.values() ?? []].map((a) => a.ip).filter((ip) => ip !== null))];
-    const locations = location ? new Map((await this.getServerLocations(ips)).map((l) => [l.ip, l])) : null;
+    const locations = location ? new Map((await this.getServerLocations(ips)).map((l) => [l.ip, l.location])) : null;
     return userIds.map((userId) => {
       const f = hits.get(userId);
       const addr = f ? addresses?.get(f.jobId) ?? null : null;
@@ -4118,9 +4099,12 @@ var RobloxConfigurableStage = class extends RobloxClient {
   retry(options) {
     return new RobloxOptionsStage({ ...this.config, retry: { ...this.config.retry, ...options } });
   }
-  /** 서버 위치 조회에 쓸 [ipgeolocation.io](https://ipgeolocation.io) API 키 */
-  geolocation(key) {
-    return new RobloxOptionsStage({ ...this.config, geolocationKey: key });
+  /**
+   * 서버 위치 조회에 쓸 IP → 위치 콜백. 어느 서비스(ipgeolocation.io, ip-api.com, MaxMind 로컬 DB …)를 쓸지는 사용자가 정한다.
+   * 라이브러리는 돌려준 값을 해석하지 않는다 — 어떤 모양이든 되고, 결과에는 그 값과 타입이 그대로 들어간다.
+   */
+  geolocation(geolocate) {
+    return new RobloxOptionsStage({ ...this.config, geolocate });
   }
   /** 레이트리밋 상태를 밖과 동기화할 저장소. 새로고침·재시작 뒤에도, 같은 IP를 쓰는 다른 탭/인스턴스와도 한도를 이어받는다. */
   rateLimits(store) {
@@ -4144,7 +4128,7 @@ var VigorRoblox = class {
       ttl: {},
       csrf: /* @__PURE__ */ new Map(),
       rateLimits: new RobloxRateLimiter(),
-      geolocationKey: null
+      geolocate: null
     };
     return mode === "extension" ? new RobloxExtensionStage(config) : new RobloxNodeStage(config);
   }
@@ -4181,8 +4165,8 @@ var RobloxCacheStage = class _RobloxCacheStage extends RobloxClient {
   retry(options) {
     return new _RobloxCacheStage({ ...this.config, retry: { ...this.config.retry, ...options } });
   }
-  geolocation(key) {
-    return new _RobloxCacheStage({ ...this.config, geolocationKey: key });
+  geolocation(geolocate) {
+    return new _RobloxCacheStage({ ...this.config, geolocate });
   }
   rateLimits(store) {
     return new _RobloxCacheStage({ ...this.config, rateLimits: new RobloxRateLimiter(store) });

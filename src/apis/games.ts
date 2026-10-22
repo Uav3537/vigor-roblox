@@ -78,7 +78,8 @@ export type RobloxGamesCacheable =
 const GAMES = "https://games.roblox.com"
 const APIS = "https://apis.roblox.com"
 const GAMEJOIN = "https://gamejoin.roblox.com"
-const GEOLOCATION = "https://api.ipgeolocation.io"
+/** `.geolocation(fn)` 없이 위치를 물었을 때 */
+const GEOLOCATE_MISSING = "서버 위치를 조회하려면 .geolocation(fn)으로 IP → 위치 콜백을 넣어야 한다."
 
 /** gamejoin은 Roblox 클라이언트 UA가 아니면 거절한다 (status 12) */
 const CLIENT_USER_AGENT = "Roblox/WinInet"
@@ -243,50 +244,6 @@ const addressRoute: RobloxBatchRoute<AddressTarget, RobloxServerAddress> = {
     },
 }
 
-const GeolocationSchema = z.object({
-    ip:            z.string(),
-    country_code2: z.string().nullish(),
-    country_name:  z.string().nullish(),
-    state_prov:    z.string().nullish(),
-    city:          z.string().nullish(),
-    latitude:      z.union([z.string(), z.number()]).nullish(),
-    longitude:     z.union([z.string(), z.number()]).nullish(),
-    isp:           z.string().nullish(),
-    time_zone:     z.object({ name: z.string().nullish() }).nullish(),
-})
-
-/** ipgeolocation.io /ipgeo — 한도는 요금제마다 다르다 */
-function geolocationRoute(key: () => string | null): RobloxBatchRoute<RobloxIpAddress, RobloxServerLocation> {
-    return {
-        bucket: "ipgeolocation GET /ipgeo",
-        origin: GEOLOCATION,
-        limit:  1,
-        group:  () => "",
-        async send(http, [ip], onHeaders) {
-            const apiKey = key()
-            if (!apiKey) throw new Error("서버 위치를 조회하려면 .geolocation(key)로 ipgeolocation.io 키를 넣어야 한다.")
-            const res = await http()
-                .path("ipgeo")
-                .query({ apiKey, ip, fields: "country_code2,country_name,state_prov,city,latitude,longitude,isp,time_zone" })
-                .middlewares(captureHeaders(onHeaders))
-                .middlewares(validate(GeolocationSchema))
-                .request()
-            return [{
-                ip,
-                countryCode: res.country_code2 ?? "",
-                countryName: res.country_name ?? "",
-                region:      res.state_prov ?? "",
-                city:        res.city ?? "",
-                latitude:    Number(res.latitude ?? 0),
-                longitude:   Number(res.longitude ?? 0),
-                isp:         res.isp ?? "",
-                timezone:    res.time_zone?.name ?? "",
-            }]
-        },
-    }
-}
-
-
 /** `getServers` 옵션 */
 export type RobloxGetServersOptions = RobloxServerPageQuery & {
     /**
@@ -298,7 +255,7 @@ export type RobloxGetServersOptions = RobloxServerPageQuery & {
     players?:  false | { size?: RobloxThumbnailSize<"AvatarHeadShot">, format?: "Png" | "Jpeg" | "Webp", isCircular?: boolean }
     /** gamejoin으로 서버 주소를 받는다. 인증 필요. 꽉 찬 서버는 주소가 없다 */
     address?:  boolean
-    /** 서버 위치. address를 포함하고 `.geolocation(key)`가 필요하다 */
+    /** 서버 위치. address를 포함하고 `.geolocation(fn)`이 필요하다 */
     location?: boolean
 }
 
@@ -310,13 +267,13 @@ export type RobloxFindUsersOptions = Omit<RobloxServerPageQuery, "cursor"> & {
     presence?:   boolean
     /** gamejoin으로 찾은 서버의 주소를 받는다. 인증 필요 */
     address?:    boolean
-    /** 찾은 서버의 위치. address를 포함하고 `.geolocation(key)`가 필요하다 */
+    /** 찾은 서버의 위치. address를 포함하고 `.geolocation(fn)`이 필요하다 */
     location?:   boolean
 }
 
 
 /** games.roblox.com + gamejoin.roblox.com */
-export class RobloxGamesApi {
+export class RobloxGamesApi<L = unknown> {
     private readonly http
     private readonly auth = () => canAuthenticate(this.config)
 
@@ -337,7 +294,6 @@ export class RobloxGamesApi {
     private readonly groupGames
     private readonly myPrivateServers
     private readonly addresses
-    private readonly locations
 
     constructor(private readonly config: RobloxConfig, private readonly thumbnails: RobloxThumbnailsApi, private readonly presence: RobloxPresenceApi) {
         this.http = createHttp(config, GAMES)
@@ -466,7 +422,6 @@ export class RobloxGamesApi {
             myRoute("games GET /v1/private-servers/my-private-servers", "private-servers"),
         ])
         this.addresses = new RobloxBatcher(config, GAMEJOIN, [addressRoute], { userAgent: CLIENT_USER_AGENT })
-        this.locations = new RobloxBatcher(config, GEOLOCATION, [geolocationRoute(() => this.config.geolocationKey)])
     }
 
     private ttl(method: RobloxGamesCacheable) {
@@ -624,10 +579,34 @@ export class RobloxGamesApi {
             () => this.addresses.load(t.jobId, t), r => r.ip !== null)))
     }
 
-    /** IP → 위치 (ipgeolocation.io). `.geolocation(key)`가 필요하다. */
-    async getServerLocations(ips: readonly RobloxIpAddress[]): Promise<RobloxServerLocation[]> {
-        return Promise.all(ips.map(ip => cached(this.config, ["games", "getServerLocations", ip], this.ttl("getServerLocations"),
-            () => this.locations.load(ip, ip))))
+    /**
+     * IP → 위치. `.geolocation(fn)`으로 넣은 콜백에 캐시에 없는 IP를 중복 없이 한 번에 넘긴다.
+     * 결과는 입력 순서이고 `location`은 콜백이 돌려준 값 그대로다. 콜백이 null을 준 IP는 빼고, 캐시하지 않는다.
+     */
+    async getServerLocations(ips: readonly RobloxIpAddress[]): Promise<RobloxServerLocation<L>[]> {
+        const geolocate = this.config.geolocate
+        if (!geolocate) throw new Error(GEOLOCATE_MISSING)
+        const store = this.config.cache
+        const ttl = this.ttl("getServerLocations")
+        const known = new Map<RobloxIpAddress, L>()
+
+        const unique = [...new Set(ips)]
+        if (store) await Promise.all(unique.map(async ip => {
+            const hit = await store.get(["games", "getServerLocations", ip])
+            if (hit !== undefined && hit !== null) known.set(ip, hit as L)
+        }))
+
+        const misses = unique.filter(ip => !known.has(ip))
+        if (misses.length) {
+            const results = await geolocate(misses)
+            await Promise.all(misses.map(async (ip, i) => {
+                const location = results[i]
+                if (location === null || location === undefined) return
+                known.set(ip, location as L)
+                if (store) await store.set(["games", "getServerLocations", ip], location, ttl)
+            }))
+        }
+        return found(ips.map(ip => known.has(ip) ? { ip, location: known.get(ip)! } : null))
     }
 
     /** GET /v1/games/{placeId}/private-servers — 내가 들어갈 수 있는 비공개 서버 */
@@ -745,9 +724,9 @@ export class RobloxGamesApi {
      * `nextPageCursor`는 마지막으로 받은 페이지의 다음이라, 넘기면 빠짐없이 이어서 받는다.
      * 서버 목록 한도가 빡빡해서(엔드포인트당 3회/분) 많이 모을수록 오래 걸린다.
      */
-    async getServers(placeId: RobloxPlaceId, opts: RobloxGetServersOptions = {}): Promise<{ data: RobloxServerInfo[], nextPageCursor: RobloxCursor | null }> {
+    async getServers(placeId: RobloxPlaceId, opts: RobloxGetServersOptions = {}): Promise<{ data: RobloxServerInfo<L>[], nextPageCursor: RobloxCursor | null }> {
         const { count = 100, players = {}, address = false, location = false, ...query } = opts
-        if (location && !this.config.geolocationKey) throw new Error("location을 쓰려면 .geolocation(key)로 ipgeolocation.io 키를 넣어야 한다.")
+        if (location && !this.config.geolocate) throw new Error(GEOLOCATE_MISSING)
 
         const servers: RobloxServer[] = []
         let cursor = query.cursor ?? null
@@ -764,12 +743,12 @@ export class RobloxGamesApi {
             address || location ? this.getServerAddresses(data.map(s => ({ placeId, jobId: s.id }))) : null,
         ])
         const ips = [...new Set(addresses?.map(a => a.ip).filter((ip): ip is RobloxIpAddress => ip !== null) ?? [])]
-        const locations = location ? new Map((await this.getServerLocations(ips)).map(l => [l.ip, l])) : null
+        const locations = location ? new Map((await this.getServerLocations(ips)).map(l => [l.ip, l.location])) : null
 
         let offset = 0
         return {
             nextPageCursor: cursor,
-            data: data.map((server, i): RobloxServerInfo => {
+            data: data.map((server, i): RobloxServerInfo<L> => {
                 const own = headshots ? headshots.slice(offset, offset += server.playerTokens.length) : []
                 const addr = addresses?.[i] ?? null
                 return {
@@ -792,9 +771,9 @@ export class RobloxGamesApi {
      * 서버에 있어도 못 찾을 수 있다. 기본 아바타이거나 대상끼리 아바타가 같으면 헤드샷으로는 찾을 수 없다.
      * 서버 목록 한도(엔드포인트당 3회/분) 때문에 큰 게임일수록 오래 걸린다.
      */
-    async findUsers(placeId: RobloxPlaceId, userIds: readonly RobloxUserId[], opts: RobloxFindUsersOptions = {}): Promise<RobloxUserServer[]> {
+    async findUsers(placeId: RobloxPlaceId, userIds: readonly RobloxUserId[], opts: RobloxFindUsersOptions = {}): Promise<RobloxUserServer<L>[]> {
         const { maxServers = 1000, presence = true, address = false, location = false, ...query } = opts
-        if (location && !this.config.geolocationKey) throw new Error("location을 쓰려면 .geolocation(key)로 ipgeolocation.io 키를 넣어야 한다.")
+        if (location && !this.config.geolocate) throw new Error(GEOLOCATE_MISSING)
         if (!this.auth()) throw new Error("서버 목록에서 유저를 찾으려면 플레이어 토큰이 필요해 인증해야 한다.")
 
         const targets = [...new Set(userIds)]
@@ -847,9 +826,9 @@ export class RobloxGamesApi {
             ? new Map((await this.getServerAddresses(jobIds.map(jobId => ({ placeId, jobId })))).map(a => [a.jobId, a]))
             : null
         const ips = [...new Set([...addresses?.values() ?? []].map(a => a.ip).filter((ip): ip is RobloxIpAddress => ip !== null))]
-        const locations = location ? new Map((await this.getServerLocations(ips)).map(l => [l.ip, l])) : null
+        const locations = location ? new Map((await this.getServerLocations(ips)).map(l => [l.ip, l.location])) : null
 
-        return userIds.map((userId): RobloxUserServer => {
+        return userIds.map((userId): RobloxUserServer<L> => {
             const f = hits.get(userId)
             const addr = f ? addresses?.get(f.jobId) ?? null : null
             return {
