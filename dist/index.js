@@ -6,6 +6,44 @@ import { vigor as vigor2 } from "vigor-fetch";
 
 // src/core/http.ts
 import { vigor, isVigorFetchError, VigorFetchPolicySettingsBase } from "vigor-fetch";
+
+// src/core/cache.ts
+function robloxCacheKeyString(key) {
+  return JSON.stringify(key, (_, value) => value && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(Object.keys(value).sort().map((k) => [k, value[k]])) : value);
+}
+var RobloxMemoryCache = class {
+  /** @param sweepInterval 만료된 항목을 한꺼번에 지우는 간격(ms). 저장할 때 확인한다. 기본 1분 */
+  constructor(sweepInterval = 6e4) {
+    this.sweepInterval = sweepInterval;
+  }
+  sweepInterval;
+  entries = /* @__PURE__ */ new Map();
+  lastSweep = Date.now();
+  sweep(now) {
+    if (now - this.lastSweep < this.sweepInterval) return;
+    this.lastSweep = now;
+    for (const [id2, entry] of this.entries) if (entry.expiresAt <= now) this.entries.delete(id2);
+  }
+  get(key) {
+    const id2 = robloxCacheKeyString(key);
+    const entry = this.entries.get(id2);
+    if (!entry) return void 0;
+    if (entry.expiresAt <= Date.now()) {
+      this.entries.delete(id2);
+      return void 0;
+    }
+    return entry.value;
+  }
+  /** TTL이 0 이하면 저장하지 않는다 */
+  set(key, value, ttl) {
+    if (ttl <= 0) return;
+    const now = Date.now();
+    this.sweep(now);
+    this.entries.set(robloxCacheKeyString(key), { value, expiresAt: now + ttl });
+  }
+};
+
+// src/core/http.ts
 function findFetchFailed(error) {
   let current = error;
   for (let depth = 0; depth < 5 && current != null; depth++) {
@@ -81,14 +119,25 @@ function validate(schema) {
     return { ...ctx, result };
   });
 }
-async function cached(config, key, ttl, run, keep = () => true) {
-  const store = config.cache;
-  if (!store) return run();
-  const hit = await store.get(key);
-  if (hit !== void 0) return hit;
-  const result = await run();
-  if (result !== null && keep(result)) await store.set(key, result, ttl);
-  return result;
+function singleFlight(config, id2, run) {
+  const running = config.inflight.get(id2);
+  if (running) return running;
+  const promise = run().finally(() => {
+    if (config.inflight.get(id2) === promise) config.inflight.delete(id2);
+  });
+  config.inflight.set(id2, promise);
+  return promise;
+}
+function cached(config, key, ttl, run, keep = () => true) {
+  return singleFlight(config, robloxCacheKeyString(key), async () => {
+    const store = config.cache;
+    if (!store) return run();
+    const hit = await store.get(key);
+    if (hit !== void 0) return hit;
+    const result = await run();
+    if (result !== null && keep(result)) await store.set(key, result, ttl);
+    return result;
+  });
 }
 function chunk(list, size) {
   const out = [];
@@ -1360,6 +1409,7 @@ var addressRoute = {
     const res = await http().path("v1", "join-game-instance").body("overwrite", { placeId: t.placeId, gameId: t.jobId }).middlewares(captureHeaders(onHeaders)).middlewares(validate(RobloxJoinResponseSchema)).request();
     const endpoint = res.joinScript?.UdmuxEndpoints?.[0];
     return [{
+      placeId: t.placeId,
       jobId: t.jobId,
       status: res.status,
       ip: endpoint ? RobloxIpAddressSchema.parse(endpoint.Address) : null,
@@ -1659,28 +1709,41 @@ var RobloxGamesApi = class {
     const ttl = this.ttl("getServerAddresses");
     return Promise.all(targets.map((t) => cached(
       this.config,
-      ["games", "getServerAddresses", t.jobId],
+      ["games", "getServerAddresses", t.placeId, t.jobId],
       ttl,
-      () => this.addresses.load(t.jobId, t),
+      () => this.addresses.load(`${t.placeId}:${t.jobId}`, t),
       (r) => r.ip !== null
     )));
   }
   /**
    * IP → 위치. `.geolocation(fn)`으로 넣은 콜백에 캐시에 없는 IP를 중복 없이 한 번에 넘긴다.
    * 결과는 입력 순서이고 `location`은 콜백이 돌려준 값 그대로다. 콜백이 null을 준 IP는 빼고, 캐시하지 않는다.
+   * 같은 IP를 이미 조회하는 중이면(다른 호출이 동시에 물은 경우) 그 결과를 같이 기다리고 다시 묻지 않는다.
    */
   async getServerLocations(ips) {
     const geolocate = this.config.geolocate;
     if (!geolocate) throw new Error(GEOLOCATE_MISSING);
+    const id2 = (ip) => robloxCacheKeyString(["games", "getServerLocations", ip]);
+    const unique = [...new Set(ips)];
+    const fresh = unique.filter((ip) => !this.config.inflight.has(id2(ip)));
+    const batch = fresh.length ? this.locate(fresh, geolocate) : null;
+    const values = await Promise.all(unique.map((ip) => singleFlight(this.config, id2(ip), () => batch.then((located) => located.get(ip) ?? null))));
+    const known = new Map(unique.map((ip, i) => [ip, values[i]]));
+    return found2(ips.map((ip) => {
+      const location = known.get(ip);
+      return location === null || location === void 0 ? null : { ip, location };
+    }));
+  }
+  /** 캐시를 보고, 없는 IP만 콜백에 넘긴 뒤 저장한다. 모르는 IP는 결과에 없다 */
+  async locate(ips, geolocate) {
     const store = this.config.cache;
     const ttl = this.ttl("getServerLocations");
     const known = /* @__PURE__ */ new Map();
-    const unique = [...new Set(ips)];
-    if (store) await Promise.all(unique.map(async (ip) => {
+    if (store) await Promise.all(ips.map(async (ip) => {
       const hit = await store.get(["games", "getServerLocations", ip]);
       if (hit !== void 0 && hit !== null) known.set(ip, hit);
     }));
-    const misses = unique.filter((ip) => !known.has(ip));
+    const misses = ips.filter((ip) => !known.has(ip));
     if (misses.length) {
       const results = await geolocate(misses);
       await Promise.all(misses.map(async (ip, i) => {
@@ -1690,7 +1753,7 @@ var RobloxGamesApi = class {
         if (store) await store.set(["games", "getServerLocations", ip], location, ttl);
       }));
     }
-    return found2(ips.map((ip) => known.has(ip) ? { ip, location: known.get(ip) } : null));
+    return known;
   }
   /** GET /v1/games/{placeId}/private-servers — 내가 들어갈 수 있는 비공개 서버 */
   getPrivateServers(placeId, query = {}) {
@@ -3862,6 +3925,7 @@ var VigorRoblox = class {
       cookies: null,
       onCookieRejected: null,
       rejecting: /* @__PURE__ */ new Map(),
+      inflight: /* @__PURE__ */ new Map(),
       fixedCookie: null,
       retry: {},
       cache: null,
@@ -3913,42 +3977,6 @@ var RobloxCacheStage = class _RobloxCacheStage extends RobloxClient {
   }
 };
 var vigorRoblox = new VigorRoblox();
-
-// src/core/cache.ts
-function robloxCacheKeyString(key) {
-  return JSON.stringify(key, (_, value) => value && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(Object.keys(value).sort().map((k) => [k, value[k]])) : value);
-}
-var RobloxMemoryCache = class {
-  /** @param sweepInterval 만료된 항목을 한꺼번에 지우는 간격(ms). 저장할 때 확인한다. 기본 1분 */
-  constructor(sweepInterval = 6e4) {
-    this.sweepInterval = sweepInterval;
-  }
-  sweepInterval;
-  entries = /* @__PURE__ */ new Map();
-  lastSweep = Date.now();
-  sweep(now) {
-    if (now - this.lastSweep < this.sweepInterval) return;
-    this.lastSweep = now;
-    for (const [id2, entry] of this.entries) if (entry.expiresAt <= now) this.entries.delete(id2);
-  }
-  get(key) {
-    const id2 = robloxCacheKeyString(key);
-    const entry = this.entries.get(id2);
-    if (!entry) return void 0;
-    if (entry.expiresAt <= Date.now()) {
-      this.entries.delete(id2);
-      return void 0;
-    }
-    return entry.value;
-  }
-  /** TTL이 0 이하면 저장하지 않는다 */
-  set(key, value, ttl) {
-    if (ttl <= 0) return;
-    const now = Date.now();
-    this.sweep(now);
-    this.entries.set(robloxCacheKeyString(key), { value, expiresAt: now + ttl });
-  }
-};
 
 // src/extension.ts
 var TAB_ID_NONE = -1;

@@ -40,7 +40,8 @@ export type RobloxCacheEntry =
     | { key: ["games", "getVotes", universeId: RobloxUniverseId], value: RobloxGameVotes }
     | { key: ["games", "getFavoriteCounts", universeId: RobloxUniverseId], value: number }
     | { key: ["games", "getMedia", universeId: RobloxUniverseId, all: boolean], value: RobloxGameMedia[] }
-    | { key: ["games", "getServerAddresses", jobId: RobloxJobId], value: RobloxServerAddress }
+    /** jobId는 place 안에서만 겹치지 않으므로 placeId와 함께 쓴다 */
+    | { key: ["games", "getServerAddresses", placeId: RobloxPlaceId, jobId: RobloxJobId], value: RobloxServerAddress }
     /** 값은 `.geolocation(fn)` 콜백이 돌려준 값 그대로다. 모양은 사용자가 정하므로 타입을 알 수 없다 */
     | { key: ["games", "getServerLocations", ip: RobloxIpAddress], value: unknown }
     // friends

@@ -170,6 +170,7 @@ data[0].location?.countryCode   // typed from your callback
 
 - Return one entry per IP, in the same order. Return `null` or `undefined` for an IP you can't place, and it is left out.
 - The callback only receives IPs that aren't cached, with duplicates removed, all in one call. If your provider takes one IP at a time or caps batch size, split the list inside the callback.
+- An IP that another call is already looking up isn't sent again. Both calls wait for the same result.
 - `getServerLocations(ips)` returns `{ ip, location }`, where `location` is your value.
 - When a cache is set, results are cached for 31 days. The store receives your value as is, typed as `unknown`. `null` results are not cached.
 
@@ -228,7 +229,7 @@ const images = await roblox.thumbnails.get([
 | `findUsers(placeId, userIds, { maxServers, presence, serverType, address, location })` | Which server of a place each user is in. Walks the server list and matches player headshots against each user's headshot, stopping once everyone is found. Presence is asked in parallel as a hint and never waited on unless someone is still missing: a visible server in this place is used, a user confirmed in another place is dropped, and offline or hidden users keep being searched. `presence: false` skips it. Needs a signed-in account. The server list only carries up to 5 player tokens per server, so a user who is in a server can still be missed; users with a default avatar, or sharing an avatar with another target, can't be matched by headshot. |
 | `getGames`, `getUniverseIds`, `getPlaceDetails`, `getProductInfo`, `getPlayability`, `getVotes`, `getFavoriteCounts`, `getMedia` | Batched lookups. |
 | `getServerPage(placeId, query)` | One page of servers. Spread over three endpoints, each limited to 3 requests per minute per IP. |
-| `getServerAddresses(targets)`, `getServerLocations(ips)` | gamejoin addresses (needs a signed-in account; full servers have none) and IP locations from your `geolocation` callback. IPs the callback can't place are left out. |
+| `getServerAddresses(targets)`, `getServerLocations(ips)` | gamejoin addresses for `{ placeId, jobId }` targets (`RobloxServerAddressTarget`; needs a signed-in account; full servers have none) and IP locations from your `geolocation` callback. Addresses are cached per place and job id, since a job id is only unique within its place. IPs the callback can't place are left out. |
 | `getRecommendations`, `getUserGames`, `getUserFavoriteGames`, `getGroupGames` | Paged lists. |
 | `getFavorited`, `setFavorited`, `getUserVotes`, `setUserVote` | The requesting account's favorites and votes. |
 | `getPrivateServers`, `getMyPrivateServers`, `getPrivateServerDetails`, `getPrivateServersEnabled`, `getPrivateServerInvites`, `createPrivateServer`, `updatePrivateServer`, `updatePrivateServerPermissions`, `updatePrivateServerSubscription` | Private servers. |
@@ -339,6 +340,7 @@ const store: RobloxCacheStore = {
 - Array lookups are cached per item. Missing items, pending thumbnails and thumbnails requested by token are not cached.
 - Keys whose answer depends on the account include a viewer: `"extension"`, `"anonymous"` or `cookie:<hash>` (never the cookie itself). While cookies rotate, those entries are not cached at all.
 - `RobloxMemoryCache` is an in-process implementation that sweeps expired entries once a minute.
+- Concurrent calls for the same key within one process share a single lookup: one `get`, one request, one `set`. This also applies without a cache. The store doesn't need locking for this, but separate processes (serverless instances, tabs) can still miss the same key at the same moment.
 
 ### TTLs
 

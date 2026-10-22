@@ -103,6 +103,11 @@ export type RobloxConfig = {
     readonly cookies: RobloxCookieStore | null
     /** 401을 받은 쿠키를 처리한다. null이면 기본 처리(`cookies.remove`) */
     readonly onCookieRejected: RobloxCookieRejectedHandler | null
+    /**
+     * 캐시 키 문자열 → 진행 중인 조회. 같은 프로세스에서 같은 대상을 동시에 물으면 저장소 조회와 요청을 한 번만 한다.
+     * 체인 전체(`.as(cookie)` 포함)가 공유한다. 끝나면 지운다.
+     */
+    readonly inflight: Map<string, Promise<unknown>>
     /** 쿠키 → 진행 중인 거부 처리. 같은 쿠키로 동시에 401을 여러 번 받아도 한 번만 부른다. 체인 전체가 공유한다. */
     readonly rejecting: Map<RobloxCookie, Promise<void>>
     /** `.as(cookie)`로 고정한 쿠키. 있으면 `cookies` 로테이션 대신 이것만 쓴다. */

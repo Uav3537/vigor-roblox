@@ -345,8 +345,12 @@ export const RobloxIpAddressSchema = z.string().min(1).brand("RobloxIpAddress")
 
 export type RobloxIpAddress = z.infer<typeof RobloxIpAddressSchema>
 
+/** `getServerAddresses`에 넘기는 서버 하나. jobId는 place 안에서만 겹치지 않으므로 placeId와 함께 지정한다 */
+export type RobloxServerAddressTarget = { placeId: RobloxPlaceId, jobId: RobloxJobId }
+
 /** 서버의 접속 주소. joinScript를 받지 못하면(꽉 참, 인증 없음 등) 주소 필드가 null이다. */
 export type RobloxServerAddress = {
+    placeId:        RobloxPlaceId
     jobId:          RobloxJobId
     status:         number
     /** 공개 접속 주소 (UDMUX 프록시) */

@@ -1,7 +1,7 @@
 import { vigor, isVigorFetchError, VigorFetchPolicySettingsBase } from "vigor-fetch"
 import type { VigorFetchOptions } from "vigor-fetch"
 import type z from "zod"
-import type { RobloxCacheKey, RobloxCacheValue } from "./cache"
+import { robloxCacheKeyString, type RobloxCacheKey, type RobloxCacheValue } from "./cache"
 import type { RobloxConfig } from "./config"
 import type { RobloxCookie, RobloxCookieRejectReason } from "./cookies"
 
@@ -127,25 +127,42 @@ export function validate<S extends z.ZodType>(schema: S) {
 }
 
 /**
+ * 같은 `id`의 작업이 진행 중이면 그 Promise를 같이 기다리고, 없으면 `run`을 시작해 등록한다.
+ * 끝나면(실패해도) 지우므로 다음 호출은 새로 시작한다.
+ */
+export function singleFlight<R>(config: RobloxConfig, id: string, run: () => Promise<R>): Promise<R> {
+    const running = config.inflight.get(id)
+    if (running) return running as Promise<R>
+    const promise = run().finally(() => {
+        if (config.inflight.get(id) === promise) config.inflight.delete(id)
+    })
+    config.inflight.set(id, promise)
+    return promise
+}
+
+/**
  * 캐시가 설정돼 있으면 결과를 캐시한다. TTL이 0이어도 get/set은 그대로 부른다 — 0을 어떻게 다룰지는 저장소가 정한다.
  * null(없는 대상)과 `keep`이 false인 결과는 저장하지 않는다. 값의 타입은 키에 맞아야 한다.
+ * 같은 키를 동시에 물으면 저장소 조회부터 저장까지 한 번만 한다 (캐시가 없어도 마찬가지).
  */
-export async function cached<K extends RobloxCacheKey, R extends RobloxCacheValue<K> | null>(
+export function cached<K extends RobloxCacheKey, R extends RobloxCacheValue<K> | null>(
     config: RobloxConfig,
     key: K,
     ttl: number,
     run: () => Promise<R>,
     keep: (result: Exclude<R, null>) => boolean = () => true,
 ): Promise<R> {
-    const store = config.cache
-    if (!store) return run()
+    return singleFlight(config, robloxCacheKeyString(key), async () => {
+        const store = config.cache
+        if (!store) return run()
 
-    const hit = await store.get(key)
-    if (hit !== undefined) return hit as R
+        const hit = await store.get(key)
+        if (hit !== undefined) return hit as R
 
-    const result = await run()
-    if (result !== null && keep(result as Exclude<R, null>)) await store.set(key, result as RobloxCacheValue<K>, ttl)
-    return result
+        const result = await run()
+        if (result !== null && keep(result as Exclude<R, null>)) await store.set(key, result as RobloxCacheValue<K>, ttl)
+        return result
+    })
 }
 
 export function chunk<T>(list: readonly T[], size: number): T[][] {

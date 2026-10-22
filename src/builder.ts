@@ -52,6 +52,7 @@ export class VigorRoblox {
             cookies:     null,
             onCookieRejected: null,
             rejecting:   new Map(),
+            inflight:    new Map(),
             fixedCookie: null,
             retry:       {},
             cache:       null,

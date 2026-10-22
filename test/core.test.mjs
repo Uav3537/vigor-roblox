@@ -294,3 +294,38 @@ test("geolocation 콜백은 캐시에 없는 IP만 중복 없이 한 번에 받�
 test("geolocation 콜백이 없으면 위치를 물을 때 에러", async () => {
     await assert.rejects(vigorRoblox.mode("node").games.getServerLocations([RobloxIpAddressSchema.parse("10.0.0.1")]), /geolocation/)
 })
+
+test("같은 IP를 동시에 물으면 진행 중인 조회를 같이 기다리고 콜백에 다시 넘기지 않는다", async () => {
+    const asked = []
+    const geolocate = async ips => {
+        asked.push([...ips])
+        await new Promise(r => setTimeout(r, 30))
+        return ips.map(ip => ({ country: ip.endsWith("1") ? "US" : "KR" }))
+    }
+    const ip = s => RobloxIpAddressSchema.parse(s)
+    const games = vigorRoblox.mode("node").geolocation(geolocate).games
+    const [a, b] = await Promise.all([
+        games.getServerLocations([ip("10.0.0.1"), ip("10.0.0.2")]),
+        games.getServerLocations([ip("10.0.0.2"), ip("10.0.0.3")]),
+    ])
+    assert.deepEqual(asked, [["10.0.0.1", "10.0.0.2"], ["10.0.0.3"]])
+    assert.deepEqual(b.map(l => [l.ip, l.location.country]), [["10.0.0.2", "KR"], ["10.0.0.3", "KR"]])
+    assert.equal(a[1].location, b[0].location)
+    // 끝나면 지우므로 다음 조회는 다시 묻는다 (캐시가 없을 때)
+    await games.getServerLocations([ip("10.0.0.1")])
+    assert.deepEqual(asked.at(-1), ["10.0.0.1"])
+})
+
+test("캐시되는 조회는 같은 키를 동시에 물으면 저장소 조회와 요청을 한 번만 한다", async () => {
+    routes["GET users/v1/users/1/username-history"] = () => ({ delay: 20, body: { previousPageCursor: null, nextPageCursor: null, data: [{ name: "a" }] } })
+    let gets = 0
+    const store = {
+        get: async () => { gets++; await new Promise(r => setTimeout(r, 10)); return undefined },
+        set: () => {},
+    }
+    const users = vigorRoblox.mode("node").cache(store).users
+    const [x, y] = await Promise.all([users.getUsernameHistory(1), users.getUsernameHistory(1)])
+    assert.equal(x, y)
+    assert.equal(gets, 1)
+    assert.equal(count("GET users/v1/users/1/username-history"), 1)
+})

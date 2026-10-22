@@ -1,7 +1,7 @@
 import { RobloxBatcher, captureHeaders, mapRoute, nullOn, type RobloxBatchRoute } from "@/core/batcher"
-import type { RobloxCacheKey, RobloxCacheValue, RobloxViewerKey } from "@/core/cache"
+import { robloxCacheKeyString, type RobloxCacheKey, type RobloxCacheValue, type RobloxViewerKey } from "@/core/cache"
 import { resolveTtl, type RobloxConfig } from "@/core/config"
-import { cached, createHttp, validate } from "@/core/http"
+import { cached, singleFlight, createHttp, validate } from "@/core/http"
 import { canAuthenticate, viewerKey } from "@/core/viewer"
 import type { RobloxThumbnailsApi } from "@/apis/thumbnails"
 import type { RobloxPresenceApi } from "@/apis/presence"
@@ -56,6 +56,8 @@ import {
     type RobloxRecommendationsQuery,
     type RobloxServer,
     type RobloxServerAddress,
+    type RobloxServerAddressTarget,
+    type RobloxGeolocator,
     type RobloxServerInfo,
     type RobloxServerLocation,
     type RobloxServerPage,
@@ -218,10 +220,9 @@ function serverRoute(bucket: string, path: (placeId: RobloxPlaceId, type: string
     }
 }
 
-type AddressTarget = { placeId: RobloxPlaceId, jobId: RobloxJobId }
 
 /** POST gamejoin /v1/join-game-instance — 5회/초. 꽉 찬 서버는 대기열로 들어가 주소가 없다. */
-const addressRoute: RobloxBatchRoute<AddressTarget, RobloxServerAddress> = {
+const addressRoute: RobloxBatchRoute<RobloxServerAddressTarget, RobloxServerAddress> = {
     bucket: "gamejoin POST /v1/join-game-instance",
     limit:  1,
     group:  () => "",
@@ -234,6 +235,7 @@ const addressRoute: RobloxBatchRoute<AddressTarget, RobloxServerAddress> = {
             .request()
         const endpoint = res.joinScript?.UdmuxEndpoints?.[0]
         return [{
+            placeId:        t.placeId,
             jobId:          t.jobId,
             status:         res.status,
             ip:             endpoint ? RobloxIpAddressSchema.parse(endpoint.Address) : null,
@@ -573,40 +575,58 @@ export class RobloxGamesApi<L = unknown> {
      * 서버 접속 주소. gamejoin으로 해당 서버에 접속을 요청해 joinScript에서 뽑는다 (인증 필요, 5회/초).
      * 꽉 찬 서버는 대기열로 들어가 주소가 null이다. 주소를 받은 결과만 캐시한다.
      */
-    async getServerAddresses(targets: readonly AddressTarget[]): Promise<RobloxServerAddress[]> {
+    async getServerAddresses(targets: readonly RobloxServerAddressTarget[]): Promise<RobloxServerAddress[]> {
         const ttl = this.ttl("getServerAddresses")
-        return Promise.all(targets.map(t => cached(this.config, ["games", "getServerAddresses", t.jobId], ttl,
-            () => this.addresses.load(t.jobId, t), r => r.ip !== null)))
+        // jobId는 place 안에서만 겹치지 않는다고 보장되므로 키에 placeId를 함께 넣는다
+        return Promise.all(targets.map(t => cached(this.config, ["games", "getServerAddresses", t.placeId, t.jobId], ttl,
+            () => this.addresses.load(`${t.placeId}:${t.jobId}`, t), r => r.ip !== null)))
     }
 
     /**
      * IP → 위치. `.geolocation(fn)`으로 넣은 콜백에 캐시에 없는 IP를 중복 없이 한 번에 넘긴다.
      * 결과는 입력 순서이고 `location`은 콜백이 돌려준 값 그대로다. 콜백이 null을 준 IP는 빼고, 캐시하지 않는다.
+     * 같은 IP를 이미 조회하는 중이면(다른 호출이 동시에 물은 경우) 그 결과를 같이 기다리고 다시 묻지 않는다.
      */
     async getServerLocations(ips: readonly RobloxIpAddress[]): Promise<RobloxServerLocation<L>[]> {
         const geolocate = this.config.geolocate
         if (!geolocate) throw new Error(GEOLOCATE_MISSING)
+        const id = (ip: RobloxIpAddress) => robloxCacheKeyString(["games", "getServerLocations", ip])
+
+        // 진행 중이 아닌 IP만 한 번에 묻고, IP마다 그 결과를 등록한다. 여기까지는 await 없이 이어져 다른 호출이 끼어들지 않는다.
+        const unique = [...new Set(ips)]
+        const fresh = unique.filter(ip => !this.config.inflight.has(id(ip)))
+        const batch = fresh.length ? this.locate(fresh, geolocate as RobloxGeolocator<L>) : null
+        const values = await Promise.all(unique.map(ip => singleFlight(this.config, id(ip), () => batch!.then(located => located.get(ip) ?? null))))
+
+        const known = new Map(unique.map((ip, i) => [ip, values[i]]))
+        return found(ips.map(ip => {
+            const location = known.get(ip)
+            return location === null || location === undefined ? null : { ip, location }
+        }))
+    }
+
+    /** 캐시를 보고, 없는 IP만 콜백에 넘긴 뒤 저장한다. 모르는 IP는 결과에 없다 */
+    private async locate(ips: RobloxIpAddress[], geolocate: RobloxGeolocator<L>): Promise<Map<RobloxIpAddress, L>> {
         const store = this.config.cache
         const ttl = this.ttl("getServerLocations")
         const known = new Map<RobloxIpAddress, L>()
 
-        const unique = [...new Set(ips)]
-        if (store) await Promise.all(unique.map(async ip => {
+        if (store) await Promise.all(ips.map(async ip => {
             const hit = await store.get(["games", "getServerLocations", ip])
             if (hit !== undefined && hit !== null) known.set(ip, hit as L)
         }))
 
-        const misses = unique.filter(ip => !known.has(ip))
+        const misses = ips.filter(ip => !known.has(ip))
         if (misses.length) {
             const results = await geolocate(misses)
             await Promise.all(misses.map(async (ip, i) => {
                 const location = results[i]
                 if (location === null || location === undefined) return
-                known.set(ip, location as L)
+                known.set(ip, location)
                 if (store) await store.set(["games", "getServerLocations", ip], location, ttl)
             }))
         }
-        return found(ips.map(ip => known.has(ip) ? { ip, location: known.get(ip)! } : null))
+        return known
     }
 
     /** GET /v1/games/{placeId}/private-servers — 내가 들어갈 수 있는 비공개 서버 */
