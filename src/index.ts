@@ -3,13 +3,14 @@ import { vigorRoblox } from "./builder"
 export { vigorRoblox, VigorRoblox, RobloxExtensionStage, RobloxNodeStage, RobloxOptionsStage, RobloxCacheStage } from "./builder"
 export { RobloxClient } from "./client"
 export {
-    RobloxMemoryCache, robloxCacheKeyString,
-    type RobloxCacheStore, type RobloxCacheKey, type RobloxCacheValue, type RobloxCacheValues, type RobloxCacheEntry, type RobloxViewerKey,
+    RobloxMemoryCache, robloxCacheKey,
+    type RobloxCacheStore, type RobloxCacheInfo, type RobloxCacheValue, type RobloxCacheValues, type RobloxCacheEntry, type RobloxViewerKey,
 } from "./core/cache"
 export { RobloxCookieSchema, RobloxMemoryCookies, type RobloxCookie, type RobloxCookieStore, type RobloxCookieRejectedHandler, type RobloxCookieRejectReason } from "./core/cookies"
 export type { RobloxRateLimitStore, RobloxRateLimitState } from "./core/ratelimit"
 export { RobloxDefaultTtl, type RobloxMode, type RobloxRetryOptions, type RobloxTtl } from "./core/config"
 export { findFetchFailed } from "./core/http"
+export { RobloxPartialError, isRobloxPartialError, type RobloxItemError } from "./core/partial"
 export { robloxDnrRules, type RobloxDnrRule, type RobloxDnrOptions } from "./extension"
 export { RobloxUsersApi, type RobloxUsersCacheable } from "./apis/users"
 export { RobloxThumbnailsApi, type RobloxThumbnailsCacheable } from "./apis/thumbnails"

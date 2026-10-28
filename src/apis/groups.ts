@@ -1,8 +1,9 @@
 import z from "zod"
 import { RobloxBatcher, captureHeaders, nullOn, type RobloxBatchRoute } from "@/core/batcher"
-import type { RobloxCacheKey, RobloxCacheValue } from "@/core/cache"
+import type { RobloxCacheInfo, RobloxCacheValue } from "@/core/cache"
 import { resolveTtl, type RobloxConfig } from "@/core/config"
 import { cached, chunk, createHttp, validate } from "@/core/http"
+import { finish, found, settle, type RobloxItemError } from "@/core/partial"
 import { requireViewer } from "@/core/viewer"
 import type { RobloxThumbnailsApi } from "@/apis/thumbnails"
 import type { RobloxUsersApi } from "@/apis/users"
@@ -104,7 +105,6 @@ const MULTI_GET_LIMIT = 100
 /** 묶음 수락/거절 한 번에 보내는 개수. 서버 한도는 확인하지 못했다 */
 const MULTI_WRITE_LIMIT = 100
 
-const found = <T>(list: (T | null)[]) => list.filter((x): x is T => x !== null)
 const csv = (ids: readonly number[]) => ids.join(",")
 const relationshipPath = (type: RobloxGroupRelationshipType) => type.toLowerCase()
 
@@ -337,26 +337,37 @@ export class RobloxGroupsApi {
         return id
     }
 
-    /** 항목 하나씩 캐시하며 batcher로 보낸다 */
-    private each<R extends RobloxCacheValue<RobloxCacheKey>>(method: RobloxGroupsCacheable, ids: readonly number[], load: (id: number) => Promise<R | null>) {
-        return Promise.all(ids.map(id => cached(this.config, ["groups", method, id] as RobloxCacheKey, this.ttl(method), () => load(id))))
+    /** 항목 하나씩 캐시하며 batcher로 보낸다. 분류 데이터의 id 필드 이름은 메서드마다 다르다 */
+    private each<R extends RobloxCacheValue<RobloxCacheInfo>>(method: RobloxGroupsCacheable, ids: readonly number[], load: (id: number) => Promise<R | null>) {
+        const field = method === "getRolesByIds" ? "roleId" : method === "getUserGroups" ? "userId" : "groupId"
+        return settle(ids, id => cached(this.config, { service: "groups", method, [field]: id } as RobloxCacheInfo, this.ttl(method), () => load(id)))
     }
 
-    /** 대상마다 batcher로 보내고 없는 대상은 뺀다 */
+    /** 대상마다 batcher로 보내고 없는 대상은 뺀다. 일부가 실패하면 RobloxPartialError */
     private async many<T, R>(batcher: RobloxBatcher<T, R | null>, targets: readonly T[], key: (t: T) => string): Promise<R[]> {
-        return found(await Promise.all(targets.map(t => batcher.load(key(t), t))))
+        const { values, errors } = await settle(targets, t => batcher.load(key(t), t))
+        return finish(found(values), errors)
     }
 
-    /** 그룹들에 아이콘을 붙인다 */
-    private async attach<G extends { id: RobloxGroupId }>(groups: Promise<G[]>, ids: readonly RobloxGroupId[], option: true | RobloxGroupIconOptions): Promise<RobloxWithThumbnail<G>[]> {
+    /** 그룹들을 받아 실패가 있으면 RobloxPartialError로 던진다. `option`이 있으면 아이콘을 붙이고, 아이콘을 받지 못한 그룹은 `thumbnail: null`이다 */
+    private async attach<G extends { id: RobloxGroupId }>(
+        groups: Promise<{ values: (G | null)[], errors: RobloxItemError<number>[] }>,
+        ids: readonly RobloxGroupId[],
+        option: true | RobloxGroupIconOptions | undefined,
+    ): Promise<(G | RobloxWithThumbnail<G>)[]> {
+        if (!option) {
+            const { values, errors } = await groups
+            return finish(found(values), errors)
+        }
         const target = option === true ? {} : option
-        const [list, icons] = await Promise.all([groups, this.thumbnails.get(ids.map(targetId => ({ ...target, type: "GroupIcon", targetId }) as const))])
-        const byId = new Map(ids.map((id, i) => [id, icons[i]]))
-        return list.map(g => ({ ...g, thumbnail: byId.get(g.id)! }))
+        const [{ values, errors }, icons] = await Promise.all([groups, this.thumbnails.getSettled(ids.map(targetId => ({ ...target, type: "GroupIcon", targetId }) as const))])
+        const byId = new Map(ids.map((id, i) => [id, icons.values[i]]))
+        return finish(found(values).map(g => ({ ...g, thumbnail: byId.get(g.id) ?? null })), errors)
     }
 
     // ── 공개 조회 ──────────────────────────────────────
     // 배열을 받는 메서드는 입력 순서로 돌려주고, 없는 대상은 뺀다.
+    // 일부 항목이 실패하면 받은 결과를 담아 RobloxPartialError를 던진다.
     // 같은 틱에 들어온 호출은 모아서 보내므로 따로따로 불러도 된다.
 
     /**
@@ -366,8 +377,8 @@ export class RobloxGroupsApi {
     getGroups(groupIds: readonly RobloxGroupId[], opts: { thumbnail: true | RobloxGroupIconOptions }): Promise<RobloxWithThumbnail<RobloxGroup>[]>
     getGroups(groupIds: readonly RobloxGroupId[], opts?: { thumbnail?: undefined }): Promise<RobloxGroup[]>
     getGroups(groupIds: readonly RobloxGroupId[], opts: { thumbnail?: true | RobloxGroupIconOptions } = {}): Promise<RobloxGroup[]> {
-        const groups = this.each("getGroups", groupIds, id => this.groups.load(String(id), id)).then(list => found(list as (RobloxGroup | null)[]))
-        return opts.thumbnail ? this.attach(groups, groupIds, opts.thumbnail) : groups
+        const groups = this.each("getGroups", groupIds, id => this.groups.load(String(id), id)) as Promise<{ values: (RobloxGroup | null)[], errors: RobloxItemError<number>[] }>
+        return this.attach(groups, groupIds, opts.thumbnail)
     }
 
     /**
@@ -377,25 +388,26 @@ export class RobloxGroupsApi {
     getGroupDetails(groupIds: readonly RobloxGroupId[], opts: { thumbnail: true | RobloxGroupIconOptions }): Promise<RobloxWithThumbnail<RobloxGroupDetail>[]>
     getGroupDetails(groupIds: readonly RobloxGroupId[], opts?: { thumbnail?: undefined }): Promise<RobloxGroupDetail[]>
     getGroupDetails(groupIds: readonly RobloxGroupId[], opts: { thumbnail?: true | RobloxGroupIconOptions } = {}): Promise<RobloxGroupDetail[]> {
-        const groups = this.each("getGroupDetails", groupIds, id => this.details.load(String(id), id as RobloxGroupId)).then(list => found(list as (RobloxGroupDetail | null)[]))
-        return opts.thumbnail ? this.attach(groups, groupIds, opts.thumbnail) : groups
+        const groups = this.each("getGroupDetails", groupIds, id => this.details.load(String(id), id as RobloxGroupId)) as Promise<{ values: (RobloxGroupDetail | null)[], errors: RobloxItemError<number>[] }>
+        return this.attach(groups, groupIds, opts.thumbnail)
     }
 
     /** GET /v1/groups/{groupId}/roles — 그룹의 역할 목록 (멤버 수 포함, 낮은 rank부터) */
     async getRoles(groupIds: readonly RobloxGroupId[]): Promise<{ groupId: RobloxGroupId, roles: RobloxGroupRole[] }[]> {
-        const lists = await this.each("getRoles", groupIds, id => this.roles.load(String(id), id as RobloxGroupId))
-        return found(groupIds.map((groupId, i) => lists[i] ? { groupId, roles: lists[i] as RobloxGroupRole[] } : null))
+        const { values: lists, errors } = await this.each("getRoles", groupIds, id => this.roles.load(String(id), id as RobloxGroupId))
+        return finish(found(groupIds.map((groupId, i) => lists[i] ? { groupId, roles: lists[i] as RobloxGroupRole[] } : null)), errors)
     }
 
     /** GET /v1/roles — 역할 id로 역할과 그 역할의 그룹. 100개씩 묶어서 보낸다 (60회/분) */
     async getRolesByIds(roleIds: readonly RobloxGroupRoleId[]): Promise<RobloxGroupRoleDetail[]> {
-        return found(await this.each("getRolesByIds", roleIds, id => this.roleDetails.load(String(id), id))) as RobloxGroupRoleDetail[]
+        const { values, errors } = await this.each("getRolesByIds", roleIds, id => this.roleDetails.load(String(id), id))
+        return finish(found(values), errors) as RobloxGroupRoleDetail[]
     }
 
     /** 유저들이 속한 그룹과 역할. /v1과 /v2의 users/{userId}/groups/roles를 나눠 쓴다 */
     async getUserGroups(userIds: readonly RobloxUserId[]): Promise<RobloxUserGroups[]> {
-        const lists = await this.each("getUserGroups", userIds, id => this.userGroups.load(String(id), id as RobloxUserId))
-        return found(userIds.map((userId, i) => lists[i] ? { userId, groups: lists[i] as RobloxUserGroupRole[] } : null))
+        const { values: lists, errors } = await this.each("getUserGroups", userIds, id => this.userGroups.load(String(id), id as RobloxUserId))
+        return finish(found(userIds.map((userId, i) => lists[i] ? { userId, groups: lists[i] as RobloxUserGroupRole[] } : null)), errors)
     }
 
     /** GET /v1/users/{userId}/groups/primary/role — 대표 그룹. 대표 그룹이 없는 유저는 뺀다 */
@@ -465,8 +477,8 @@ export class RobloxGroupsApi {
 
     /** GET /v1/groups/{groupId}/community-feature-freezes — 포럼 등 기능이 멈춰 있는지 */
     async getFeatureFreezes(groupIds: readonly RobloxGroupId[]): Promise<{ groupId: RobloxGroupId, features: RobloxGroupFeatureFreeze[] }[]> {
-        const lists = await Promise.all(groupIds.map(id => this.featureFreezes.load(String(id), id)))
-        return found(groupIds.map((groupId, i) => lists[i] ? { groupId, features: lists[i] } : null))
+        const { values: lists, errors } = await settle(groupIds, id => this.featureFreezes.load(String(id), id))
+        return finish(found(groupIds.map((groupId, i) => lists[i] ? { groupId, features: lists[i] } : null)), errors)
     }
 
     /** GET /v1/featured-content/event — 그룹이 내건 이벤트. 없는 그룹은 뺀다 */
@@ -507,20 +519,20 @@ export class RobloxGroupsApi {
 
     /** POST /v1/groups/policies — 내 계정으로 그룹을 볼 수 있는지 (지역 정책) */
     async getPolicies(groupIds: readonly RobloxGroupId[]): Promise<{ groupId: RobloxGroupId, canViewGroup: boolean }[]> {
-        const list = await Promise.all(groupIds.map(id => this.policies.load(String(id), id)))
-        return found(groupIds.map((groupId, i) => list[i] === null ? null : { groupId, canViewGroup: list[i] }))
+        const { values: list, errors } = await settle(groupIds, id => this.policies.load(String(id), id))
+        return finish(found(groupIds.map((groupId, i) => list[i] === null ? null : { groupId, canViewGroup: list[i] })), errors)
     }
 
     /** GET /v1/groups/{groupId}/social-links */
     async getSocialLinks(groupIds: readonly RobloxGroupId[]): Promise<{ groupId: RobloxGroupId, links: RobloxGroupSocialLink[] }[]> {
-        const lists = await Promise.all(groupIds.map(id => this.socialLinks.load(String(id), id)))
-        return found(groupIds.map((groupId, i) => lists[i] ? { groupId, links: lists[i] } : null))
+        const { values: lists, errors } = await settle(groupIds, id => this.socialLinks.load(String(id), id))
+        return finish(found(groupIds.map((groupId, i) => lists[i] ? { groupId, links: lists[i] } : null)), errors)
     }
 
     /** GET /v1/groups/{groupId}/emotes — 포럼 이모트 */
     async getEmotes(groupIds: readonly RobloxGroupId[]): Promise<{ groupId: RobloxGroupId, emoteSets: RobloxGroupEmoteSet[] }[]> {
-        const lists = await Promise.all(groupIds.map(id => this.emotes.load(String(id), id)))
-        return found(groupIds.map((groupId, i) => lists[i] ? { groupId, emoteSets: lists[i] } : null))
+        const { values: lists, errors } = await settle(groupIds, id => this.emotes.load(String(id), id))
+        return finish(found(groupIds.map((groupId, i) => lists[i] ? { groupId, emoteSets: lists[i] } : null)), errors)
     }
 
     /** GET /v1/user/groups/pending — 가입을 요청해 둔 그룹 */
@@ -700,10 +712,16 @@ export class RobloxGroupsApi {
             UserIds => this.http().method("DELETE").path("v1", "groups", groupId, "join-requests").body("overwrite", { UserIds }).middlewares(validate(RobloxEmptyResponseSchema)).request())
     }
 
-    /** 하나면 single, 여럿이면 묶음 엔드포인트로 나눠 보낸다 */
+    /**
+     * 하나면 single, 여럿이면 묶음 엔드포인트로 나눠 보낸다. 실패한 묶음이 있으면 RobloxPartialError를 던진다
+     * (`results`는 처리된 id, `errors`는 실패한 묶음의 id마다 하나).
+     */
     private async batchWrite<I>(ids: readonly I[], single: (id: I) => Promise<unknown>, multi: (ids: I[]) => Promise<unknown>) {
         if (!ids.length) return
-        await Promise.all(ids.length === 1 ? [single(ids[0])] : chunk(ids, MULTI_WRITE_LIMIT).map(multi))
+        const chunks = ids.length === 1 ? [[ids[0]]] : chunk(ids, MULTI_WRITE_LIMIT)
+        const { errors } = await settle(chunks, part => ids.length === 1 ? single(part[0]) : multi(part))
+        const failed = new Set(errors.flatMap(e => e.input))
+        finish(ids.filter(id => !failed.has(id)), errors.flatMap(e => e.input.map(input => ({ input, error: e.error }))))
     }
 
     /** GET /v1/groups/{groupId}/bans */
@@ -749,8 +767,8 @@ export class RobloxGroupsApi {
 
     /** GET /v1/groups/{groupId}/settings */
     async getSettings(groupIds: readonly RobloxGroupId[]): Promise<(RobloxGroupSettings & { groupId: RobloxGroupId })[]> {
-        const list = await Promise.all(groupIds.map(id => this.settings.load(String(id), id)))
-        return found(groupIds.map((groupId, i) => list[i] && { groupId, ...list[i] }))
+        const { values: list, errors } = await settle(groupIds, id => this.settings.load(String(id), id))
+        return finish(found(groupIds.map((groupId, i) => list[i] && { groupId, ...list[i] })), errors)
     }
 
     /** PATCH /v1/groups/{groupId}/settings — 넣은 항목만 바꾼다 */
@@ -770,14 +788,14 @@ export class RobloxGroupsApi {
 
     /** GET /v1/groups/{groupId}/features — 기능별 차단 상태와 잠금 여부 */
     async getFeatures(groupIds: readonly RobloxGroupId[]): Promise<(RobloxGroupFeatures & { groupId: RobloxGroupId })[]> {
-        const list = await Promise.all(groupIds.map(id => this.features.load(String(id), id)))
-        return found(groupIds.map((groupId, i) => list[i] && { groupId, ...list[i] }))
+        const { values: list, errors } = await settle(groupIds, id => this.features.load(String(id), id))
+        return finish(found(groupIds.map((groupId, i) => list[i] && { groupId, ...list[i] })), errors)
     }
 
     /** GET /v1/groups/{groupId}/features/status — 막힌 기능이 하나라도 있는지 */
     async getFeaturesBlocked(groupIds: readonly RobloxGroupId[]): Promise<{ groupId: RobloxGroupId, hasFeaturesBlocked: boolean }[]> {
-        const list = await Promise.all(groupIds.map(id => this.featuresBlocked.load(String(id), id)))
-        return found(groupIds.map((groupId, i) => list[i] === null ? null : { groupId, hasFeaturesBlocked: list[i] }))
+        const { values: list, errors } = await settle(groupIds, id => this.featuresBlocked.load(String(id), id))
+        return finish(found(groupIds.map((groupId, i) => list[i] === null ? null : { groupId, hasFeaturesBlocked: list[i] })), errors)
     }
 
     /** PATCH /v1/groups/{groupId}/features — 지금은 걸려 있는 차단을 푸는 것만 된다. 바뀌었으면 true */
@@ -966,14 +984,14 @@ export class RobloxGroupsApi {
 
     /** GET /v1/groups/{groupId}/payouts — 정기 지급 대상과 비율 */
     async getPayouts(groupIds: readonly RobloxGroupId[]): Promise<{ groupId: RobloxGroupId, payouts: RobloxGroupPayout[] }[]> {
-        const lists = await Promise.all(groupIds.map(id => this.payouts.load(String(id), id)))
-        return found(groupIds.map((groupId, i) => lists[i] ? { groupId, payouts: lists[i] } : null))
+        const { values: lists, errors } = await settle(groupIds, id => this.payouts.load(String(id), id))
+        return finish(found(groupIds.map((groupId, i) => lists[i] ? { groupId, payouts: lists[i] } : null)), errors)
     }
 
     /** GET /v1/groups/{groupId}/payout-restriction — 지급 기능을 쓸 수 있는지 */
     async getPayoutRestrictions(groupIds: readonly RobloxGroupId[]): Promise<(RobloxGroupPayoutRestriction & { groupId: RobloxGroupId })[]> {
-        const list = await Promise.all(groupIds.map(id => this.payoutRestrictions.load(String(id), id)))
-        return found(groupIds.map((groupId, i) => list[i] && { groupId, ...list[i] }))
+        const { values: list, errors } = await settle(groupIds, id => this.payoutRestrictions.load(String(id), id))
+        return finish(found(groupIds.map((groupId, i) => list[i] && { groupId, ...list[i] })), errors)
     }
 
     /**

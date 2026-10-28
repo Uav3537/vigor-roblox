@@ -6,7 +6,7 @@ A typed client for Roblox's web APIs, built on [vigor-fetch](https://www.npmjs.c
 - Every lookup takes an array. Calls made in the same tick are batched into as few requests as each endpoint allows
 - When several endpoints return the same result, the library picks between them by their remaining rate limit, so you never choose an endpoint
 - Every response validated with [zod](https://zod.dev); ids are branded types
-- Read-through caching against a store you provide, with typed tuple keys and default TTLs
+- Read-through caching against a store you provide, with versioned string keys, typed entry info and default TTLs
 - Two modes: `node` for servers that hold cookies, `extension` for browser extensions (and scripts running on roblox.com)
 
 ## Install
@@ -176,7 +176,8 @@ data[0].location?.countryCode   // typed from your callback
 
 ## Conventions
 
-- **Lookups take arrays and return results in input order.** Ask for one item with a one-element array. Missing items are dropped (thumbnails come back with `state: "Error"` instead, presence comes back offline).
+- **Lookups take arrays and return results in input order.** Ask for one item with a one-element array. Missing items are dropped (thumbnails come back with `state: "Error"` instead, presence comes back offline). If some items fail, the call throws a `RobloxPartialError` that still holds the items that succeeded (see [Errors](#errors)).
+- **Extras never fail the call.** When a method attaches extra data (a `thumbnail` option, votes and images in `getGameInfos`, headshots, addresses and locations in `getServers`/`findUsers`), a failed extra comes back as `null` or an empty array and the main result is returned as usual.
 - **Paged lists take one entity.** Methods that walk a cursor (`getUsernameHistory`, `getServerPage`, `getUserGames`, `getFollowers`, ...) take a single id plus a query, since a cursor belongs to one list.
 - **Ids are branded.** Parse plain values with the matching schema, for example `RobloxPlaceIdSchema.parse(1818)`. The same goes for cookies (`RobloxCookieSchema`), job ids, conversation ids and server IPs.
 - **Creators are discriminated unions.** A field that can point to a user or a group (`game.creator`, `group.owner`, a recommendation's `creator`) is a `RobloxCreator`. Check `type` and `id` narrows to `RobloxUserId` or `RobloxGroupId`. Any other type comes back as `"Unknown"`, with the original value in `rawType`. A thumbnail's `targetId` has the id type of the target you asked for.
@@ -224,10 +225,11 @@ const images = await roblox.thumbnails.get([
 
 | Method | Description |
 | --- | --- |
-| `getPlaces(placeIds)` | Place → universe → details, votes, icon and thumbnails in one call. |
+| `getUniverseIds(placeIds)` | Place → universe. Uses place details when signed in (50 per request), otherwise asks apis.roblox.com one by one. |
+| `getGameInfos(universeIds)` | Details, votes, icon and thumbnails of each universe in one call. Start from a place with `getUniverseIds`. |
 | `getServers(placeId, { count, serverType, players, address, location })` | Walks the server list until `count` servers are collected (whole pages), with player headshots, gamejoin addresses and locations. |
 | `findUsers(placeId, userIds, { maxServers, presence, serverType, address, location })` | Which server of a place each user is in. Walks the server list and matches player headshots against each user's headshot, stopping once everyone is found. Presence is asked in parallel as a hint and never waited on unless someone is still missing: a visible server in this place is used, a user confirmed in another place is dropped, and offline or hidden users keep being searched. `presence: false` skips it. Needs a signed-in account. The server list only carries up to 5 player tokens per server, so a user who is in a server can still be missed; users with a default avatar, or sharing an avatar with another target, can't be matched by headshot. |
-| `getGames`, `getUniverseIds`, `getPlaceDetails`, `getProductInfo`, `getPlayability`, `getVotes`, `getFavoriteCounts`, `getMedia` | Batched lookups. |
+| `getGames`, `getPlaceDetails`, `getProductInfo`, `getPlayability`, `getVotes`, `getFavoriteCounts`, `getMedia` | Batched lookups. |
 | `getServerPage(placeId, query)` | One page of servers. Spread over three endpoints, each limited to 3 requests per minute per IP. |
 | `getServerAddresses(targets)`, `getServerLocations(ips)` | gamejoin addresses for `{ placeId, jobId }` targets (`RobloxServerAddressTarget`; needs a signed-in account; full servers have none) and IP locations from your `geolocation` callback. Addresses are cached per place and job id, since a job id is only unique within its place. IPs the callback can't place are left out. |
 | `getRecommendations`, `getUserGames`, `getUserFavoriteGames`, `getGroupGames` | Paged lists. |
@@ -316,31 +318,37 @@ On serverless platforms, whether instances share an IP depends on the provider, 
 
 ```ts
 interface RobloxCacheStore {
-    get<K extends RobloxCacheKey>(key: K): RobloxCacheValue<K> | undefined | Promise<...>
-    set<K extends RobloxCacheKey>(key: K, value: RobloxCacheValue<K>, ttl: number): void | Promise<void>
+    get<I extends RobloxCacheInfo>(key: string, info: I): RobloxCacheValue<I> | undefined | Promise<...>
+    set<I extends RobloxCacheInfo>(key: string, value: RobloxCacheValue<I>, ttl: number, info: I): void | Promise<void>
 }
 ```
 
-Keys are tuples, `[service, method, ...arguments]`, so a store can route them with a `switch`:
+Every call gets two things:
 
-```ts
-const store: RobloxCacheStore = {
-    get(key) {
-        const k: RobloxCacheKey = key
-        switch (k[0]) {
-            case "presence": return redis.get(`presence:${k[2]}:${k[3]}`)   // viewer, userId
-            default:         return memory.get(robloxCacheKeyString(k))
-        }
-    },
-    set(key, value, ttl) { /* ... */ },
-}
-```
+- `key` is a ready-made string: `"<library version>:<service>.<method>::<hash>"`, e.g. `5.1.1:games.getServerPage::Xk3v9QmP1aZr7TcW2bNf0g`. The hash covers the arguments (the first 16 bytes of a SHA-256, base64url), so the key stays short even when an argument is a long cursor. The same request always gives the same key, and a new library version gives new keys, so values whose shape changed are never read back. A simple store only needs this:
 
-- `RobloxCacheEntry` lists every key with the value stored under it. `robloxCacheKeyString(key)` turns a key into a stable string.
+  ```ts
+  const store: RobloxCacheStore = {
+      get: key => redis.get(`myapp:${key}`),
+      set: (key, value, ttl) => redis.set(`myapp:${key}`, value, { PX: ttl }),
+  }
+  ```
+
+- `info` describes the entry, `{ service, method, ...arguments }`, for stores that route or inspect entries. Narrowing on `info.service` and `info.method` types the remaining fields. Its object fields are sorted and `undefined` fields removed.
+
+  ```ts
+  get(key, info) {
+      if (info.service === "games" && info.method === "getServerLocations") return geoTable.get(info.ip)
+      return memory.get(key)
+  }
+  ```
+
+- `RobloxCacheEntry` lists every `info` shape with the value stored under it. `robloxCacheKey(info)` gives the key for an `info`, e.g. to delete an entry yourself.
+- `games.getServerLocations` keys carry no version: the value comes from your `.geolocation()` callback, not from the library.
 - Array lookups are cached per item. Missing items, pending thumbnails and thumbnails requested by token are not cached.
-- Keys whose answer depends on the account include a viewer: `"extension"`, `"anonymous"` or `cookie:<hash>` (never the cookie itself). While cookies rotate, those entries are not cached at all.
+- Entries whose answer depends on the account include a viewer: `"extension"`, `"anonymous"` or `cookie:<hash>` (never the cookie itself). While cookies rotate, those entries are not cached at all. Public server pages are the exception: they only split anonymous from authenticated, since player tokens aren't tied to the account that fetched them.
 - `RobloxMemoryCache` is an in-process implementation that sweeps expired entries once a minute.
-- Concurrent calls for the same key within one process share a single lookup: one `get`, one request, one `set`. This also applies without a cache. The store doesn't need locking for this, but separate processes (serverless instances, tabs) can still miss the same key at the same moment.
+- Concurrent calls for the same entry within one process share a single lookup: one `get`, one request, one `set`. This also applies without a cache. The store doesn't need locking for this, but separate processes (serverless instances, tabs) can still miss the same key at the same moment.
 
 ### TTLs
 
@@ -351,7 +359,7 @@ Every method has a default TTL (`RobloxDefaultTtl`), used whenever a cache is se
 | users | `getUsers` 24 h, `getUserDetails` 1 h, `getUsersByNames` 30 min, `getUsernameHistory` 1 h |
 | thumbnails | `get` 24 h, `getGameThumbnails` 1 h |
 | presence | `get` 30 s |
-| games | `getUniverseIds` 30 d, `getServerLocations` 31 d, `getServerAddresses` 30 min, details/media/products 1 h, votes/counts/playability/games 5 min |
+| games | `getUniverseIds` 30 d, `getServerLocations` 31 d, `getServerAddresses` 30 min, details/media/products 1 h, votes/counts/playability/games 5 min, server pages/paged game lists/`getPrivateServersEnabled` 5 s |
 | friends | 10 min |
 | groups | `getGroups`, `getRoles`, `getRolesByIds` 1 h, `getGroupDetails`, `getUserGroups` 10 min |
 | badges | `getBadges` 10 min, `getAwardedDates` 24 h |
@@ -359,6 +367,20 @@ Every method has a default TTL (`RobloxDefaultTtl`), used whenever a cache is se
 ## Errors
 
 A request that fails after its retries, on its last available endpoint, throws the underlying vigor-fetch error (`findFetchFailed(error)` digs out the HTTP failure). A response that does not match its schema throws a `ZodError`. APIs that need a pinned account throw before sending anything.
+
+Array lookups keep going when some items fail. Once every item has settled, the call throws a `RobloxPartialError`:
+
+```ts
+try {
+    const games = await roblox.games.getGames(universeIds)
+} catch (error) {
+    if (!isRobloxPartialError(error)) throw error
+    error.results  // what the call would have returned, minus the failed items (input order)
+    error.errors   // [{ input, error }] for each failed item
+}
+```
+
+`error.cause` is the first item's error, so `findFetchFailed(error)` still works. Items batched into the same HTTP request succeed or fail together. `thumbnails.getSettled(targets)` is a variant of `thumbnails.get` that never throws: results stay in the same positions as the targets, with `null` where a request failed.
 
 ## License
 

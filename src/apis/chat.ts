@@ -1,6 +1,7 @@
 import { RobloxBatcher, captureHeaders, type RobloxBatchRoute } from "@/core/batcher"
 import type { RobloxConfig } from "@/core/config"
 import { createHttp, validate } from "@/core/http"
+import { finish, found, settle } from "@/core/partial"
 import { requireViewer } from "@/core/viewer"
 import type { RobloxConversationId } from "@/types/common"
 import {
@@ -30,7 +31,6 @@ const BASE = ["platform-chat-api", "v1"] as const
 /** get-conversations 한 번에 넣을 수 있는 최대 개수 (26부터 400 "batch request size is too large") */
 const CONVERSATION_BATCH_LIMIT = 25
 
-const found = <T>(list: (T | null)[]) => list.filter((x): x is T => x !== null)
 
 /**
  * POST get-conversations — 120회/분, 25개씩 (2026-10 실측).
@@ -75,7 +75,8 @@ export class RobloxChatApi {
     /** 대화 상세(참가자 이름 포함). 같은 틱에 들어온 호출은 25개씩 묶는다. 내가 참가하지 않은 대화는 뺀다. */
     async getConversations(ids: readonly RobloxConversationId[]): Promise<RobloxChatConversation[]> {
         const viewer = await this.viewer()
-        return found(await Promise.all(ids.map(id => this.conversations.load(`${viewer}:${id}`, { viewer, id }))))
+        const { values, errors } = await settle(ids, id => this.conversations.load(`${viewer}:${id}`, { viewer, id }))
+        return finish(found(values), errors)
     }
 
     /** GET get-user-conversations — 내 대화 목록 (120회/분) */

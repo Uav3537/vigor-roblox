@@ -1,7 +1,8 @@
 import { RobloxBatcher, captureHeaders, mapRoute, nullOn, type RobloxBatchRoute } from "@/core/batcher"
-import { robloxCacheKeyString, type RobloxCacheKey, type RobloxCacheValue, type RobloxViewerKey } from "@/core/cache"
+import { canonicalInfo, robloxCacheKey, type RobloxCacheInfo, type RobloxCacheValue, type RobloxViewerKey } from "@/core/cache"
 import { resolveTtl, type RobloxConfig } from "@/core/config"
 import { cached, singleFlight, createHttp, validate } from "@/core/http"
+import { extra, finish, found, partial, settle } from "@/core/partial"
 import { canAuthenticate, viewerKey } from "@/core/viewer"
 import type { RobloxThumbnailsApi } from "@/apis/thumbnails"
 import type { RobloxPresenceApi } from "@/apis/presence"
@@ -39,16 +40,19 @@ import {
     RobloxServerPageRawSchema,
     RobloxUserGameVoteSchema,
     type RobloxCreatePrivateServerRequest,
+    type RobloxFavoriteGamePage,
     type RobloxGame,
     type RobloxGameFavoriteCount,
+    type RobloxGameInfo,
     type RobloxGameListQuery,
     type RobloxGameMedia,
     type RobloxGamePlayability,
     type RobloxGameProduct,
+    type RobloxGameRecommendations,
+    type RobloxGameSummaryPage,
     type RobloxGameVotes,
     type RobloxIpAddress,
     type RobloxMyPrivateServersQuery,
-    type RobloxPlace,
     type RobloxPlaceDetails,
     type RobloxPrivateServerDetail,
     type RobloxPrivateServerInvite,
@@ -76,6 +80,7 @@ import z from "zod"
 export type RobloxGamesCacheable =
     | "getGames" | "getUniverseIds" | "getPlaceDetails" | "getProductInfo" | "getPlayability" | "getVotes"
     | "getFavoriteCounts" | "getMedia" | "getServerAddresses" | "getServerLocations"
+    | "getServerPage" | "getRecommendations" | "getUserGames" | "getUserFavoriteGames" | "getGroupGames" | "getPrivateServersEnabled"
 
 const GAMES = "https://games.roblox.com"
 const APIS = "https://apis.roblox.com"
@@ -112,7 +117,6 @@ function avatarHash(t: RobloxThumbnail): string | null {
 }
 
 const csv = (ids: readonly number[]) => ids.join(",")
-const found = <T>(list: (T | null)[]) => list.filter((x): x is T => x !== null)
 
 
 // ── 경로 ───────────────────────────────────────────────
@@ -430,109 +434,119 @@ export class RobloxGamesApi<L = unknown> {
         return resolveTtl(this.config, "games", method)
     }
 
-    /** 항목 하나씩 캐시하며 batcher로 보낸다. 계정별로 나누는 키는 viewer를 받는다 (쿠키 로테이션 중이면 캐시하지 않는다). */
-    private async each<I, R extends RobloxCacheValue<RobloxCacheKey>>(
+    /**
+     * 항목 하나씩 캐시하며 batcher로 보낸다. 계정별로 나누는 키는 viewer를 받는다 (쿠키 로테이션 중이면 캐시하지 않는다).
+     * 실패한 항목은 null로 두고 errors에 모은다.
+     */
+    private async each<I, R extends RobloxCacheValue<RobloxCacheInfo>>(
         method: RobloxGamesCacheable,
         ids: readonly I[],
         load: (id: I) => Promise<R | null>,
-        key: (id: I, viewer: RobloxViewerKey) => RobloxCacheKey,
+        key: (id: I, viewer: RobloxViewerKey) => RobloxCacheInfo,
         byViewer = false,
-    ): Promise<(R | null)[]> {
+    ) {
         const ttl = this.ttl(method)
         const viewer = byViewer ? (this.config.cache ? await viewerKey(this.config) : null) : "anonymous"
-        return Promise.all(ids.map(id => viewer === null ? load(id) : cached(this.config, key(id, viewer), ttl, () => load(id))))
+        return settle(ids, id => viewer === null ? load(id) : cached(this.config, key(id, viewer), ttl, () => load(id)))
     }
 
     // ── 게임 조회 ──────────────────────────────────────
     // 배열을 받는 메서드는 입력 순서로 돌려주고, 없는 대상은 뺀다.
+    // 일부 항목이 실패하면 받은 결과를 담아 RobloxPartialError를 던진다.
     // 같은 틱에 들어온 호출은 모아서 보내므로 따로따로 불러도 된다.
 
     /** GET /v1/games — 게임(universe) 상세 */
     async getGames(universeIds: readonly RobloxUniverseId[]): Promise<RobloxGame[]> {
-        return found(await this.each("getGames", universeIds, id => this.games.load(String(id), id), id => ["games", "getGames", id]))
+        const { values, errors } = await this.each("getGames", universeIds, id => this.games.load(String(id), id), universeId => ({ service: "games", method: "getGames", universeId }))
+        return finish(found(values), errors)
     }
 
     /** place가 속한 universe. 인증돼 있으면 place 상세를 쓰고, 아니면 apis.roblox.com으로 하나씩 묻는다. */
     async getUniverseIds(placeIds: readonly RobloxPlaceId[]): Promise<{ placeId: RobloxPlaceId, universeId: RobloxUniverseId }[]> {
-        const ids = await this.each("getUniverseIds", placeIds, id => this.universeIds.load(String(id), id), id => ["games", "getUniverseIds", id])
-        return found(placeIds.map((placeId, i) => ids[i] ? { placeId, universeId: ids[i] } : null))
+        const { values, errors } = await this.each("getUniverseIds", placeIds, id => this.universeIds.load(String(id), id), placeId => ({ service: "games", method: "getUniverseIds", placeId }))
+        return finish(found(placeIds.map((placeId, i) => values[i] ? { placeId, universeId: values[i] } : null)), errors)
     }
 
     /** GET /v1/games/multiget-place-details — 인증 필요. 플레이 가능 여부는 요청 계정 기준이다. */
     async getPlaceDetails(placeIds: readonly RobloxPlaceId[]): Promise<RobloxPlaceDetails[]> {
-        return found(await this.each("getPlaceDetails", placeIds, id => this.placeDetails.load(String(id), id), (id, v) => ["games", "getPlaceDetails", v, id], true))
+        const { values, errors } = await this.each("getPlaceDetails", placeIds, id => this.placeDetails.load(String(id), id), (placeId, viewer) => ({ service: "games", method: "getPlaceDetails", viewer, placeId }), true)
+        return finish(found(values), errors)
     }
 
     /** GET /v1/games/games-product-info — 유료 게임 구매 정보 */
     async getProductInfo(universeIds: readonly RobloxUniverseId[]): Promise<RobloxGameProduct[]> {
-        return found(await this.each("getProductInfo", universeIds, id => this.products.load(String(id), id), id => ["games", "getProductInfo", id]))
+        const { values, errors } = await this.each("getProductInfo", universeIds, id => this.products.load(String(id), id), universeId => ({ service: "games", method: "getProductInfo", universeId }))
+        return finish(found(values), errors)
     }
 
     /** GET /v1/games/multiget-playability-status — 요청 계정이 플레이할 수 있는지 */
     async getPlayability(universeIds: readonly RobloxUniverseId[]): Promise<RobloxGamePlayability[]> {
-        return found(await this.each("getPlayability", universeIds, id => this.playability.load(String(id), id), (id, v) => ["games", "getPlayability", v, id], true))
+        const { values, errors } = await this.each("getPlayability", universeIds, id => this.playability.load(String(id), id), (universeId, viewer) => ({ service: "games", method: "getPlayability", viewer, universeId }), true)
+        return finish(found(values), errors)
     }
 
     /** 좋아요/싫어요 수 */
     async getVotes(universeIds: readonly RobloxUniverseId[]): Promise<RobloxGameVotes[]> {
-        return found(await this.each("getVotes", universeIds, id => this.votes.load(String(id), id), id => ["games", "getVotes", id]))
+        const { values, errors } = await this.each("getVotes", universeIds, id => this.votes.load(String(id), id), universeId => ({ service: "games", method: "getVotes", universeId }))
+        return finish(found(values), errors)
     }
 
     /** 즐겨찾기 수 */
     async getFavoriteCounts(universeIds: readonly RobloxUniverseId[]): Promise<RobloxGameFavoriteCount[]> {
-        const counts = await this.each("getFavoriteCounts", universeIds, id => this.favoriteCounts.load(String(id), id), id => ["games", "getFavoriteCounts", id])
-        return found(universeIds.map((universeId, i) => counts[i] === null ? null : { universeId, favoritesCount: counts[i] }))
+        const { values, errors } = await this.each("getFavoriteCounts", universeIds, id => this.favoriteCounts.load(String(id), id), universeId => ({ service: "games", method: "getFavoriteCounts", universeId }))
+        return finish(found(universeIds.map((universeId, i) => values[i] === null ? null : { universeId, favoritesCount: values[i] })), errors)
     }
 
     /** GET /v2/games/{universeId}/media — 게임 페이지의 이미지/영상. `all`이면 관련 미디어까지 */
     async getMedia(universeIds: readonly RobloxUniverseId[], opts: { all?: boolean } = {}): Promise<{ universeId: RobloxUniverseId, media: RobloxGameMedia[] }[]> {
         const all = opts.all ?? false
-        const lists = await this.each("getMedia", universeIds,
+        const { values, errors } = await this.each("getMedia", universeIds,
             universeId => this.media.load(`${universeId}:${all}`, { universeId, all }),
-            universeId => ["games", "getMedia", universeId, all])
-        return found(universeIds.map((universeId, i) => lists[i] ? { universeId, media: lists[i] } : null))
+            universeId => ({ service: "games", method: "getMedia", universeId, all }))
+        return finish(found(universeIds.map((universeId, i) => values[i] ? { universeId, media: values[i] } : null)), errors)
     }
 
     /** GET /v1/games/recommendations/game/{universeId} — 비슷한 게임 */
-    getRecommendations(universeId: RobloxUniverseId, query: RobloxRecommendationsQuery = {}) {
+    getRecommendations(universeId: RobloxUniverseId, query: RobloxRecommendationsQuery = {}): Promise<RobloxGameRecommendations> {
         const params: Record<string, string | number> = { MaxRows: query.maxRows ?? 20 }
         if (query.paginationKey) params.PaginationKey = query.paginationKey
-        return this.http()
+        return cached(this.config, { service: "games", method: "getRecommendations", universeId, query }, this.ttl("getRecommendations"), () => this.http()
             .path("v1", "games", "recommendations", "game", universeId)
             .query(params)
             .middlewares(validate(RobloxGameRecommendationsSchema))
-            .request()
+            .request())
     }
 
     /** GET /v2/users/{userId}/games — 유저가 만든 게임 (limit은 10/25/50) */
-    getUserGames(userId: RobloxUserId, query: RobloxGameListQuery = {}) {
-        return this.http()
+    getUserGames(userId: RobloxUserId, query: RobloxGameListQuery = {}): Promise<RobloxGameSummaryPage> {
+        return cached(this.config, { service: "games", method: "getUserGames", userId, query }, this.ttl("getUserGames"), () => this.http()
             .path("v2", "users", userId, "games")
             .query(query)
             .middlewares(validate(RobloxGameSummaryPageSchema))
-            .request()
+            .request())
     }
 
     /** GET /v2/users/{userId}/favorite/games — 유저의 즐겨찾기 */
-    getUserFavoriteGames(userId: RobloxUserId, query: RobloxGameListQuery = {}) {
-        return this.http()
+    getUserFavoriteGames(userId: RobloxUserId, query: RobloxGameListQuery = {}): Promise<RobloxFavoriteGamePage> {
+        return cached(this.config, { service: "games", method: "getUserFavoriteGames", userId, query }, this.ttl("getUserFavoriteGames"), () => this.http()
             .path("v2", "users", userId, "favorite", "games")
             .query(query)
             .middlewares(validate(RobloxFavoriteGamePageSchema))
-            .request()
+            .request())
     }
 
     /** 그룹이 만든 게임. /v2/groups/{groupId}/games와 gamesV2를 번갈아 쓴다. */
-    getGroupGames(groupId: RobloxGroupId, query: RobloxGameListQuery = {}) {
-        return this.groupGames.load(JSON.stringify([groupId, query]), { groupId, query })
+    getGroupGames(groupId: RobloxGroupId, query: RobloxGameListQuery = {}): Promise<RobloxGameSummaryPage> {
+        return cached(this.config, { service: "games", method: "getGroupGames", groupId, query }, this.ttl("getGroupGames"),
+            () => this.groupGames.load(JSON.stringify([groupId, query]), { groupId, query }))
     }
 
     // ── 요청 계정 기준 (인증 필요) ─────────────────────
 
     /** GET /v1/games/{universeId}/favorites — 내가 즐겨찾기했는지 */
     async getFavorited(universeIds: readonly RobloxUniverseId[]): Promise<{ universeId: RobloxUniverseId, isFavorited: boolean }[]> {
-        const list = await Promise.all(universeIds.map(id => this.favorited.load(String(id), id)))
-        return found(universeIds.map((universeId, i) => list[i] === null ? null : { universeId, isFavorited: list[i] }))
+        const { values, errors } = await settle(universeIds, id => this.favorited.load(String(id), id))
+        return finish(found(universeIds.map((universeId, i) => values[i] === null ? null : { universeId, isFavorited: values[i] })), errors)
     }
 
     /** POST /v1/games/{universeId}/favorites */
@@ -546,8 +560,8 @@ export class RobloxGamesApi<L = unknown> {
 
     /** GET /v1/games/{universeId}/votes/user — 내 투표와 투표 가능 여부 */
     async getUserVotes(universeIds: readonly RobloxUniverseId[]): Promise<(RobloxUserGameVote & { universeId: RobloxUniverseId })[]> {
-        const list = await Promise.all(universeIds.map(id => this.userVotes.load(String(id), id)))
-        return found(universeIds.map((universeId, i) => list[i] && { universeId, ...list[i] }))
+        const { values, errors } = await settle(universeIds, id => this.userVotes.load(String(id), id))
+        return finish(found(universeIds.map((universeId, i) => values[i] && { universeId, ...values[i] })), errors)
     }
 
     /** PATCH /v1/games/{universeId}/user-votes — true = 좋아요, false = 싫어요, null = 취소. 게임을 플레이한 적이 있어야 한다. */
@@ -566,9 +580,16 @@ export class RobloxGamesApi<L = unknown> {
      * 서버 목록 한 페이지. 엔드포인트마다 3회/분이라 세 엔드포인트를 나눠 쓴다.
      * 받은 커서는 같은 옵션으로 다시 넘긴다 (어느 엔드포인트의 커서인지는 라이브러리가 기억한다).
      * `Friend`와 `playerTokens`는 인증이 필요하다.
+     * 캐시 키는 Public이면 인증 여부만, Friend면 계정까지 나눈다 (쿠키 로테이션 중의 Friend는 캐시하지 않는다).
      */
-    getServerPage(placeId: RobloxPlaceId, query: RobloxServerPageQuery = {}): Promise<RobloxServerPage> {
-        return this.serverPages.load(JSON.stringify([placeId, query]), { placeId, query })
+    async getServerPage(placeId: RobloxPlaceId, query: RobloxServerPageQuery = {}): Promise<RobloxServerPage> {
+        const normalized = { ...query, serverType: query.serverType ?? "Public" }
+        const load = () => this.serverPages.load(JSON.stringify([placeId, normalized]), { placeId, query: normalized })
+        const access = normalized.serverType === "Public"
+            ? this.auth() ? "authenticated" : "anonymous"
+            : this.config.cache ? await viewerKey(this.config) : null
+        if (access === null) return load()
+        return cached(this.config, { service: "games", method: "getServerPage", access, placeId, query: normalized }, this.ttl("getServerPage"), load)
     }
 
     /**
@@ -578,8 +599,9 @@ export class RobloxGamesApi<L = unknown> {
     async getServerAddresses(targets: readonly RobloxServerAddressTarget[]): Promise<RobloxServerAddress[]> {
         const ttl = this.ttl("getServerAddresses")
         // jobId는 place 안에서만 겹치지 않는다고 보장되므로 키에 placeId를 함께 넣는다
-        return Promise.all(targets.map(t => cached(this.config, ["games", "getServerAddresses", t.placeId, t.jobId], ttl,
-            () => this.addresses.load(`${t.placeId}:${t.jobId}`, t), r => r.ip !== null)))
+        const { values, errors } = await settle(targets, t => cached(this.config, { service: "games", method: "getServerAddresses", placeId: t.placeId, jobId: t.jobId }, ttl,
+            () => this.addresses.load(`${t.placeId}:${t.jobId}`, t), r => r.ip !== null))
+        return finish(found(values), errors)
     }
 
     /**
@@ -590,19 +612,20 @@ export class RobloxGamesApi<L = unknown> {
     async getServerLocations(ips: readonly RobloxIpAddress[]): Promise<RobloxServerLocation<L>[]> {
         const geolocate = this.config.geolocate
         if (!geolocate) throw new Error(GEOLOCATE_MISSING)
-        const id = (ip: RobloxIpAddress) => robloxCacheKeyString(["games", "getServerLocations", ip])
+        const id = (ip: RobloxIpAddress) => JSON.stringify(canonicalInfo({ service: "games", method: "getServerLocations", ip }))
 
         // 진행 중이 아닌 IP만 한 번에 묻고, IP마다 그 결과를 등록한다. 여기까지는 await 없이 이어져 다른 호출이 끼어들지 않는다.
         const unique = [...new Set(ips)]
         const fresh = unique.filter(ip => !this.config.inflight.has(id(ip)))
         const batch = fresh.length ? this.locate(fresh, geolocate as RobloxGeolocator<L>) : null
-        const values = await Promise.all(unique.map(ip => singleFlight(this.config, id(ip), () => batch!.then(located => located.get(ip) ?? null))))
+        // 다른 호출이 먼저 물은 IP는 그 호출의 결과를 기다리므로 IP마다 따로 실패할 수 있다.
+        const { values, errors } = await settle(unique, ip => singleFlight(this.config, id(ip), () => batch!.then(located => located.get(ip) ?? null)))
 
         const known = new Map(unique.map((ip, i) => [ip, values[i]]))
-        return found(ips.map(ip => {
+        return finish(found(ips.map(ip => {
             const location = known.get(ip)
             return location === null || location === undefined ? null : { ip, location }
-        }))
+        })), errors)
     }
 
     /** 캐시를 보고, 없는 IP만 콜백에 넘긴 뒤 저장한다. 모르는 IP는 결과에 없다 */
@@ -611,8 +634,14 @@ export class RobloxGamesApi<L = unknown> {
         const ttl = this.ttl("getServerLocations")
         const known = new Map<RobloxIpAddress, L>()
 
+        const entry = async (ip: RobloxIpAddress) => {
+            const info = { service: "games", method: "getServerLocations", ip } as const
+            return { key: await robloxCacheKey(info), info }
+        }
+
         if (store) await Promise.all(ips.map(async ip => {
-            const hit = await store.get(["games", "getServerLocations", ip])
+            const { key, info } = await entry(ip)
+            const hit = await store.get(key, info)
             if (hit !== undefined && hit !== null) known.set(ip, hit as L)
         }))
 
@@ -623,7 +652,9 @@ export class RobloxGamesApi<L = unknown> {
                 const location = results[i]
                 if (location === null || location === undefined) return
                 known.set(ip, location)
-                if (store) await store.set(["games", "getServerLocations", ip], location, ttl)
+                if (!store) return
+                const { key, info } = await entry(ip)
+                await store.set(key, location, ttl, info)
             }))
         }
         return known
@@ -648,19 +679,20 @@ export class RobloxGamesApi<L = unknown> {
 
     /** GET /v1/private-servers/enabled-in-universe/{universeId} */
     async getPrivateServersEnabled(universeIds: readonly RobloxUniverseId[]): Promise<{ universeId: RobloxUniverseId, privateServersEnabled: boolean }[]> {
-        const list = await Promise.all(universeIds.map(id => this.privateServersEnabled.load(String(id), id)))
-        return found(universeIds.map((universeId, i) => list[i] === null ? null : { universeId, privateServersEnabled: list[i] }))
+        const { values, errors } = await this.each("getPrivateServersEnabled", universeIds, id => this.privateServersEnabled.load(String(id), id), universeId => ({ service: "games", method: "getPrivateServersEnabled", universeId }))
+        return finish(found(universeIds.map((universeId, i) => values[i] === null ? null : { universeId, privateServersEnabled: values[i] })), errors)
     }
 
     /** GET /v1/vip-servers/{id} — 내가 관리하는 비공개 서버의 설정 */
     async getPrivateServerDetails(ids: readonly RobloxPrivateServerId[]): Promise<RobloxPrivateServerDetail[]> {
-        return found(await Promise.all(ids.map(id => this.privateServerDetails.load(String(id), id))))
+        const { values, errors } = await settle(ids, id => this.privateServerDetails.load(String(id), id))
+        return finish(found(values), errors)
     }
 
     /** GET /v1/vip-server/can-invite/{userId} — 내 비공개 서버에 초대할 수 있는지 */
     async getPrivateServerInvites(userIds: readonly RobloxUserId[]): Promise<(RobloxPrivateServerInvite & { userId: RobloxUserId })[]> {
-        const list = await Promise.all(userIds.map(id => this.invites.load(String(id), id)))
-        return found(userIds.map((userId, i) => list[i] && { userId, ...list[i] }))
+        const { values, errors } = await settle(userIds, id => this.invites.load(String(id), id))
+        return finish(found(userIds.map((userId, i) => values[i] && { userId, ...values[i] })), errors)
     }
 
     /** POST /v1/games/vip-servers/{universeId} — 비공개 서버를 산다 */
@@ -705,44 +737,44 @@ export class RobloxGamesApi<L = unknown> {
     // ── 고수준 ─────────────────────────────────────────
 
     /**
-     * place들의 게임 정보를 한 번에. place → universe → 상세/투표/아이콘/썸네일을 모아서 준다.
-     * 없는 place(또는 universe)는 뺀다.
+     * universe들의 게임 정보를 한 번에. 상세/투표/아이콘/썸네일을 모아서 준다. 없는 universe는 뺀다.
+     * place에서 시작하면 `getUniverseIds`로 먼저 바꾼다.
+     * 투표/아이콘/썸네일을 받지 못하면 null(빈 배열)로 두고, 상세를 받지 못한 universe만 실패로 친다.
      */
-    async getPlaces(placeIds: readonly RobloxPlaceId[]): Promise<RobloxPlace[]> {
-        const pairs = await this.getUniverseIds(placeIds)
-        const universeIds = [...new Set(pairs.map(p => p.universeId))]
-        if (!universeIds.length) return []
+    async getGameInfos(universeIds: readonly RobloxUniverseId[]): Promise<RobloxGameInfo[]> {
+        const unique = [...new Set(universeIds)]
+        if (!unique.length) return []
 
         const [games, votes, icons, thumbnails] = await Promise.all([
-            this.getGames(universeIds),
-            this.getVotes(universeIds),
-            this.thumbnails.get(universeIds.map(id => ({ type: "GameIcon", targetId: id, size: "512x512" }) as const)),
-            this.thumbnails.getGameThumbnails(universeIds, { countPerUniverse: 10 }),
+            partial(this.getGames(unique)),
+            extra(this.getVotes(unique)),
+            this.thumbnails.getSettled(unique.map(id => ({ type: "GameIcon", targetId: id, size: "512x512" }) as const)).then(s => s.values),
+            extra(this.thumbnails.getGameThumbnails(unique, { countPerUniverse: 10 })),
         ])
-        const gameById = new Map(games.map(g => [g.id, g]))
+        const gameById = new Map(games.results.map(g => [g.id, g]))
         const votesById = new Map(votes.map(v => [v.id, v]))
-        const iconById = new Map(universeIds.map((id, i) => [id, icons[i]]))
+        const iconById = new Map(unique.map((id, i) => [id, icons[i]]))
         const thumbsById = new Map(thumbnails.map(t => [t.universeId as number, t.thumbnails]))
 
-        return found(pairs.map(({ placeId, universeId }) => {
+        return finish(found(universeIds.map(universeId => {
             const game = gameById.get(universeId)
             if (!game) return null
             const icon = iconById.get(universeId)
             return {
-                placeId,
                 universeId,
                 game,
                 votes:      votesById.get(universeId) ?? null,
                 icon:       icon && icon.state !== "Error" ? icon : null,
                 thumbnails: thumbsById.get(universeId) ?? [],
             }
-        }))
+        })), games.errors)
     }
 
     /**
      * 서버 목록을 페이지를 따라가며 `count`개 이상 모으고(페이지 단위), 플레이어 헤드샷/주소/위치를 붙인다.
      * `nextPageCursor`는 마지막으로 받은 페이지의 다음이라, 넘기면 빠짐없이 이어서 받는다.
      * 서버 목록 한도가 빡빡해서(엔드포인트당 3회/분) 많이 모을수록 오래 걸린다.
+     * 헤드샷/주소/위치는 받지 못하면 빈 배열(null)로 두고, 서버 목록 자체가 실패할 때만 던진다.
      */
     async getServers(placeId: RobloxPlaceId, opts: RobloxGetServersOptions = {}): Promise<{ data: RobloxServerInfo<L>[], nextPageCursor: RobloxCursor | null }> {
         const { count = 100, players = {}, address = false, location = false, ...query } = opts
@@ -759,21 +791,21 @@ export class RobloxGamesApi<L = unknown> {
         const data = servers
 
         const [headshots, addresses] = await Promise.all([
-            players === false ? null : this.thumbnails.get(data.flatMap(s => s.playerTokens.map(token => ({ type: "AvatarHeadShot", token, ...players }) as const))),
-            address || location ? this.getServerAddresses(data.map(s => ({ placeId, jobId: s.id }))) : null,
+            players === false ? null : this.thumbnails.getSettled(data.flatMap(s => s.playerTokens.map(token => ({ type: "AvatarHeadShot", token, ...players }) as const))).then(s => s.values),
+            address || location ? extra(this.getServerAddresses(data.map(s => ({ placeId, jobId: s.id })))).then(list => new Map(list.map(a => [a.jobId, a]))) : null,
         ])
-        const ips = [...new Set(addresses?.map(a => a.ip).filter((ip): ip is RobloxIpAddress => ip !== null) ?? [])]
-        const locations = location ? new Map((await this.getServerLocations(ips)).map(l => [l.ip, l.location])) : null
+        const ips = [...new Set([...addresses?.values() ?? []].map(a => a.ip).filter((ip): ip is RobloxIpAddress => ip !== null))]
+        const locations = location ? new Map((await extra(this.getServerLocations(ips))).map(l => [l.ip, l.location])) : null
 
         let offset = 0
         return {
             nextPageCursor: cursor,
-            data: data.map((server, i): RobloxServerInfo<L> => {
+            data: data.map((server): RobloxServerInfo<L> => {
                 const own = headshots ? headshots.slice(offset, offset += server.playerTokens.length) : []
-                const addr = addresses?.[i] ?? null
+                const addr = addresses?.get(server.id) ?? null
                 return {
                     ...server,
-                    players:  own.filter(t => t.state === "Completed"),
+                    players:  own.filter(t => t !== null && t.state === "Completed") as RobloxThumbnail[],
                     address:  addr,
                     location: addr?.ip ? locations?.get(addr.ip) ?? null : null,
                 }
@@ -800,8 +832,8 @@ export class RobloxGamesApi<L = unknown> {
         const hits = new Map<RobloxUserId, { foundBy: "presence" | "headshot", jobId: RobloxJobId, server: RobloxServer | null }>()
         /** presence로 다른 place에 있다고 확정된 유저 */
         const elsewhere = new Set<RobloxUserId>()
-        // 실패해도 헤드샷 탐색은 그대로 간다.
-        const presenceTask = presence ? this.presence.get(targets).then(list => {
+        // 실패해도 헤드샷 탐색은 그대로 간다. 일부만 받았으면 받은 만큼 쓴다.
+        const presenceTask = presence ? extra(this.presence.get(targets)).then(list => {
             for (const p of list) {
                 if (p.placeId === placeId && p.gameId) {
                     if (!hits.has(p.userId)) hits.set(p.userId, { foundBy: "presence", jobId: p.gameId, server: null })
@@ -809,12 +841,15 @@ export class RobloxGamesApi<L = unknown> {
                     elsewhere.add(p.userId)
                 }
             }
-        }, () => {}) : null
+        }) : null
         const searching = (userId: RobloxUserId) => !hits.has(userId) && !elsewhere.has(userId)
 
-        const shots = await this.thumbnails.get(targets.map(targetId => ({ type: "AvatarHeadShot", targetId, ...FIND_HEADSHOT }) as const))
+        // 대상의 헤드샷을 받지 못하면 그 유저는 헤드샷으로 찾을 수 없다. presence로도 못 찾으면 실패로 친다.
+        const shots = await this.thumbnails.getSettled(targets.map(targetId => ({ type: "AvatarHeadShot", targetId, ...FIND_HEADSHOT }) as const))
+        const shotErrors = new Map(shots.errors.map(e => [e.input.targetId, e.error]))
         const byHash = new Map<string, RobloxUserId[]>()
-        shots.forEach((t, i) => {
+        shots.values.forEach((t, i) => {
+            if (!t) return
             const hash = avatarHash(t)
             if (hash && !DEFAULT_AVATAR_HASHES.has(hash)) byHash.set(hash, [...byHash.get(hash) ?? [], targets[i]])
         })
@@ -827,9 +862,10 @@ export class RobloxGamesApi<L = unknown> {
             const page = await this.getServerPage(placeId, { ...query, cursor })
             scanned += page.data.length
             const players = page.data.flatMap(server => server.playerTokens.map(token => ({ server, token })))
-            const headshots = await this.thumbnails.get(players.map(({ token }) => ({ type: "AvatarHeadShot", token, ...FIND_HEADSHOT }) as const))
-            headshots.forEach((t, i) => {
-                const hash = avatarHash(t)
+            // 받지 못한 플레이어 헤드샷은 토큰 수 제한으로 안 보이는 플레이어처럼 건너뛴다.
+            const headshots = await this.thumbnails.getSettled(players.map(({ token }) => ({ type: "AvatarHeadShot", token, ...FIND_HEADSHOT }) as const))
+            headshots.values.forEach((t, i) => {
+                const hash = t && avatarHash(t)
                 const [userId] = hash && byHash.get(hash) || []
                 if (!userId || !searching(userId)) return
                 hits.set(userId, { foundBy: "headshot", jobId: players[i].server.id, server: players[i].server })
@@ -843,12 +879,14 @@ export class RobloxGamesApi<L = unknown> {
 
         const jobIds = [...new Set([...hits.values()].map(f => f.jobId))]
         const addresses = address || location
-            ? new Map((await this.getServerAddresses(jobIds.map(jobId => ({ placeId, jobId })))).map(a => [a.jobId, a]))
+            ? new Map((await extra(this.getServerAddresses(jobIds.map(jobId => ({ placeId, jobId }))))).map(a => [a.jobId, a]))
             : null
         const ips = [...new Set([...addresses?.values() ?? []].map(a => a.ip).filter((ip): ip is RobloxIpAddress => ip !== null))]
-        const locations = location ? new Map((await this.getServerLocations(ips)).map(l => [l.ip, l.location])) : null
+        const locations = location ? new Map((await extra(this.getServerLocations(ips))).map(l => [l.ip, l.location])) : null
 
-        return userIds.map((userId): RobloxUserServer<L> => {
+        // 헤드샷을 받지 못했고 presence로도 못 찾은 유저는 "못 찾음"이 아니라 실패다.
+        const failed = (userId: RobloxUserId) => shotErrors.has(userId) && searching(userId)
+        return finish(userIds.filter(userId => !failed(userId)).map((userId): RobloxUserServer<L> => {
             const f = hits.get(userId)
             const addr = f ? addresses?.get(f.jobId) ?? null : null
             return {
@@ -859,6 +897,6 @@ export class RobloxGamesApi<L = unknown> {
                 address:  addr,
                 location: addr?.ip ? locations?.get(addr.ip) ?? null : null,
             }
-        })
+        }), targets.filter(failed).map(userId => ({ input: userId, error: shotErrors.get(userId) })))
     }
 }

@@ -1,7 +1,8 @@
 import { RobloxBatcher, captureHeaders, mapRoute, nullOn, type RobloxBatchRoute } from "@/core/batcher"
-import type { RobloxCacheKey, RobloxCacheValue } from "@/core/cache"
+import type { RobloxCacheInfo, RobloxCacheValue } from "@/core/cache"
 import { resolveTtl, type RobloxConfig } from "@/core/config"
 import { cached, createHttp, validate } from "@/core/http"
+import { extra, finish, found, settle } from "@/core/partial"
 import { requireViewer } from "@/core/viewer"
 import type { RobloxUsersApi } from "@/apis/users"
 import { RobloxEmptyResponseSchema, type RobloxCursor } from "@/types/common"
@@ -41,7 +42,6 @@ const FIND_PAGE_LIMIT = 50
 /** 한 요청에 넣는 id 개수. statuses는 200까지, following-exists는 100까지 받았다 */
 const MULTI_LIMIT = 100
 
-const found = <T>(list: (T | null)[]) => list.filter((x): x is T => x !== null)
 
 /** 한도는 2026-10 실측 (IP 단위) */
 function countRoute(bucket: string, last: string[]): RobloxBatchRoute<RobloxUserId, number | null> {
@@ -174,48 +174,51 @@ export class RobloxFriendsApi {
         return id
     }
 
-    private each<R extends RobloxCacheValue<RobloxCacheKey>>(method: RobloxFriendsCacheable, ids: readonly RobloxUserId[], load: (id: RobloxUserId) => Promise<R | null>) {
-        return Promise.all(ids.map(id => cached(this.config, ["friends", method, id] as RobloxCacheKey, this.ttl(method), () => load(id))))
+    /** 항목 하나씩 캐시하며 보낸다. 실패한 항목은 null로 두고 errors에 모은다 */
+    private each<R extends RobloxCacheValue<RobloxCacheInfo>>(method: RobloxFriendsCacheable, ids: readonly RobloxUserId[], load: (id: RobloxUserId) => Promise<R | null>) {
+        return settle(ids, id => cached(this.config, { service: "friends", method, userId: id } as RobloxCacheInfo, this.ttl(method), () => load(id)))
     }
 
     // ── 공개 조회 ──────────────────────────────────────
     // 배열을 받는 메서드는 입력 순서로 돌려주고, 없는 유저는 뺀다.
+    // 일부 항목이 실패하면 받은 결과를 담아 RobloxPartialError를 던진다.
 
     /**
      * 유저들의 친구 목록. friends API는 이름을 빈 문자열로 주므로 users API로 이름을 채운다.
      * /friends와 /friends/find(50개씩 넘김)를 한도에 맞춰 나눠 쓴다. `thumbnail`을 주면 친구들의 아바타 썸네일도 붙인다.
+     * 친구 목록을 받지 못한 유저만 실패로 친다. 이름을 받지 못한 친구는 목록에서 빠진다.
      */
     getFriends(userIds: readonly RobloxUserId[], opts: { thumbnail: true | RobloxAvatarThumbnailOptions }): Promise<RobloxUserFriends<RobloxWithThumbnail<RobloxUser>>[]>
     getFriends(userIds: readonly RobloxUserId[], opts?: { thumbnail?: undefined }): Promise<RobloxUserFriends[]>
     async getFriends(userIds: readonly RobloxUserId[], opts: { thumbnail?: true | RobloxAvatarThumbnailOptions } = {}): Promise<RobloxUserFriends[]> {
-        const lists = await this.each("getFriends", userIds, id => this.friendIds.load(String(id), id))
+        const { values: lists, errors } = await this.each("getFriends", userIds, id => this.friendIds.load(String(id), id))
         const all = [...new Set(lists.flatMap(l => l ?? []))]
-        const users: RobloxUser[] = opts.thumbnail
-            ? await this.users.getUsers(all, { thumbnail: opts.thumbnail })
-            : await this.users.getUsers(all)
+        const users: RobloxUser[] = await extra(opts.thumbnail
+            ? this.users.getUsers(all, { thumbnail: opts.thumbnail })
+            : this.users.getUsers(all))
         const byId = new Map(users.map(u => [u.id, u]))
-        return found(userIds.map((userId, i) => {
+        return finish(found(userIds.map((userId, i) => {
             const ids = lists[i]
             return ids ? { userId, friends: found(ids.map(id => byId.get(id) ?? null)) } : null
-        }))
+        })), errors)
     }
 
     /** GET /v1/users/{userId}/friends/count */
     async getFriendCounts(userIds: readonly RobloxUserId[]): Promise<{ userId: RobloxUserId, count: number }[]> {
-        const counts = await this.each("getFriendCounts", userIds, id => this.friendCounts.load(String(id), id))
-        return found(userIds.map((userId, i) => counts[i] === null ? null : { userId, count: counts[i] }))
+        const { values, errors } = await this.each("getFriendCounts", userIds, id => this.friendCounts.load(String(id), id))
+        return finish(found(userIds.map((userId, i) => values[i] === null ? null : { userId, count: values[i] })), errors)
     }
 
     /** GET /v1/users/{userId}/followers/count */
     async getFollowerCounts(userIds: readonly RobloxUserId[]): Promise<{ userId: RobloxUserId, count: number }[]> {
-        const counts = await this.each("getFollowerCounts", userIds, id => this.followerCounts.load(String(id), id))
-        return found(userIds.map((userId, i) => counts[i] === null ? null : { userId, count: counts[i] }))
+        const { values, errors } = await this.each("getFollowerCounts", userIds, id => this.followerCounts.load(String(id), id))
+        return finish(found(userIds.map((userId, i) => values[i] === null ? null : { userId, count: values[i] })), errors)
     }
 
     /** GET /v1/users/{userId}/followings/count */
     async getFollowingCounts(userIds: readonly RobloxUserId[]): Promise<{ userId: RobloxUserId, count: number }[]> {
-        const counts = await this.each("getFollowingCounts", userIds, id => this.followingCounts.load(String(id), id))
-        return found(userIds.map((userId, i) => counts[i] === null ? null : { userId, count: counts[i] }))
+        const { values, errors } = await this.each("getFollowingCounts", userIds, id => this.followingCounts.load(String(id), id))
+        return finish(found(userIds.map((userId, i) => values[i] === null ? null : { userId, count: values[i] })), errors)
     }
 
     /** GET /v1/users/{userId}/followers — 인증 필요. 항목은 id뿐이다 */
@@ -264,20 +267,22 @@ export class RobloxFriendsApi {
     /** GET /v1/users/{me}/friends/statuses — 나와의 관계 ("Friends", "RequestSent" 등) */
     async getFriendStatuses(userIds: readonly RobloxUserId[]): Promise<RobloxFriendStatus[]> {
         const me = await this.myId()
-        return found(await Promise.all(userIds.map(userId => this.statuses.load(`${me}:${userId}`, { me, userId }))))
+        const { values, errors } = await settle(userIds, userId => this.statuses.load(`${me}:${userId}`, { me, userId }))
+        return finish(found(values), errors)
     }
 
     /** 나와 친구인지. multiget-are-friends와 statuses를 나눠 쓴다. */
     async getAreFriends(userIds: readonly RobloxUserId[]): Promise<{ userId: RobloxUserId, isFriend: boolean }[]> {
         const me = await this.myId()
-        const list = await Promise.all(userIds.map(userId => this.areFriends.load(`${me}:${userId}`, { me, userId })))
-        return userIds.map((userId, i) => ({ userId, isFriend: list[i] }))
+        const { values, errors } = await settle(userIds, userId => this.areFriends.load(`${me}:${userId}`, { me, userId }))
+        return finish(found(userIds.map((userId, i) => values[i] === null ? null : { userId, isFriend: values[i] })), errors)
     }
 
     /** POST /v1/user/following-exists — 내가 팔로우하는지 / 나를 팔로우하는지 */
     async getFollowingStatuses(userIds: readonly RobloxUserId[]): Promise<RobloxFollowingStatus[]> {
         const me = await this.myId()
-        return found(await Promise.all(userIds.map(userId => this.followings.load(`${me}:${userId}`, { me, userId }))))
+        const { values, errors } = await settle(userIds, userId => this.followings.load(`${me}:${userId}`, { me, userId }))
+        return finish(found(values), errors)
     }
 
     /** GET /v1/users/{me}/friends/online — 지금 접속 중인 내 친구와 위치 */

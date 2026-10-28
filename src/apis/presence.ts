@@ -1,6 +1,7 @@
 import { RobloxBatcher, captureHeaders, type RobloxBatchRoute } from "@/core/batcher"
 import { resolveTtl, type RobloxConfig } from "@/core/config"
 import { cached, validate } from "@/core/http"
+import { finish, found, settle } from "@/core/partial"
 import { viewerKey } from "@/core/viewer"
 import { RobloxUserPresencesResponseSchema, RobloxUserPresenceSchema, type RobloxUserPresence } from "@/types/presence"
 import type { RobloxUserId } from "@/types/users"
@@ -50,8 +51,9 @@ export class RobloxPresenceApi {
      * 같은 틱에 들어온 호출은 50명씩 모아서 보내고, 한도(60회/분)가 차면 풀릴 때까지 기다린다.
      * 게임 정보는 요청 계정에 따라 다르게 보일 수 있다 — 특정 계정 관점이 필요하면 `.as(cookie)`를 쓴다.
      */
-    get(userIds: readonly RobloxUserId[]): Promise<RobloxUserPresence[]> {
-        return Promise.all(userIds.map(id => this.load(id)))
+    async get(userIds: readonly RobloxUserId[]): Promise<RobloxUserPresence[]> {
+        const { values, errors } = await settle(userIds, id => this.load(id))
+        return finish(found(values), errors)
     }
 
     private async load(userId: RobloxUserId): Promise<RobloxUserPresence> {
@@ -59,6 +61,6 @@ export class RobloxPresenceApi {
         const ttl = this.ttl("get")
         const viewer = this.config.cache ? await viewerKey(this.config) : null
         if (viewer === null) return run()
-        return cached(this.config, ["presence", "get", viewer, userId], ttl, run)
+        return cached(this.config, { service: "presence", method: "get", viewer, userId }, ttl, run)
     }
 }

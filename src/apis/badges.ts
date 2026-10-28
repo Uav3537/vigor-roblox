@@ -2,6 +2,7 @@ import z from "zod"
 import { RobloxBatcher, captureHeaders, nullOn, type RobloxBatchRoute } from "@/core/batcher"
 import { resolveTtl, type RobloxConfig } from "@/core/config"
 import { cached, createHttp, validate } from "@/core/http"
+import { finish, found, settle } from "@/core/partial"
 import type { RobloxThumbnailsApi } from "@/apis/thumbnails"
 import { RobloxAssetIdSchema, RobloxEmptyResponseSchema, type RobloxAssetId, type RobloxBadgeId, type RobloxUniverseId } from "@/types/common"
 import {
@@ -30,7 +31,6 @@ const ORIGIN = "https://badges.roblox.com"
 /** awarded-dates 한 번에 보낼 수 있는 최대 개수 (101개부터 403 "Challenge is required") */
 const AWARDED_DATES_LIMIT = 100
 
-const found = <T>(list: (T | null)[]) => list.filter((x): x is T => x !== null)
 
 type AwardTarget = { userId: RobloxUserId, badgeId: RobloxBadgeId }
 
@@ -122,16 +122,16 @@ export class RobloxBadgesApi {
      */
     getBadges(badgeIds: readonly RobloxBadgeId[], opts: { thumbnail: true | RobloxBadgeIconOptions }): Promise<RobloxWithThumbnail<RobloxBadge>[]>
     getBadges(badgeIds: readonly RobloxBadgeId[], opts?: { thumbnail?: undefined }): Promise<RobloxBadge[]>
-    getBadges(badgeIds: readonly RobloxBadgeId[], opts: { thumbnail?: true | RobloxBadgeIconOptions } = {}): Promise<RobloxBadge[]> {
-        const badges = Promise.all(badgeIds.map(id => cached(this.config, ["badges", "getBadges", id], this.ttl("getBadges"), () => this.badges.load(String(id), id))))
-            .then(found)
-        if (!opts.thumbnail) return badges
+    async getBadges(badgeIds: readonly RobloxBadgeId[], opts: { thumbnail?: true | RobloxBadgeIconOptions } = {}): Promise<RobloxBadge[]> {
+        const badges = settle(badgeIds, id => cached(this.config, { service: "badges", method: "getBadges", badgeId: id }, this.ttl("getBadges"), () => this.badges.load(String(id), id)))
+        if (!opts.thumbnail) {
+            const { values, errors } = await badges
+            return finish(found(values), errors)
+        }
         const target = opts.thumbnail === true ? {} : opts.thumbnail
-        const icons = this.thumbnails.get(badgeIds.map(targetId => ({ ...target, type: "BadgeIcon", targetId }) as const))
-        return Promise.all([badges, icons]).then(([list, icons]) => {
-            const byId = new Map(badgeIds.map((id, i) => [id, icons[i]]))
-            return list.map(b => ({ ...b, thumbnail: byId.get(b.id)! }))
-        })
+        const [{ values, errors }, icons] = await Promise.all([badges, this.thumbnails.getSettled(badgeIds.map(targetId => ({ ...target, type: "BadgeIcon", targetId }) as const))])
+        const byId = new Map(badgeIds.map((id, i) => [id, icons.values[i]]))
+        return finish(found(values).map(b => ({ ...b, thumbnail: byId.get(b.id) ?? null })), errors)
     }
 
     /** GET /v1/universes/{universeId}/badges — 게임의 배지 (100회/분). 없는 게임이면 빈 목록이다 */
@@ -158,17 +158,19 @@ export class RobloxBadgesApi {
      * awarded-dates(100개씩, 10회/분)와 awarded-date(하나씩, 100회/분)를 나눠 쓴다. 받은 날짜만 캐시한다.
      */
     async getAwardedDates(userId: RobloxUserId, badgeIds: readonly RobloxBadgeId[]): Promise<RobloxBadgeAwardStatus[]> {
-        const dates = await Promise.all(badgeIds.map(badgeId => cached(
-            this.config, ["badges", "getAwardedDates", userId, badgeId], this.ttl("getAwardedDates"),
+        const { values, errors } = await settle(badgeIds, badgeId => cached(
+            this.config, { service: "badges", method: "getAwardedDates", userId, badgeId }, this.ttl("getAwardedDates"),
             () => this.awards.load(`${userId}:${badgeId}`, { userId, badgeId }),
-        )))
-        return badgeIds.map((badgeId, i) => ({ badgeId, awardedDate: dates[i] }))
+        ))
+        const failed = new Set(errors.map(e => e.input))
+        // 받지 않은 배지도 null이라 실패는 errors로 가린다
+        return finish(badgeIds.flatMap((badgeId, i) => failed.has(badgeId) ? [] : [{ badgeId, awardedDate: values[i] }]), errors)
     }
 
     /** GET /v1/universes/{universeId}/free-badges-quota — 오늘(UTC) 남은 무료 배지 수. 없는 게임은 뺀다 */
     async getFreeQuotas(universeIds: readonly RobloxUniverseId[]): Promise<{ universeId: RobloxUniverseId, quota: number }[]> {
-        const quotas = await Promise.all(universeIds.map(id => this.freeQuotas.load(String(id), id)))
-        return found(universeIds.map((universeId, i) => quotas[i] === null ? null : { universeId, quota: quotas[i] }))
+        const { values, errors } = await settle(universeIds, id => this.freeQuotas.load(String(id), id))
+        return finish(found(universeIds.map((universeId, i) => values[i] === null ? null : { universeId, quota: values[i] })), errors)
     }
 
     /** GET /v1/badges/metadata — 배지 비용과 이름/설명 길이 제한 */

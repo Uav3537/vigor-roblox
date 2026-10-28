@@ -1,9 +1,10 @@
 import z from "zod"
-import { RobloxBatcher, RobloxBatchSkip, captureHeaders, mapRoute, nullOn, type RobloxBatchRoute } from "@/core/batcher"
+import { RobloxBatcher, RobloxBatchSkip, captureHeaders, nullOn, type RobloxBatchRoute } from "@/core/batcher"
 import { resolveTtl, type RobloxConfig } from "@/core/config"
 import type { RobloxThumbnailsApi } from "@/apis/thumbnails"
 import type { RobloxAvatarThumbnailOptions, RobloxThumbnailTarget, RobloxWithThumbnail } from "@/types/thumbnails"
 import { cached, createHttp, validate } from "@/core/http"
+import { finish, found, settle, type RobloxItemError } from "@/core/partial"
 import { RobloxEmptyResponseSchema } from "@/types/common"
 import {
     RobloxAuthenticatedUserSchema,
@@ -44,7 +45,10 @@ const MULTI_GET_LIMIT = 100
 type ByIdTarget = { userId: RobloxUserId, excludeBannedUsers: boolean }
 type ByNameTarget = { username: RobloxUserName, excludeBannedUsers: boolean }
 
-/** GET /v1/users/{userId} — 30회/분 (2026-10 실측). 없는 유저는 404라 null로 바꾼다. */
+/**
+ * GET /v1/users/{userId} — 30회/분 (2026-10 실측). 없는 유저는 404라 null로 바꾼다.
+ * 상세 전용이다. 기본 정보도 들어 있지만 한 명씩이라 `getUsers`의 경로로 쓰지 않는다 (`getUserDetails`의 한도를 먹는다).
+ */
 const detailRoute: RobloxBatchRoute<RobloxUserId, RobloxUserDetail | null> = {
     bucket: "users GET /v1/users/{userId}",
     limit:  1,
@@ -115,19 +119,6 @@ const profilesRoute: RobloxBatchRoute<ByIdTarget, RobloxUser | null> = {
     },
 }
 
-/** 기본 정보는 상세(GET, 30회/분)에도 있다. 다른 경로가 막혔을 때 쓴다. */
-const byIdDetailRoute: RobloxBatchRoute<ByIdTarget, RobloxUser | null> = {
-    bucket: detailRoute.bucket,
-    limit:  1,
-    group:  () => "",
-    async send(http, [t], onHeaders) {
-        return mapRoute(detailRoute, detail => {
-            if (!detail || (t.excludeBannedUsers && detail.isBanned)) return null
-            return { id: detail.id, name: detail.name, displayName: detail.displayName, hasVerifiedBadge: detail.hasVerifiedBadge }
-        }).send(http, [t.userId], onHeaders)
-    },
-}
-
 /** POST /v1/usernames/users — 500회/분. 이전 이름으로도 찾는다. */
 const byNameRoute: RobloxBatchRoute<ByNameTarget, RobloxUserByName | null> = {
     bucket: "users POST /v1/usernames/users",
@@ -145,7 +136,6 @@ const byNameRoute: RobloxBatchRoute<ByNameTarget, RobloxUserByName | null> = {
     },
 }
 
-const found = <T>(list: (T | null)[]) => list.filter((x): x is T => x !== null)
 
 /** users.roblox.com */
 export class RobloxUsersApi {
@@ -157,7 +147,7 @@ export class RobloxUsersApi {
     constructor(private readonly config: RobloxConfig, private readonly thumbnails: RobloxThumbnailsApi) {
         this.http = createHttp(config, ORIGIN, { userAgent: USER_AGENT })
         this.details = new RobloxBatcher(config, ORIGIN, [detailRoute], { userAgent: USER_AGENT })
-        this.byId = new RobloxBatcher(config, ORIGIN, [profilesRoute, byIdRoute, byIdDetailRoute], { userAgent: USER_AGENT })
+        this.byId = new RobloxBatcher(config, ORIGIN, [profilesRoute, byIdRoute], { userAgent: USER_AGENT })
         this.byName = new RobloxBatcher(config, ORIGIN, [byNameRoute], { userAgent: USER_AGENT })
     }
 
@@ -167,16 +157,29 @@ export class RobloxUsersApi {
 
     // ── 공개 조회 ──────────────────────────────────────
     // 배열을 받는 메서드는 결과를 입력 순서로 돌려주고, 없는 유저는 뺀다.
+    // 일부 항목이 실패하면 받은 결과를 담아 RobloxPartialError를 던진다.
     // 같은 틱에 들어온 호출은 모아서 보내므로 따로따로 불러도 된다.
 
-    /** 유저들에 아바타 썸네일을 붙인다. id를 아는 경우 users 조회와 동시에 보낸다. */
-    private async attach<U extends { id: RobloxUserId }>(users: Promise<U[]>, ids: readonly RobloxUserId[] | null, option: true | RobloxAvatarThumbnailOptions): Promise<RobloxWithThumbnail<U>[]> {
+    /**
+     * 유저들을 받아 실패가 있으면 RobloxPartialError로 던진다. `thumbnail`이 있으면 아바타 썸네일을 붙인다 —
+     * id를 아는 경우 users 조회와 동시에 보내고, 썸네일을 받지 못한 유저는 `thumbnail: null`이다.
+     */
+    private async attach<U extends { id: RobloxUserId }, I>(
+        users: Promise<{ values: (U | null)[], errors: RobloxItemError<I>[] }>,
+        ids: readonly RobloxUserId[] | null,
+        option: true | RobloxAvatarThumbnailOptions | undefined,
+    ): Promise<(U | RobloxWithThumbnail<U>)[]> {
+        if (!option) {
+            const { values, errors } = await users
+            return finish(found(values), errors)
+        }
         const target = option === true ? { type: "AvatarHeadShot" as const } : option
-        const thumbnails = (list: readonly RobloxUserId[]) => this.thumbnails.get(list.map(targetId => ({ ...target, targetId }) as RobloxThumbnailTarget))
-        const [list, early] = await Promise.all([users, ids ? thumbnails(ids) : null])
+        const thumbnails = (list: readonly RobloxUserId[]) => this.thumbnails.getSettled(list.map(targetId => ({ ...target, targetId }) as RobloxThumbnailTarget)).then(s => s.values)
+        const [{ values, errors }, early] = await Promise.all([users, ids ? thumbnails(ids) : null])
+        const list = found(values)
         const byId = new Map((early ? ids!.map((id, i) => [id, early[i]] as const) : []))
         if (!early) (await thumbnails(list.map(u => u.id))).forEach((t, i) => byId.set(list[i].id, t))
-        return list.map(u => ({ ...u, thumbnail: byId.get(u.id)! }))
+        return finish(list.map(u => ({ ...u, thumbnail: byId.get(u.id) ?? null })), errors)
     }
 
     /**
@@ -186,10 +189,9 @@ export class RobloxUsersApi {
     getUserDetails(userIds: readonly RobloxUserId[], opts: { thumbnail: true | RobloxAvatarThumbnailOptions }): Promise<RobloxWithThumbnail<RobloxUserDetail>[]>
     getUserDetails(userIds: readonly RobloxUserId[], opts?: { thumbnail?: undefined }): Promise<RobloxUserDetail[]>
     getUserDetails(userIds: readonly RobloxUserId[], opts: { thumbnail?: true | RobloxAvatarThumbnailOptions } = {}): Promise<RobloxUserDetail[]> {
-        const users = Promise.all(userIds.map(id =>
-            cached(this.config, ["users", "getUserDetails", id], this.ttl("getUserDetails"), () => this.details.load(String(id), id))
-        )).then(found)
-        return opts.thumbnail ? this.attach(users, userIds, opts.thumbnail) : users
+        const users = settle(userIds, id =>
+            cached(this.config, { service: "users", method: "getUserDetails", userId: id }, this.ttl("getUserDetails"), () => this.details.load(String(id), id)))
+        return this.attach(users, userIds, opts.thumbnail)
     }
 
     /** POST /v1/users — id, 이름, 표시 이름, 인증 배지. 경로 여러 개를 섞어 묶어 보낸다. `thumbnail`을 주면 아바타 썸네일을 같이 받는다. */
@@ -197,11 +199,11 @@ export class RobloxUsersApi {
     getUsers(userIds: readonly RobloxUserId[], opts?: { excludeBannedUsers?: boolean, thumbnail?: undefined }): Promise<RobloxUser[]>
     getUsers(userIds: readonly RobloxUserId[], opts: { excludeBannedUsers?: boolean, thumbnail?: true | RobloxAvatarThumbnailOptions } = {}): Promise<RobloxUser[]> {
         const excludeBannedUsers = opts.excludeBannedUsers ?? false
-        const users = Promise.all(userIds.map(userId => {
+        const users = settle(userIds, userId => {
             const key = `${userId}:${excludeBannedUsers}`
-            return cached(this.config, ["users", "getUsers", userId, excludeBannedUsers], this.ttl("getUsers"), () => this.byId.load(key, { userId, excludeBannedUsers }))
-        })).then(found)
-        return opts.thumbnail ? this.attach(users, userIds, opts.thumbnail) : users
+            return cached(this.config, { service: "users", method: "getUsers", userId, excludeBannedUsers }, this.ttl("getUsers"), () => this.byId.load(key, { userId, excludeBannedUsers }))
+        })
+        return this.attach(users, userIds, opts.thumbnail)
     }
 
     /**
@@ -212,12 +214,12 @@ export class RobloxUsersApi {
     getUsersByNames(usernames: readonly RobloxUserName[], opts?: { excludeBannedUsers?: boolean, thumbnail?: undefined }): Promise<RobloxUserByName[]>
     getUsersByNames(usernames: readonly RobloxUserName[], opts: { excludeBannedUsers?: boolean, thumbnail?: true | RobloxAvatarThumbnailOptions } = {}): Promise<RobloxUserByName[]> {
         const excludeBannedUsers = opts.excludeBannedUsers ?? false
-        const users = Promise.all(usernames.map(username => {
+        const users = settle(usernames, username => {
             const lower = username.toLowerCase()
             const key = `${lower}:${excludeBannedUsers}`
-            return cached(this.config, ["users", "getUsersByNames", lower, excludeBannedUsers], this.ttl("getUsersByNames"), () => this.byName.load(key, { username, excludeBannedUsers }))
-        })).then(found)
-        return opts.thumbnail ? this.attach(users, null, opts.thumbnail) : users
+            return cached(this.config, { service: "users", method: "getUsersByNames", username: lower, excludeBannedUsers }, this.ttl("getUsersByNames"), () => this.byName.load(key, { username, excludeBannedUsers }))
+        })
+        return this.attach(users, null, opts.thumbnail)
     }
 
     /** GET /v1/users/search */
@@ -231,7 +233,7 @@ export class RobloxUsersApi {
 
     /** GET /v1/users/{userId}/username-history */
     getUsernameHistory(userId: RobloxUserId, query: RobloxUsernameHistoryQuery = {}) {
-        return cached(this.config, ["users", "getUsernameHistory", userId, query], this.ttl("getUsernameHistory"), () =>
+        return cached(this.config, { service: "users", method: "getUsernameHistory", userId, query }, this.ttl("getUsernameHistory"), () =>
             this.http()
                 .path("v1", "users", userId, "username-history")
                 .query(query)

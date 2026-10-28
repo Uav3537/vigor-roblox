@@ -504,9 +504,12 @@ type RobloxGroupIconOptions = Omit<Extract<RobloxThumbnailTarget, {
 type RobloxBadgeIconOptions = Omit<Extract<RobloxThumbnailTarget, {
     type: "BadgeIcon";
 }>, "targetId" | "type">;
-/** 썸네일을 붙인 결과. 썸네일이 없으면 `state`가 "Error" 등이고 `imageUrl`이 null이다 */
+/**
+ * 썸네일을 붙인 결과. 썸네일이 없으면 `state`가 "Error" 등이고 `imageUrl`이 null이다.
+ * 썸네일 요청 자체가 실패하면 null이다 (주 결과는 그대로 돌려준다).
+ */
 type RobloxWithThumbnail<T> = T & {
-    thumbnail: RobloxThumbnail;
+    thumbnail: RobloxThumbnail | null;
 };
 /** `ThumbnailResponse` — 어느 엔드포인트로 받았든 같은 모양 */
 declare const RobloxThumbnailSchema: z.ZodObject<{
@@ -1311,9 +1314,8 @@ type RobloxServerLocation<L = unknown> = {
     ip: RobloxIpAddress;
     location: L;
 };
-/** `getPlaces` 결과 */
-type RobloxPlace = {
-    placeId: RobloxPlaceId;
+/** `getGameInfos` 결과 */
+type RobloxGameInfo = {
     universeId: RobloxUniverseId;
     game: RobloxGame;
     votes: RobloxGameVotes | null;
@@ -3520,130 +3522,146 @@ type RobloxGroupRecurringPayoutRecipient = {
  * 쿠키를 돌려 쓰는 중에는 관점을 정할 수 없어 이런 항목을 아예 캐시하지 않는다.
  */
 type RobloxViewerKey = "extension" | "anonymous" | `cookie:${string}`;
+type Entry<S extends string, M extends string, A extends object, V> = {
+    info: {
+        service: S;
+        method: M;
+    } & A;
+    value: V;
+};
 /**
- * 캐시 항목 하나: 키(`[서비스, 메서드, ...인자]`)와 거기 저장되는 값.
+ * 캐시 항목 하나: 저장소에 `info`로 넘어가는 분류 데이터와 거기 저장되는 값.
  * 배열을 받는 메서드는 항목 하나씩 저장한다. 없는 대상(null)이나 곧 바뀔 상태(Pending 등)는 저장하지 않는다.
  */
-type RobloxCacheEntry = {
-    key: ["users", "getUserDetails", userId: RobloxUserId];
-    value: RobloxUserDetail;
-} | {
-    key: ["users", "getUsers", userId: RobloxUserId, excludeBannedUsers: boolean];
-    value: RobloxUser;
-}
+type RobloxCacheEntry = Entry<"users", "getUserDetails", {
+    userId: RobloxUserId;
+}, RobloxUserDetail> | Entry<"users", "getUsers", {
+    userId: RobloxUserId;
+    excludeBannedUsers: boolean;
+}, RobloxUser>
 /** 이름은 소문자로 맞춘다 (대소문자를 가리지 않는 조회) */
- | {
-    key: ["users", "getUsersByNames", username: string, excludeBannedUsers: boolean];
-    value: RobloxUserByName;
-} | {
-    key: ["users", "getUsernameHistory", userId: RobloxUserId, query: RobloxUsernameHistoryQuery];
-    value: RobloxUsernameHistoryResponse;
-} | {
-    key: ["thumbnails", "get", target: RobloxThumbnailTarget];
-    value: RobloxThumbnail;
-} | {
-    key: ["thumbnails", "getGameThumbnails", universeId: RobloxUniverseId, query: RobloxUniverseThumbnailsQuery];
-    value: RobloxUniverseThumbnails;
-} | {
-    key: ["presence", "get", viewer: RobloxViewerKey, userId: RobloxUserId];
-    value: RobloxUserPresence;
-} | {
-    key: ["games", "getGames", universeId: RobloxUniverseId];
-    value: RobloxGame;
-} | {
-    key: ["games", "getUniverseIds", placeId: RobloxPlaceId];
-    value: RobloxUniverseId;
-} | {
-    key: ["games", "getPlaceDetails", viewer: RobloxViewerKey, placeId: RobloxPlaceId];
-    value: RobloxPlaceDetails;
-} | {
-    key: ["games", "getProductInfo", universeId: RobloxUniverseId];
-    value: RobloxGameProduct;
-} | {
-    key: ["games", "getPlayability", viewer: RobloxViewerKey, universeId: RobloxUniverseId];
-    value: RobloxGamePlayability;
-} | {
-    key: ["games", "getVotes", universeId: RobloxUniverseId];
-    value: RobloxGameVotes;
-} | {
-    key: ["games", "getFavoriteCounts", universeId: RobloxUniverseId];
-    value: number;
-} | {
-    key: ["games", "getMedia", universeId: RobloxUniverseId, all: boolean];
-    value: RobloxGameMedia[];
-}
+ | Entry<"users", "getUsersByNames", {
+    username: string;
+    excludeBannedUsers: boolean;
+}, RobloxUserByName> | Entry<"users", "getUsernameHistory", {
+    userId: RobloxUserId;
+    query: RobloxUsernameHistoryQuery;
+}, RobloxUsernameHistoryResponse> | Entry<"thumbnails", "get", {
+    target: RobloxThumbnailTarget;
+}, RobloxThumbnail> | Entry<"thumbnails", "getGameThumbnails", {
+    universeId: RobloxUniverseId;
+    query: RobloxUniverseThumbnailsQuery;
+}, RobloxUniverseThumbnails> | Entry<"presence", "get", {
+    viewer: RobloxViewerKey;
+    userId: RobloxUserId;
+}, RobloxUserPresence> | Entry<"games", "getGames", {
+    universeId: RobloxUniverseId;
+}, RobloxGame> | Entry<"games", "getUniverseIds", {
+    placeId: RobloxPlaceId;
+}, RobloxUniverseId> | Entry<"games", "getPlaceDetails", {
+    viewer: RobloxViewerKey;
+    placeId: RobloxPlaceId;
+}, RobloxPlaceDetails> | Entry<"games", "getProductInfo", {
+    universeId: RobloxUniverseId;
+}, RobloxGameProduct> | Entry<"games", "getPlayability", {
+    viewer: RobloxViewerKey;
+    universeId: RobloxUniverseId;
+}, RobloxGamePlayability> | Entry<"games", "getVotes", {
+    universeId: RobloxUniverseId;
+}, RobloxGameVotes> | Entry<"games", "getFavoriteCounts", {
+    universeId: RobloxUniverseId;
+}, number> | Entry<"games", "getMedia", {
+    universeId: RobloxUniverseId;
+    all: boolean;
+}, RobloxGameMedia[]>
 /** jobId는 place 안에서만 겹치지 않으므로 placeId와 함께 쓴다 */
- | {
-    key: ["games", "getServerAddresses", placeId: RobloxPlaceId, jobId: RobloxJobId];
-    value: RobloxServerAddress;
-}
-/** 값은 `.geolocation(fn)` 콜백이 돌려준 값 그대로다. 모양은 사용자가 정하므로 타입을 알 수 없다 */
- | {
-    key: ["games", "getServerLocations", ip: RobloxIpAddress];
-    value: unknown;
-} | {
-    key: ["friends", "getFriends", userId: RobloxUserId];
-    value: RobloxUserId[];
-} | {
-    key: ["friends", "getFriendCounts", userId: RobloxUserId];
-    value: number;
-} | {
-    key: ["friends", "getFollowerCounts", userId: RobloxUserId];
-    value: number;
-} | {
-    key: ["friends", "getFollowingCounts", userId: RobloxUserId];
-    value: number;
-} | {
-    key: ["groups", "getGroups", groupId: RobloxGroupId];
-    value: RobloxGroup;
-} | {
-    key: ["groups", "getGroupDetails", groupId: RobloxGroupId];
-    value: RobloxGroupDetail;
-} | {
-    key: ["groups", "getRoles", groupId: RobloxGroupId];
-    value: RobloxGroupRole[];
-} | {
-    key: ["groups", "getRolesByIds", roleId: RobloxGroupRoleId];
-    value: RobloxGroupRoleDetail;
-} | {
-    key: ["groups", "getUserGroups", userId: RobloxUserId];
-    value: RobloxUserGroupRole[];
-} | {
-    key: ["badges", "getBadges", badgeId: RobloxBadgeId];
-    value: RobloxBadge;
-} | {
-    key: ["badges", "getAwardedDates", userId: RobloxUserId, badgeId: RobloxBadgeId];
-    value: string;
-};
-/** 캐시 키. `key[0]`(서비스), `key[1]`(메서드)로 switch하면 나머지 원소의 타입이 좁혀진다. */
-type RobloxCacheKey = RobloxCacheEntry["key"];
+ | Entry<"games", "getServerAddresses", {
+    placeId: RobloxPlaceId;
+    jobId: RobloxJobId;
+}, RobloxServerAddress>
+/** 값은 `.geolocation(fn)` 콜백이 돌려준 값 그대로다. 모양은 사용자가 정하므로 타입을 알 수 없고, 키에 라이브러리 버전이 붙지 않는다 */
+ | Entry<"games", "getServerLocations", {
+    ip: RobloxIpAddress;
+}, unknown>
+/**
+ * Public은 인증 여부만 구분한다 (플레이어 토큰은 받은 계정에 묶이지 않는다 — 2026-10 실측). Friend는 계정별이다.
+ * query의 serverType은 기본값(Public)을 채운 뒤의 모양
+ */
+ | Entry<"games", "getServerPage", {
+    access: RobloxViewerKey | "authenticated";
+    placeId: RobloxPlaceId;
+    query: RobloxServerPageQuery;
+}, RobloxServerPage> | Entry<"games", "getRecommendations", {
+    universeId: RobloxUniverseId;
+    query: RobloxRecommendationsQuery;
+}, RobloxGameRecommendations> | Entry<"games", "getUserGames", {
+    userId: RobloxUserId;
+    query: RobloxGameListQuery;
+}, RobloxGameSummaryPage> | Entry<"games", "getUserFavoriteGames", {
+    userId: RobloxUserId;
+    query: RobloxGameListQuery;
+}, RobloxFavoriteGamePage> | Entry<"games", "getGroupGames", {
+    groupId: RobloxGroupId;
+    query: RobloxGameListQuery;
+}, RobloxGameSummaryPage> | Entry<"games", "getPrivateServersEnabled", {
+    universeId: RobloxUniverseId;
+}, boolean> | Entry<"friends", "getFriends", {
+    userId: RobloxUserId;
+}, RobloxUserId[]> | Entry<"friends", "getFriendCounts", {
+    userId: RobloxUserId;
+}, number> | Entry<"friends", "getFollowerCounts", {
+    userId: RobloxUserId;
+}, number> | Entry<"friends", "getFollowingCounts", {
+    userId: RobloxUserId;
+}, number> | Entry<"groups", "getGroups", {
+    groupId: RobloxGroupId;
+}, RobloxGroup> | Entry<"groups", "getGroupDetails", {
+    groupId: RobloxGroupId;
+}, RobloxGroupDetail> | Entry<"groups", "getRoles", {
+    groupId: RobloxGroupId;
+}, RobloxGroupRole[]> | Entry<"groups", "getRolesByIds", {
+    roleId: RobloxGroupRoleId;
+}, RobloxGroupRoleDetail> | Entry<"groups", "getUserGroups", {
+    userId: RobloxUserId;
+}, RobloxUserGroupRole[]> | Entry<"badges", "getBadges", {
+    badgeId: RobloxBadgeId;
+}, RobloxBadge> | Entry<"badges", "getAwardedDates", {
+    userId: RobloxUserId;
+    badgeId: RobloxBadgeId;
+}, string>;
+/** 저장소에 넘어가는 분류 데이터. `info.service`, `info.method`로 좁히면 나머지 필드의 타입이 정해진다. */
+type RobloxCacheInfo = RobloxCacheEntry["info"];
 /** `"서비스.메서드"` → 저장되는 값 */
 type RobloxCacheValues = {
-    [E in RobloxCacheEntry as `${E["key"][0]}.${E["key"][1]}`]: E["value"];
+    [E in RobloxCacheEntry as `${E["info"]["service"]}.${E["info"]["method"]}`]: E["value"];
 };
-/** 키에 저장되는 값의 타입 */
-type RobloxCacheValue<K extends RobloxCacheKey> = K extends RobloxCacheKey ? `${K[0]}.${K[1]}` extends infer P extends keyof RobloxCacheValues ? RobloxCacheValues[P] : never : never;
+/** 분류 데이터에 해당하는 값의 타입 */
+type RobloxCacheValue<I extends RobloxCacheInfo> = I extends RobloxCacheInfo ? `${I["service"]}.${I["method"]}` extends infer P extends keyof RobloxCacheValues ? RobloxCacheValues[P] : never : never;
 /**
  * `.cache(store)`에 넣는 저장소. 없는 키는 `undefined`를 돌려준다.
- * 키는 튜플이라 그대로는 Map 키로 쓸 수 없다 — 문자열이 필요하면 `robloxCacheKeyString(key)`를 쓴다.
- * TTL이 0인 메서드도 get/set이 그대로 불린다. 0을 "저장하지 않음"으로 볼지 "만료 없음" 등으로 볼지는 저장소가 정한다.
+ *
+ * - `key`는 라이브러리가 만든 문자열이라 그대로 쓰면 된다: `"<버전>:<서비스>.<메서드>::<인자 해시>"`.
+ *   같은 요청이면 항상 같은 문자열이고, 라이브러리 버전이 바뀌면 달라진다 (값 모양이 바뀌었을 수 있다).
+ *   `games.getServerLocations`는 값이 사용자 콜백의 것이라 버전이 붙지 않는다.
+ * - `info`는 분류용이다. 서비스/메서드마다 다른 곳에 두거나 인자를 보고 다룰 때 쓴다. 안 쓰면 무시한다.
+ * - TTL이 0인 메서드도 get/set이 그대로 불린다. 0을 "저장하지 않음"으로 볼지 "만료 없음" 등으로 볼지는 저장소가 정한다.
  *
  * ```ts
- * get(key) {
- *     switch (key[0]) {
- *         case "presence": return redis.get(`presence:${key[2]}:${key[3]}`)   // key[2]: RobloxViewerKey
- *         case "games":    return key[1] === "getServerLocations" ? geoTable.get(key[2]) : memory.get(robloxCacheKeyString(key))
- *         default:         return memory.get(robloxCacheKeyString(key))
- *     }
+ * get(key, info) {
+ *     if (info.service === "games" && info.method === "getServerLocations") return geoTable.get(info.ip)
+ *     return redis.get(`myapp:${key}`)
  * }
  * ```
  */
 interface RobloxCacheStore {
-    get<K extends RobloxCacheKey>(key: K): RobloxCacheValue<K> | undefined | Promise<RobloxCacheValue<K> | undefined>;
-    set<K extends RobloxCacheKey>(key: K, value: RobloxCacheValue<K>, ttl: number): void | Promise<void>;
+    get<I extends RobloxCacheInfo>(key: string, info: I): RobloxCacheValue<I> | undefined | Promise<RobloxCacheValue<I> | undefined>;
+    set<I extends RobloxCacheInfo>(key: string, value: RobloxCacheValue<I>, ttl: number, info: I): void | Promise<void>;
 }
-/** 키를 안정적인 문자열로. 객체 인자는 키 순서를 정렬해 같은 값이면 같은 문자열이 나온다. */
-declare function robloxCacheKeyString(key: RobloxCacheKey): string;
+/**
+ * 분류 데이터 → 저장소 키. `"<버전>:<서비스>.<메서드>::<인자 해시>"`이고 해시는 인자 JSON의 SHA-256 앞 16바이트(base64url 22자)다.
+ * 인자가 길어도(커서 등) 키 길이는 일정하다.
+ */
+declare function robloxCacheKey(info: RobloxCacheInfo): Promise<string>;
 /** 프로세스 메모리에 두는 기본 구현. 기본값으로 쓰이지 않으므로 직접 넣어야 한다. */
 declare class RobloxMemoryCache implements RobloxCacheStore {
     private readonly sweepInterval;
@@ -3652,9 +3670,9 @@ declare class RobloxMemoryCache implements RobloxCacheStore {
     /** @param sweepInterval 만료된 항목을 한꺼번에 지우는 간격(ms). 저장할 때 확인한다. 기본 1분 */
     constructor(sweepInterval?: number);
     private sweep;
-    get<K extends RobloxCacheKey>(key: K): RobloxCacheValue<K> | undefined;
+    get<I extends RobloxCacheInfo>(key: string): RobloxCacheValue<I> | undefined;
     /** TTL이 0 이하면 저장하지 않는다 */
-    set<K extends RobloxCacheKey>(key: K, value: RobloxCacheValue<K>, ttl: number): void;
+    set<I extends RobloxCacheInfo>(key: string, value: RobloxCacheValue<I>, ttl: number): void;
 }
 
 /** `.ROBLOSECURITY` 쿠키 값. 문자열이면 `RobloxCookieSchema.parse(value)`로 바꿔 넣는다 */
@@ -3779,6 +3797,24 @@ declare class RobloxRateLimiter {
     bucket(key: string): RobloxRateBucket;
 }
 
+/** 실패한 항목 하나. `input`은 메서드에 넘긴 값 그대로다 */
+type RobloxItemError<I = unknown> = {
+    input: I;
+    error: unknown;
+};
+/**
+ * 배열을 받는 메서드에서 일부 항목이 실패했다. 성공한 항목은 버리지 않는다.
+ * `results`는 실패한 항목을 뺀 결과로, 실패가 없었을 때 돌려줬을 모양과 같다 (입력 순서).
+ * `cause`는 첫 번째 에러라 `findFetchFailed(error)`로 HTTP 실패를 그대로 찾을 수 있다.
+ */
+declare class RobloxPartialError<R = unknown, I = unknown> extends Error {
+    readonly results: R[];
+    readonly errors: RobloxItemError<I>[];
+    readonly name = "RobloxPartialError";
+    constructor(results: R[], errors: RobloxItemError<I>[]);
+}
+declare function isRobloxPartialError(error: unknown): error is RobloxPartialError;
+
 /** `.ttl({ thumbnails: { ... } })`로 캐시할 수 있는 메서드. `get`은 대상 하나씩 캐시한다. */
 type RobloxThumbnailsCacheable = "get" | "getGameThumbnails";
 /** thumbnails.roblox.com */
@@ -3792,8 +3828,14 @@ declare class RobloxThumbnailsApi {
      * 썸네일들. 결과는 입력과 같은 순서이고, 타입이 섞여도 된다. 하나만 필요하면 원소 하나짜리 배열을 넣는다.
      * 엔드포인트는 대상과 남은 한도를 보고 라이브러리가 고른다. 같은 틱에 들어온 호출은 모아서 보내고,
      * Pending이면 잠시 기다렸다 다시 묻는다. 없는 id는 `state: "Error"`로 돌아온다.
+     * 요청이 실패한 대상이 있으면 `RobloxPartialError`를 던진다 (`results`에는 받은 것만 있어 순서가 입력과 어긋난다).
      */
     get<T extends RobloxThumbnailTarget>(targets: readonly T[]): Promise<RobloxThumbnail<RobloxThumbnailTargetIdOf<T>>[]>;
+    /** `get`과 같지만 던지지 않는다. `values`는 입력과 같은 자리이고 요청이 실패한 대상은 null이며, 그 에러는 `errors`에 있다 */
+    getSettled<T extends RobloxThumbnailTarget>(targets: readonly T[]): Promise<{
+        values: (RobloxThumbnail<RobloxThumbnailTargetIdOf<T>> | null)[];
+        errors: RobloxItemError<T>[];
+    }>;
     private load;
     /**
      * GET /v1/games/multiget/thumbnails — universe마다 등록된 썸네일 목록. 결과는 입력 순서이고 없는 universe는 뺀다.
@@ -3814,7 +3856,10 @@ declare class RobloxUsersApi {
     private readonly byName;
     constructor(config: RobloxConfig, thumbnails: RobloxThumbnailsApi);
     private ttl;
-    /** 유저들에 아바타 썸네일을 붙인다. id를 아는 경우 users 조회와 동시에 보낸다. */
+    /**
+     * 유저들을 받아 실패가 있으면 RobloxPartialError로 던진다. `thumbnail`이 있으면 아바타 썸네일을 붙인다 —
+     * id를 아는 경우 users 조회와 동시에 보내고, 썸네일을 받지 못한 유저는 `thumbnail: null`이다.
+     */
     private attach;
     /**
      * GET /v1/users/{userId} — 설명, 가입일, 정지 여부까지. 유저 한 명당 요청 하나라 한도(30회/분)가 빡빡하다.
@@ -3921,7 +3966,7 @@ declare class RobloxPresenceApi {
 }
 
 /** `.ttl({ games: { ... } })`로 캐시할 수 있는 메서드. 배열을 받는 메서드는 항목 하나씩 캐시한다. */
-type RobloxGamesCacheable = "getGames" | "getUniverseIds" | "getPlaceDetails" | "getProductInfo" | "getPlayability" | "getVotes" | "getFavoriteCounts" | "getMedia" | "getServerAddresses" | "getServerLocations";
+type RobloxGamesCacheable = "getGames" | "getUniverseIds" | "getPlaceDetails" | "getProductInfo" | "getPlayability" | "getVotes" | "getFavoriteCounts" | "getMedia" | "getServerAddresses" | "getServerLocations" | "getServerPage" | "getRecommendations" | "getUserGames" | "getUserFavoriteGames" | "getGroupGames" | "getPrivateServersEnabled";
 /** `getServers` 옵션 */
 type RobloxGetServersOptions = RobloxServerPageQuery & {
     /**
@@ -3977,7 +4022,10 @@ declare class RobloxGamesApi<L = unknown> {
     private readonly addresses;
     constructor(config: RobloxConfig, thumbnails: RobloxThumbnailsApi, presence: RobloxPresenceApi);
     private ttl;
-    /** 항목 하나씩 캐시하며 batcher로 보낸다. 계정별로 나누는 키는 viewer를 받는다 (쿠키 로테이션 중이면 캐시하지 않는다). */
+    /**
+     * 항목 하나씩 캐시하며 batcher로 보낸다. 계정별로 나누는 키는 viewer를 받는다 (쿠키 로테이션 중이면 캐시하지 않는다).
+     * 실패한 항목은 null로 두고 errors에 모은다.
+     */
     private each;
     /** GET /v1/games — 게임(universe) 상세 */
     getGames(universeIds: readonly RobloxUniverseId[]): Promise<RobloxGame[]>;
@@ -4004,148 +4052,13 @@ declare class RobloxGamesApi<L = unknown> {
         media: RobloxGameMedia[];
     }[]>;
     /** GET /v1/games/recommendations/game/{universeId} — 비슷한 게임 */
-    getRecommendations(universeId: RobloxUniverseId, query?: RobloxRecommendationsQuery): Promise<{
-        games: {
-            creator: {
-                name: string;
-                hasVerifiedBadge: boolean;
-                type: "User";
-                id: RobloxUserId;
-            } | {
-                name: string;
-                hasVerifiedBadge: boolean;
-                type: "Group";
-                id: RobloxGroupId;
-            } | {
-                name: string;
-                hasVerifiedBadge: boolean;
-                type: "Unknown";
-                id: number;
-                rawType: string | number;
-            };
-            totalUpVotes: number;
-            totalDownVotes: number;
-            universeId: number & z.core.$brand<"RobloxUniverseId">;
-            name: string;
-            placeId: number & z.core.$brand<"RobloxPlaceId">;
-            playerCount: number;
-            imageToken: string | null;
-            isSponsored: boolean;
-            nativeAdData: string | null;
-            isShowSponsoredLabel: boolean;
-            price: number | null;
-            analyticsIdentifier: string | null;
-            gameDescription: string | null;
-            genre: string | null;
-            minimumAge?: number | null | undefined;
-            ageRecommendationDisplayName?: string | null | undefined;
-            canonicalUrlPath?: string | null | undefined;
-        }[];
-        nextPaginationKey: string | null;
-    }>;
+    getRecommendations(universeId: RobloxUniverseId, query?: RobloxRecommendationsQuery): Promise<RobloxGameRecommendations>;
     /** GET /v2/users/{userId}/games — 유저가 만든 게임 (limit은 10/25/50) */
-    getUserGames(userId: RobloxUserId, query?: RobloxGameListQuery): Promise<{
-        previousPageCursor: (string & z.core.$brand<"RobloxCursor">) | null;
-        nextPageCursor: (string & z.core.$brand<"RobloxCursor">) | null;
-        data: {
-            id: number & z.core.$brand<"RobloxUniverseId">;
-            name: string;
-            description: string | null;
-            creator: ({
-                type: "User";
-                id: RobloxUserId;
-            } & Omit<{
-                name?: string | null | undefined;
-            }, "type" | "id">) | ({
-                type: "Group";
-                id: RobloxGroupId;
-            } & Omit<{
-                name?: string | null | undefined;
-            }, "type" | "id">) | ({
-                type: "Unknown";
-                id: number;
-                rawType: string | number;
-            } & Omit<{
-                name?: string | null | undefined;
-            }, "type" | "id">);
-            rootPlace: {
-                id: number & z.core.$brand<"RobloxPlaceId">;
-                name?: string | null | undefined;
-            };
-            created: string;
-            updated: string;
-            placeVisits: number;
-        }[];
-    }>;
+    getUserGames(userId: RobloxUserId, query?: RobloxGameListQuery): Promise<RobloxGameSummaryPage>;
     /** GET /v2/users/{userId}/favorite/games — 유저의 즐겨찾기 */
-    getUserFavoriteGames(userId: RobloxUserId, query?: RobloxGameListQuery): Promise<{
-        previousPageCursor: (string & z.core.$brand<"RobloxCursor">) | null;
-        nextPageCursor: (string & z.core.$brand<"RobloxCursor">) | null;
-        data: {
-            id: number & z.core.$brand<"RobloxUniverseId">;
-            name: string;
-            description: string | null;
-            creator: ({
-                type: "User";
-                id: RobloxUserId;
-            } & Omit<{
-                name?: string | null | undefined;
-            }, "type" | "id">) | ({
-                type: "Group";
-                id: RobloxGroupId;
-            } & Omit<{
-                name?: string | null | undefined;
-            }, "type" | "id">) | ({
-                type: "Unknown";
-                id: number;
-                rawType: string | number;
-            } & Omit<{
-                name?: string | null | undefined;
-            }, "type" | "id">);
-            rootPlace: {
-                id: number & z.core.$brand<"RobloxPlaceId">;
-                name?: string | null | undefined;
-            };
-            created: string;
-            updated: string;
-            placeVisits: number;
-            price: number | null;
-        }[];
-    }>;
+    getUserFavoriteGames(userId: RobloxUserId, query?: RobloxGameListQuery): Promise<RobloxFavoriteGamePage>;
     /** 그룹이 만든 게임. /v2/groups/{groupId}/games와 gamesV2를 번갈아 쓴다. */
-    getGroupGames(groupId: RobloxGroupId, query?: RobloxGameListQuery): Promise<{
-        previousPageCursor: (string & z.core.$brand<"RobloxCursor">) | null;
-        nextPageCursor: (string & z.core.$brand<"RobloxCursor">) | null;
-        data: {
-            id: number & z.core.$brand<"RobloxUniverseId">;
-            name: string;
-            description: string | null;
-            creator: ({
-                type: "User";
-                id: RobloxUserId;
-            } & Omit<{
-                name?: string | null | undefined;
-            }, "type" | "id">) | ({
-                type: "Group";
-                id: RobloxGroupId;
-            } & Omit<{
-                name?: string | null | undefined;
-            }, "type" | "id">) | ({
-                type: "Unknown";
-                id: number;
-                rawType: string | number;
-            } & Omit<{
-                name?: string | null | undefined;
-            }, "type" | "id">);
-            rootPlace: {
-                id: number & z.core.$brand<"RobloxPlaceId">;
-                name?: string | null | undefined;
-            };
-            created: string;
-            updated: string;
-            placeVisits: number;
-        }[];
-    }>;
+    getGroupGames(groupId: RobloxGroupId, query?: RobloxGameListQuery): Promise<RobloxGameSummaryPage>;
     /** GET /v1/games/{universeId}/favorites — 내가 즐겨찾기했는지 */
     getFavorited(universeIds: readonly RobloxUniverseId[]): Promise<{
         universeId: RobloxUniverseId;
@@ -4163,6 +4076,7 @@ declare class RobloxGamesApi<L = unknown> {
      * 서버 목록 한 페이지. 엔드포인트마다 3회/분이라 세 엔드포인트를 나눠 쓴다.
      * 받은 커서는 같은 옵션으로 다시 넘긴다 (어느 엔드포인트의 커서인지는 라이브러리가 기억한다).
      * `Friend`와 `playerTokens`는 인증이 필요하다.
+     * 캐시 키는 Public이면 인증 여부만, Friend면 계정까지 나눈다 (쿠키 로테이션 중의 Friend는 캐시하지 않는다).
      */
     getServerPage(placeId: RobloxPlaceId, query?: RobloxServerPageQuery): Promise<RobloxServerPage>;
     /**
@@ -4278,14 +4192,16 @@ declare class RobloxGamesApi<L = unknown> {
         metadata?: unknown;
     }>;
     /**
-     * place들의 게임 정보를 한 번에. place → universe → 상세/투표/아이콘/썸네일을 모아서 준다.
-     * 없는 place(또는 universe)는 뺀다.
+     * universe들의 게임 정보를 한 번에. 상세/투표/아이콘/썸네일을 모아서 준다. 없는 universe는 뺀다.
+     * place에서 시작하면 `getUniverseIds`로 먼저 바꾼다.
+     * 투표/아이콘/썸네일을 받지 못하면 null(빈 배열)로 두고, 상세를 받지 못한 universe만 실패로 친다.
      */
-    getPlaces(placeIds: readonly RobloxPlaceId[]): Promise<RobloxPlace[]>;
+    getGameInfos(universeIds: readonly RobloxUniverseId[]): Promise<RobloxGameInfo[]>;
     /**
      * 서버 목록을 페이지를 따라가며 `count`개 이상 모으고(페이지 단위), 플레이어 헤드샷/주소/위치를 붙인다.
      * `nextPageCursor`는 마지막으로 받은 페이지의 다음이라, 넘기면 빠짐없이 이어서 받는다.
      * 서버 목록 한도가 빡빡해서(엔드포인트당 3회/분) 많이 모을수록 오래 걸린다.
+     * 헤드샷/주소/위치는 받지 못하면 빈 배열(null)로 두고, 서버 목록 자체가 실패할 때만 던진다.
      */
     getServers(placeId: RobloxPlaceId, opts?: RobloxGetServersOptions): Promise<{
         data: RobloxServerInfo<L>[];
@@ -4324,10 +4240,12 @@ declare class RobloxFriendsApi {
     private ttl;
     /** 요청 계정의 id. 계정이 정해져 있지 않으면 에러 (requireViewer) */
     private myId;
+    /** 항목 하나씩 캐시하며 보낸다. 실패한 항목은 null로 두고 errors에 모은다 */
     private each;
     /**
      * 유저들의 친구 목록. friends API는 이름을 빈 문자열로 주므로 users API로 이름을 채운다.
      * /friends와 /friends/find(50개씩 넘김)를 한도에 맞춰 나눠 쓴다. `thumbnail`을 주면 친구들의 아바타 썸네일도 붙인다.
+     * 친구 목록을 받지 못한 유저만 실패로 친다. 이름을 받지 못한 친구는 목록에서 빠진다.
      */
     getFriends(userIds: readonly RobloxUserId[], opts: {
         thumbnail: true | RobloxAvatarThumbnailOptions;
@@ -4460,6 +4378,10 @@ declare class RobloxFriendsApi {
             body: symbol & {
                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
             };
+            method: symbol & {
+                __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+            };
+            query: [];
             middlewares: {
                 before: [{
                     _mode: "fluent";
@@ -4960,6 +4882,10 @@ declare class RobloxFriendsApi {
                             body: symbol & {
                                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                             };
+                            method: symbol & {
+                                __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                            };
+                            query: [];
                             middlewares: {
                                 before: [{
                                     _mode: "fluent";
@@ -5133,9 +5059,6 @@ declare class RobloxFriendsApi {
                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                 };
                             };
-                            method: symbol & {
-                                __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
-                            };
                             retry: {
                                 readonly __brand: vigor_fetch.VigorBrand<"Retry", "Schema">;
                                 readonly policy: {
@@ -5176,7 +5099,6 @@ declare class RobloxFriendsApi {
                                 };
                             };
                             __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Schema">;
-                            query: [];
                             hash: "";
                             headers: {};
                             extra: {};
@@ -5197,6 +5119,10 @@ declare class RobloxFriendsApi {
                             body: symbol & {
                                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                             };
+                            method: symbol & {
+                                __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                            };
+                            query: [];
                             middlewares: {
                                 before: [{
                                     _mode: "fluent";
@@ -5370,9 +5296,6 @@ declare class RobloxFriendsApi {
                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                 };
                             };
-                            method: symbol & {
-                                __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
-                            };
                             retry: {
                                 readonly __brand: vigor_fetch.VigorBrand<"Retry", "Schema">;
                                 readonly policy: {
@@ -5413,7 +5336,6 @@ declare class RobloxFriendsApi {
                                 };
                             };
                             __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Schema">;
-                            query: [];
                             hash: "";
                             headers: {};
                             extra: {};
@@ -5434,6 +5356,10 @@ declare class RobloxFriendsApi {
                             body: symbol & {
                                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                             };
+                            method: symbol & {
+                                __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                            };
+                            query: [];
                             middlewares: {
                                 before: [{
                                     _mode: "fluent";
@@ -5607,9 +5533,6 @@ declare class RobloxFriendsApi {
                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                 };
                             };
-                            method: symbol & {
-                                __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
-                            };
                             retry: {
                                 readonly __brand: vigor_fetch.VigorBrand<"Retry", "Schema">;
                                 readonly policy: {
@@ -5650,7 +5573,6 @@ declare class RobloxFriendsApi {
                                 };
                             };
                             __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Schema">;
-                            query: [];
                             hash: "";
                             headers: {};
                             extra: {};
@@ -5710,9 +5632,6 @@ declare class RobloxFriendsApi {
                 confinePath: true;
                 maxRestarts: 3;
             };
-            method: symbol & {
-                __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
-            };
             retry: {
                 policy: {
                     target: symbol & {
@@ -5753,7 +5672,6 @@ declare class RobloxFriendsApi {
                 };
             };
             __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Schema">;
-            query: [];
             hash: "";
             headers: {};
             extra: {
@@ -5809,11 +5727,11 @@ declare class RobloxGroupsApi {
     private ttl;
     /** 요청 계정의 id. 계정이 정해져 있지 않으면 에러 (requireViewer) */
     private myId;
-    /** 항목 하나씩 캐시하며 batcher로 보낸다 */
+    /** 항목 하나씩 캐시하며 batcher로 보낸다. 분류 데이터의 id 필드 이름은 메서드마다 다르다 */
     private each;
-    /** 대상마다 batcher로 보내고 없는 대상은 뺀다 */
+    /** 대상마다 batcher로 보내고 없는 대상은 뺀다. 일부가 실패하면 RobloxPartialError */
     private many;
-    /** 그룹들에 아이콘을 붙인다 */
+    /** 그룹들을 받아 실패가 있으면 RobloxPartialError로 던진다. `option`이 있으면 아이콘을 붙이고, 아이콘을 받지 못한 그룹은 `thumbnail: null`이다 */
     private attach;
     /**
      * GET /v2/groups — 이름, 설명, 주인 id, 만든 날짜. 100개씩 묶어서 보낸다 (1회/초).
@@ -6195,7 +6113,10 @@ declare class RobloxGroupsApi {
     acceptJoinRequests(groupId: RobloxGroupId, userIds: readonly RobloxUserId[]): Promise<void>;
     /** 가입 요청을 거절한다. 한 명이면 /users/{userId}, 여러 명이면 묶음 엔드포인트로 보낸다 */
     declineJoinRequests(groupId: RobloxGroupId, userIds: readonly RobloxUserId[]): Promise<void>;
-    /** 하나면 single, 여럿이면 묶음 엔드포인트로 나눠 보낸다 */
+    /**
+     * 하나면 single, 여럿이면 묶음 엔드포인트로 나눠 보낸다. 실패한 묶음이 있으면 RobloxPartialError를 던진다
+     * (`results`는 처리된 id, `errors`는 실패한 묶음의 id마다 하나).
+     */
     private batchWrite;
     /** GET /v1/groups/{groupId}/bans */
     getBans(groupId: RobloxGroupId, query?: RobloxGroupPageQuery): Promise<{
@@ -6320,6 +6241,8 @@ declare class RobloxGroupsApi {
             body: {
                 readonly message: string;
             };
+            method: "PATCH";
+            query: [];
             middlewares: {
                 before: [{
                     _mode: "fluent";
@@ -6830,6 +6753,10 @@ declare class RobloxGroupsApi {
                             body: symbol & {
                                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                             };
+                            method: symbol & {
+                                __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                            };
+                            query: [];
                             middlewares: {
                                 before: [{
                                     _mode: "fluent";
@@ -7003,9 +6930,6 @@ declare class RobloxGroupsApi {
                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                 };
                             };
-                            method: symbol & {
-                                __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
-                            };
                             retry: {
                                 readonly __brand: vigor_fetch.VigorBrand<"Retry", "Schema">;
                                 readonly policy: {
@@ -7046,7 +6970,6 @@ declare class RobloxGroupsApi {
                                 };
                             };
                             __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Schema">;
-                            query: [];
                             hash: "";
                             headers: {};
                             extra: {};
@@ -7067,6 +6990,10 @@ declare class RobloxGroupsApi {
                             body: symbol & {
                                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                             };
+                            method: symbol & {
+                                __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                            };
+                            query: [];
                             middlewares: {
                                 before: [{
                                     _mode: "fluent";
@@ -7240,9 +7167,6 @@ declare class RobloxGroupsApi {
                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                 };
                             };
-                            method: symbol & {
-                                __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
-                            };
                             retry: {
                                 readonly __brand: vigor_fetch.VigorBrand<"Retry", "Schema">;
                                 readonly policy: {
@@ -7283,7 +7207,6 @@ declare class RobloxGroupsApi {
                                 };
                             };
                             __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Schema">;
-                            query: [];
                             hash: "";
                             headers: {};
                             extra: {};
@@ -7304,6 +7227,10 @@ declare class RobloxGroupsApi {
                             body: symbol & {
                                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                             };
+                            method: symbol & {
+                                __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                            };
+                            query: [];
                             middlewares: {
                                 before: [{
                                     _mode: "fluent";
@@ -7477,9 +7404,6 @@ declare class RobloxGroupsApi {
                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                 };
                             };
-                            method: symbol & {
-                                __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
-                            };
                             retry: {
                                 readonly __brand: vigor_fetch.VigorBrand<"Retry", "Schema">;
                                 readonly policy: {
@@ -7520,7 +7444,6 @@ declare class RobloxGroupsApi {
                                 };
                             };
                             __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Schema">;
-                            query: [];
                             hash: "";
                             headers: {};
                             extra: {};
@@ -7580,7 +7503,6 @@ declare class RobloxGroupsApi {
                 confinePath: true;
                 maxRestarts: 3;
             };
-            method: "PATCH";
             retry: {
                 policy: {
                     target: symbol & {
@@ -7621,7 +7543,6 @@ declare class RobloxGroupsApi {
                 };
             };
             __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Schema">;
-            query: [];
             hash: "";
             headers: {};
             extra: {
@@ -7998,6 +7919,12 @@ declare const RobloxDefaultTtl: {
         readonly getMedia: number;
         readonly getServerAddresses: number;
         readonly getServerLocations: number;
+        readonly getServerPage: number;
+        readonly getRecommendations: number;
+        readonly getUserGames: number;
+        readonly getUserFavoriteGames: number;
+        readonly getGroupGames: number;
+        readonly getPrivateServersEnabled: number;
     };
     readonly friends: {
         readonly getFriends: number;
@@ -8674,4 +8601,4 @@ declare function RobloxCreatorSchema<S extends z.ZodRawShape = {}>(extra?: S): z
     type: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
 } & S)[P]; } : never, {}>>>;
 
-export { RobloxAgeBracket, RobloxAgeBracketSchema, RobloxArrayResponseSchema, type RobloxAssetId, RobloxAssetIdSchema, type RobloxAuthenticatedUser, RobloxAuthenticatedUserSchema, type RobloxAvatarThumbnailOptions, type RobloxBadge, type RobloxBadgeAward, RobloxBadgeAwardSchema, type RobloxBadgeAwardStatus, RobloxBadgeAwardsResponseSchema, type RobloxBadgeIconOptions, type RobloxBadgeId, RobloxBadgeIdSchema, type RobloxBadgeMetadata, RobloxBadgeMetadataSchema, type RobloxBadgePageQuery, RobloxBadgePageSchema, RobloxBadgeSchema, type RobloxBadgeStatistics, RobloxBadgeStatisticsSchema, RobloxBadgesApi, type RobloxBadgesCacheable, type RobloxBirthDay, RobloxBirthDaySchema, type RobloxBirthMonth, RobloxBirthMonthSchema, type RobloxBirthYear, RobloxBirthYearSchema, type RobloxBirthdate, RobloxBirthdateSchema, type RobloxBundleId, RobloxBundleIdSchema, type RobloxCacheEntry, type RobloxCacheKey, RobloxCacheStage, type RobloxCacheStore, type RobloxCacheValue, type RobloxCacheValues, type RobloxCaptchaStatus, RobloxCaptchaStatusSchema, type RobloxCaptchaTokenRequest, RobloxChatApi, type RobloxChatConversation, type RobloxChatConversationPage, RobloxChatConversationPageRawSchema, type RobloxChatConversationResult, RobloxChatConversationResultSchema, RobloxChatConversationResultsResponseSchema, RobloxChatConversationSchema, RobloxChatConversationsResponseSchema, type RobloxChatMessage, type RobloxChatMessageId, RobloxChatMessageIdSchema, type RobloxChatMessagePage, RobloxChatMessagePageRawSchema, RobloxChatMessageSchema, type RobloxChatMetadata, RobloxChatMetadataSchema, type RobloxChatPageQuery, RobloxChatSendResponseSchema, type RobloxChatUnreadCounts, RobloxChatUnreadCountsSchema, type RobloxChatUserData, RobloxChatUserDataSchema, RobloxClient, type RobloxCommunityTier, RobloxCommunityTierSchema, type RobloxConversationId, RobloxConversationIdSchema, type RobloxCookie, type RobloxCookieRejectReason, type RobloxCookieRejectedHandler, RobloxCookieSchema, type RobloxCookieStore, RobloxCountResponseSchema, type RobloxCreateBadgeRequest, type RobloxCreateConversationRequest, type RobloxCreateGroupKeywordsResponse, RobloxCreateGroupKeywordsResponseSchema, type RobloxCreateGroupRequest, type RobloxCreateGroupRoleRequest, type RobloxCreatePrivateServerRequest, type RobloxCreatedBadge, RobloxCreatedBadgeSchema, type RobloxCreator, RobloxCreatorSchema, type RobloxCreatorType, type RobloxCursor, RobloxCursorSchema, RobloxDefaultTtl, type RobloxDeveloperProductId, RobloxDeveloperProductIdSchema, type RobloxDnrOptions, type RobloxDnrRule, type RobloxEmptyResponse, RobloxEmptyResponseSchema, type RobloxErrorResponse, RobloxErrorResponseSchema, RobloxExtensionStage, type RobloxFavoriteGame, type RobloxFavoriteGamePage, RobloxFavoriteGamePageSchema, RobloxFavoriteGameSchema, RobloxFiatPurchaseDataSchema, type RobloxFindUsersOptions, type RobloxFollowPage, type RobloxFollowPageQuery, RobloxFollowPageSchema, RobloxFollowingExistsResponseSchema, type RobloxFollowingStatus, RobloxFollowingStatusSchema, RobloxFriendListResponseSchema, type RobloxFriendPage, RobloxFriendPageRawSchema, type RobloxFriendPresence, RobloxFriendPresenceSchema, type RobloxFriendRequest, type RobloxFriendRequestPage, RobloxFriendRequestPageSchema, RobloxFriendRequestSchema, type RobloxFriendRequestsQuery, type RobloxFriendSearchQuery, type RobloxFriendStatus, RobloxFriendStatusSchema, RobloxFriendStatusesResponseSchema, RobloxFriendsApi, type RobloxFriendsCacheable, RobloxFriendsGroupsResponseSchema, type RobloxFriendsMetadata, RobloxFriendsMetadataSchema, type RobloxGame, type RobloxGameCreator, RobloxGameCreatorSchema, type RobloxGameFavoriteCount, type RobloxGameListQuery, type RobloxGameMedia, RobloxGameMediaResponseSchema, RobloxGameMediaSchema, type RobloxGamePassId, RobloxGamePassIdSchema, type RobloxGamePlayability, RobloxGamePlayabilitySchema, type RobloxGameProduct, RobloxGameProductSchema, RobloxGameProductsResponseSchema, type RobloxGameRecommendations, RobloxGameRecommendationsSchema, RobloxGameSchema, type RobloxGameSummary, type RobloxGameSummaryPage, RobloxGameSummaryPageSchema, RobloxGameSummarySchema, type RobloxGameThumbnailId, RobloxGameThumbnailIdSchema, type RobloxGameVotes, RobloxGameVotesResponseSchema, RobloxGameVotesSchema, RobloxGamesApi, type RobloxGamesCacheable, RobloxGamesResponseSchema, RobloxGender, RobloxGenderSchema, type RobloxGeolocator, type RobloxGetServersOptions, type RobloxGroup, type RobloxGroupAuditActionType, RobloxGroupAuditActionTypes, type RobloxGroupAuditLogItem, RobloxGroupAuditLogItemSchema, type RobloxGroupAuditLogPage, RobloxGroupAuditLogPageSchema, type RobloxGroupAuditLogQuery, type RobloxGroupBan, type RobloxGroupBanPage, RobloxGroupBanPageSchema, RobloxGroupBanSchema, type RobloxGroupBasic, RobloxGroupBasicSchema, type RobloxGroupConfiguration, type RobloxGroupConfigurationMetadata, RobloxGroupConfigurationMetadataSchema, RobloxGroupConfigurationSchema, type RobloxGroupDetail, type RobloxGroupDetailPartial, RobloxGroupDetailPartialSchema, RobloxGroupDetailSchema, type RobloxGroupEmoteSet, RobloxGroupEmoteSetsResponseSchema, type RobloxGroupEventId, RobloxGroupEventIdSchema, type RobloxGroupFeatureFreeze, RobloxGroupFeatureFreezesResponseSchema, type RobloxGroupFeaturedEvent, RobloxGroupFeaturedEventSchema, type RobloxGroupFeatures, RobloxGroupFeaturesSchema, type RobloxGroupIconOptions, type RobloxGroupId, RobloxGroupIdSchema, type RobloxGroupJoinRequest, type RobloxGroupJoinRequestPage, RobloxGroupJoinRequestPageSchema, RobloxGroupJoinRequestSchema, type RobloxGroupKeyword, type RobloxGroupKeywordId, RobloxGroupKeywordIdSchema, type RobloxGroupKeywordPage, RobloxGroupKeywordPageSchema, RobloxGroupKeywordSchema, RobloxGroupLookupResponseSchema, type RobloxGroupMember, type RobloxGroupMemberPage, RobloxGroupMemberPageSchema, RobloxGroupMemberSchema, type RobloxGroupMembership, type RobloxGroupMembershipDetail, RobloxGroupMembershipDetailSchema, RobloxGroupMembershipSchema, type RobloxGroupNameHistoryPage, RobloxGroupNameHistoryPageSchema, type RobloxGroupNotificationPreference, RobloxGroupNotificationPreferenceSchema, type RobloxGroupPageQuery, type RobloxGroupPayout, type RobloxGroupPayoutRecipient, type RobloxGroupPayoutRestriction, RobloxGroupPayoutRestrictionSchema, RobloxGroupPayoutsResponseSchema, type RobloxGroupPermissions, RobloxGroupPermissionsSchema, RobloxGroupPoliciesResponseSchema, type RobloxGroupRecurringPayoutRecipient, type RobloxGroupRelationshipType, type RobloxGroupRelationships, type RobloxGroupRelationshipsQuery, RobloxGroupRelationshipsSchema, type RobloxGroupRole, type RobloxGroupRoleDetail, RobloxGroupRoleDetailSchema, RobloxGroupRoleDetailsResponseSchema, type RobloxGroupRoleId, RobloxGroupRoleIdSchema, type RobloxGroupRolePermissions, RobloxGroupRolePermissionsResponseSchema, RobloxGroupRolePermissionsSchema, RobloxGroupRoleSchema, RobloxGroupRolesResponseSchema, RobloxGroupSchema, type RobloxGroupSearchItem, RobloxGroupSearchItemSchema, type RobloxGroupSearchMetadata, RobloxGroupSearchMetadataSchema, type RobloxGroupSearchPage, RobloxGroupSearchPageSchema, type RobloxGroupSearchQuery, type RobloxGroupSettings, RobloxGroupSettingsSchema, type RobloxGroupShout, RobloxGroupShoutSchema, type RobloxGroupSocialLink, type RobloxGroupSocialLinkId, RobloxGroupSocialLinkIdSchema, type RobloxGroupSocialLinkRequest, RobloxGroupSocialLinkSchema, type RobloxGroupSocialLinkType, RobloxGroupSocialLinksResponseSchema, type RobloxGroupTierEvaluation, RobloxGroupTierEvaluationSchema, type RobloxGroupUser, type RobloxGroupUserPage, RobloxGroupUserPageSchema, RobloxGroupUserSchema, RobloxGroupsApi, type RobloxGroupsCacheable, type RobloxGroupsMetadata, RobloxGroupsMetadataSchema, RobloxGroupsResponseSchema, type RobloxIpAddress, RobloxIpAddressSchema, type RobloxJobId, RobloxJobIdSchema, type RobloxJoinGroupRequest, type RobloxJoinResponse, RobloxJoinResponseSchema, RobloxJoinStatus, RobloxMemoryCache, RobloxMemoryCookies, type RobloxMode, type RobloxMyPrivateServerPage, RobloxMyPrivateServerPageSchema, type RobloxMyPrivateServersQuery, RobloxNodeStage, type RobloxOnlineFriend, RobloxOnlineFriendSchema, RobloxOnlineFriendsResponseSchema, RobloxOptionsStage, type RobloxOutfitId, RobloxOutfitIdSchema, type RobloxPageLimit, RobloxPageLimitSchema, RobloxPageResponseSchema, type RobloxPlace, type RobloxPlaceDetails, RobloxPlaceDetailsSchema, type RobloxPlaceId, RobloxPlaceIdSchema, RobloxPresenceApi, type RobloxPresenceCacheable, RobloxPresenceType, RobloxPresenceTypeSchema, type RobloxPrimaryGroup, RobloxPrimaryGroupResponseSchema, type RobloxPrivateServer, type RobloxPrivateServerDetail, RobloxPrivateServerDetailSchema, type RobloxPrivateServerId, RobloxPrivateServerIdSchema, type RobloxPrivateServerInvite, RobloxPrivateServerInviteSchema, type RobloxPrivateServerPage, type RobloxPrivateServerPageQuery, RobloxPrivateServerPageSchema, type RobloxPrivateServerPermissions, RobloxPrivateServerPermissionsSchema, RobloxPrivateServerSchema, type RobloxPrivateServerSubscription, RobloxPrivateServerSubscriptionSchema, type RobloxRateLimitState, type RobloxRateLimitStore, type RobloxRecommendationsQuery, type RobloxRecommendedGame, RobloxRecommendedGameSchema, type RobloxRenameConversationRequest, type RobloxRetryOptions, type RobloxSendMessageRequest, type RobloxServer, type RobloxServerAddress, type RobloxServerAddressTarget, type RobloxServerInfo, type RobloxServerLocation, type RobloxServerPage, type RobloxServerPageQuery, RobloxServerPageRawSchema, RobloxServerRawSchema, RobloxServerSchema, type RobloxServerType, RobloxServerTypeSchema, type RobloxSetBirthdateRequest, RobloxSetBirthdateRequestSchema, type RobloxSetDescriptionRequest, RobloxSetDescriptionRequestSchema, type RobloxSetDisplayNameRequest, RobloxSetDisplayNameRequestSchema, type RobloxSetGenderRequest, RobloxSetGenderRequestSchema, type RobloxSortOrder, RobloxSortOrderSchema, type RobloxThumbnail, RobloxThumbnailBatchItemSchema, RobloxThumbnailBatchResponseSchema, type RobloxThumbnailReturnPolicy, RobloxThumbnailReturnPolicySchema, RobloxThumbnailSchema, type RobloxThumbnailSize, RobloxThumbnailSizes, type RobloxThumbnailState, RobloxThumbnailStateSchema, type RobloxThumbnailTarget, type RobloxThumbnailTargetIdOf, type RobloxThumbnailType, RobloxThumbnailsApi, type RobloxThumbnailsCacheable, RobloxThumbnailsResponseSchema, type RobloxTrustedFriendRequestPage, RobloxTrustedFriendRequestPageSchema, type RobloxTtl, type RobloxUniverseBadgesQuery, type RobloxUniverseId, RobloxUniverseIdSchema, type RobloxUniverseThumbnails, type RobloxUniverseThumbnailsQuery, RobloxUniverseThumbnailsResponseSchema, RobloxUniverseThumbnailsSchema, type RobloxUpdateBadgeRequest, type RobloxUpdateGroupRoleRequest, type RobloxUpdateGroupSettingsRequest, type RobloxUpdatePrivateServerPermissionsRequest, type RobloxUpdatePrivateServerRequest, type RobloxUpdatePrivateServerSubscriptionRequest, type RobloxUser, type RobloxUserAgeBracket, RobloxUserAgeBracketSchema, type RobloxUserBadge, RobloxUserBadgePageSchema, RobloxUserBadgeSchema, type RobloxUserByName, RobloxUserByNameSchema, type RobloxUserCountryCode, RobloxUserCountryCodeSchema, type RobloxUserDescription, RobloxUserDescriptionSchema, type RobloxUserDetail, RobloxUserDetailSchema, type RobloxUserDisplayname, RobloxUserDisplaynameSchema, type RobloxUserFriends, type RobloxUserGameVote, RobloxUserGameVoteSchema, type RobloxUserGender, RobloxUserGenderSchema, type RobloxUserGroupRole, RobloxUserGroupRoleV1Schema, RobloxUserGroupRoleV2Schema, RobloxUserGroupRolesV1ResponseSchema, RobloxUserGroupRolesV2ResponseSchema, type RobloxUserGroups, type RobloxUserId, RobloxUserIdSchema, type RobloxUserName, RobloxUserNameSchema, type RobloxUserPresence, RobloxUserPresenceSchema, type RobloxUserPresencesResponse, RobloxUserPresencesResponseSchema, type RobloxUserRoles, RobloxUserRolesSchema, RobloxUserSchema, type RobloxUserSearchQuery, RobloxUserSearchQuerySchema, type RobloxUserSearchResponse, RobloxUserSearchResponseSchema, type RobloxUserSearchResult, RobloxUserSearchResultSchema, type RobloxUserServer, type RobloxUsernameHistoryEntry, RobloxUsernameHistoryEntrySchema, type RobloxUsernameHistoryQuery, RobloxUsernameHistoryQuerySchema, type RobloxUsernameHistoryResponse, RobloxUsernameHistoryResponseSchema, RobloxUsersApi, type RobloxUsersByNameRequest, RobloxUsersByNameRequestSchema, type RobloxUsersByNameResponse, RobloxUsersByNameResponseSchema, type RobloxUsersCacheable, type RobloxUsersRequest, RobloxUsersRequestSchema, type RobloxUsersResponse, RobloxUsersResponseSchema, type RobloxValidateDisplayNameQuery, RobloxValidateDisplayNameQuerySchema, type RobloxValidateUserDisplayNameQuery, RobloxValidateUserDisplayNameQuerySchema, type RobloxViewerKey, type RobloxWithThumbnail, VigorRoblox, vigorRoblox as default, findFetchFailed, robloxCacheKeyString, robloxDnrRules, toRobloxCreator, vigorRoblox };
+export { RobloxAgeBracket, RobloxAgeBracketSchema, RobloxArrayResponseSchema, type RobloxAssetId, RobloxAssetIdSchema, type RobloxAuthenticatedUser, RobloxAuthenticatedUserSchema, type RobloxAvatarThumbnailOptions, type RobloxBadge, type RobloxBadgeAward, RobloxBadgeAwardSchema, type RobloxBadgeAwardStatus, RobloxBadgeAwardsResponseSchema, type RobloxBadgeIconOptions, type RobloxBadgeId, RobloxBadgeIdSchema, type RobloxBadgeMetadata, RobloxBadgeMetadataSchema, type RobloxBadgePageQuery, RobloxBadgePageSchema, RobloxBadgeSchema, type RobloxBadgeStatistics, RobloxBadgeStatisticsSchema, RobloxBadgesApi, type RobloxBadgesCacheable, type RobloxBirthDay, RobloxBirthDaySchema, type RobloxBirthMonth, RobloxBirthMonthSchema, type RobloxBirthYear, RobloxBirthYearSchema, type RobloxBirthdate, RobloxBirthdateSchema, type RobloxBundleId, RobloxBundleIdSchema, type RobloxCacheEntry, type RobloxCacheInfo, RobloxCacheStage, type RobloxCacheStore, type RobloxCacheValue, type RobloxCacheValues, type RobloxCaptchaStatus, RobloxCaptchaStatusSchema, type RobloxCaptchaTokenRequest, RobloxChatApi, type RobloxChatConversation, type RobloxChatConversationPage, RobloxChatConversationPageRawSchema, type RobloxChatConversationResult, RobloxChatConversationResultSchema, RobloxChatConversationResultsResponseSchema, RobloxChatConversationSchema, RobloxChatConversationsResponseSchema, type RobloxChatMessage, type RobloxChatMessageId, RobloxChatMessageIdSchema, type RobloxChatMessagePage, RobloxChatMessagePageRawSchema, RobloxChatMessageSchema, type RobloxChatMetadata, RobloxChatMetadataSchema, type RobloxChatPageQuery, RobloxChatSendResponseSchema, type RobloxChatUnreadCounts, RobloxChatUnreadCountsSchema, type RobloxChatUserData, RobloxChatUserDataSchema, RobloxClient, type RobloxCommunityTier, RobloxCommunityTierSchema, type RobloxConversationId, RobloxConversationIdSchema, type RobloxCookie, type RobloxCookieRejectReason, type RobloxCookieRejectedHandler, RobloxCookieSchema, type RobloxCookieStore, RobloxCountResponseSchema, type RobloxCreateBadgeRequest, type RobloxCreateConversationRequest, type RobloxCreateGroupKeywordsResponse, RobloxCreateGroupKeywordsResponseSchema, type RobloxCreateGroupRequest, type RobloxCreateGroupRoleRequest, type RobloxCreatePrivateServerRequest, type RobloxCreatedBadge, RobloxCreatedBadgeSchema, type RobloxCreator, RobloxCreatorSchema, type RobloxCreatorType, type RobloxCursor, RobloxCursorSchema, RobloxDefaultTtl, type RobloxDeveloperProductId, RobloxDeveloperProductIdSchema, type RobloxDnrOptions, type RobloxDnrRule, type RobloxEmptyResponse, RobloxEmptyResponseSchema, type RobloxErrorResponse, RobloxErrorResponseSchema, RobloxExtensionStage, type RobloxFavoriteGame, type RobloxFavoriteGamePage, RobloxFavoriteGamePageSchema, RobloxFavoriteGameSchema, RobloxFiatPurchaseDataSchema, type RobloxFindUsersOptions, type RobloxFollowPage, type RobloxFollowPageQuery, RobloxFollowPageSchema, RobloxFollowingExistsResponseSchema, type RobloxFollowingStatus, RobloxFollowingStatusSchema, RobloxFriendListResponseSchema, type RobloxFriendPage, RobloxFriendPageRawSchema, type RobloxFriendPresence, RobloxFriendPresenceSchema, type RobloxFriendRequest, type RobloxFriendRequestPage, RobloxFriendRequestPageSchema, RobloxFriendRequestSchema, type RobloxFriendRequestsQuery, type RobloxFriendSearchQuery, type RobloxFriendStatus, RobloxFriendStatusSchema, RobloxFriendStatusesResponseSchema, RobloxFriendsApi, type RobloxFriendsCacheable, RobloxFriendsGroupsResponseSchema, type RobloxFriendsMetadata, RobloxFriendsMetadataSchema, type RobloxGame, type RobloxGameCreator, RobloxGameCreatorSchema, type RobloxGameFavoriteCount, type RobloxGameInfo, type RobloxGameListQuery, type RobloxGameMedia, RobloxGameMediaResponseSchema, RobloxGameMediaSchema, type RobloxGamePassId, RobloxGamePassIdSchema, type RobloxGamePlayability, RobloxGamePlayabilitySchema, type RobloxGameProduct, RobloxGameProductSchema, RobloxGameProductsResponseSchema, type RobloxGameRecommendations, RobloxGameRecommendationsSchema, RobloxGameSchema, type RobloxGameSummary, type RobloxGameSummaryPage, RobloxGameSummaryPageSchema, RobloxGameSummarySchema, type RobloxGameThumbnailId, RobloxGameThumbnailIdSchema, type RobloxGameVotes, RobloxGameVotesResponseSchema, RobloxGameVotesSchema, RobloxGamesApi, type RobloxGamesCacheable, RobloxGamesResponseSchema, RobloxGender, RobloxGenderSchema, type RobloxGeolocator, type RobloxGetServersOptions, type RobloxGroup, type RobloxGroupAuditActionType, RobloxGroupAuditActionTypes, type RobloxGroupAuditLogItem, RobloxGroupAuditLogItemSchema, type RobloxGroupAuditLogPage, RobloxGroupAuditLogPageSchema, type RobloxGroupAuditLogQuery, type RobloxGroupBan, type RobloxGroupBanPage, RobloxGroupBanPageSchema, RobloxGroupBanSchema, type RobloxGroupBasic, RobloxGroupBasicSchema, type RobloxGroupConfiguration, type RobloxGroupConfigurationMetadata, RobloxGroupConfigurationMetadataSchema, RobloxGroupConfigurationSchema, type RobloxGroupDetail, type RobloxGroupDetailPartial, RobloxGroupDetailPartialSchema, RobloxGroupDetailSchema, type RobloxGroupEmoteSet, RobloxGroupEmoteSetsResponseSchema, type RobloxGroupEventId, RobloxGroupEventIdSchema, type RobloxGroupFeatureFreeze, RobloxGroupFeatureFreezesResponseSchema, type RobloxGroupFeaturedEvent, RobloxGroupFeaturedEventSchema, type RobloxGroupFeatures, RobloxGroupFeaturesSchema, type RobloxGroupIconOptions, type RobloxGroupId, RobloxGroupIdSchema, type RobloxGroupJoinRequest, type RobloxGroupJoinRequestPage, RobloxGroupJoinRequestPageSchema, RobloxGroupJoinRequestSchema, type RobloxGroupKeyword, type RobloxGroupKeywordId, RobloxGroupKeywordIdSchema, type RobloxGroupKeywordPage, RobloxGroupKeywordPageSchema, RobloxGroupKeywordSchema, RobloxGroupLookupResponseSchema, type RobloxGroupMember, type RobloxGroupMemberPage, RobloxGroupMemberPageSchema, RobloxGroupMemberSchema, type RobloxGroupMembership, type RobloxGroupMembershipDetail, RobloxGroupMembershipDetailSchema, RobloxGroupMembershipSchema, type RobloxGroupNameHistoryPage, RobloxGroupNameHistoryPageSchema, type RobloxGroupNotificationPreference, RobloxGroupNotificationPreferenceSchema, type RobloxGroupPageQuery, type RobloxGroupPayout, type RobloxGroupPayoutRecipient, type RobloxGroupPayoutRestriction, RobloxGroupPayoutRestrictionSchema, RobloxGroupPayoutsResponseSchema, type RobloxGroupPermissions, RobloxGroupPermissionsSchema, RobloxGroupPoliciesResponseSchema, type RobloxGroupRecurringPayoutRecipient, type RobloxGroupRelationshipType, type RobloxGroupRelationships, type RobloxGroupRelationshipsQuery, RobloxGroupRelationshipsSchema, type RobloxGroupRole, type RobloxGroupRoleDetail, RobloxGroupRoleDetailSchema, RobloxGroupRoleDetailsResponseSchema, type RobloxGroupRoleId, RobloxGroupRoleIdSchema, type RobloxGroupRolePermissions, RobloxGroupRolePermissionsResponseSchema, RobloxGroupRolePermissionsSchema, RobloxGroupRoleSchema, RobloxGroupRolesResponseSchema, RobloxGroupSchema, type RobloxGroupSearchItem, RobloxGroupSearchItemSchema, type RobloxGroupSearchMetadata, RobloxGroupSearchMetadataSchema, type RobloxGroupSearchPage, RobloxGroupSearchPageSchema, type RobloxGroupSearchQuery, type RobloxGroupSettings, RobloxGroupSettingsSchema, type RobloxGroupShout, RobloxGroupShoutSchema, type RobloxGroupSocialLink, type RobloxGroupSocialLinkId, RobloxGroupSocialLinkIdSchema, type RobloxGroupSocialLinkRequest, RobloxGroupSocialLinkSchema, type RobloxGroupSocialLinkType, RobloxGroupSocialLinksResponseSchema, type RobloxGroupTierEvaluation, RobloxGroupTierEvaluationSchema, type RobloxGroupUser, type RobloxGroupUserPage, RobloxGroupUserPageSchema, RobloxGroupUserSchema, RobloxGroupsApi, type RobloxGroupsCacheable, type RobloxGroupsMetadata, RobloxGroupsMetadataSchema, RobloxGroupsResponseSchema, type RobloxIpAddress, RobloxIpAddressSchema, type RobloxItemError, type RobloxJobId, RobloxJobIdSchema, type RobloxJoinGroupRequest, type RobloxJoinResponse, RobloxJoinResponseSchema, RobloxJoinStatus, RobloxMemoryCache, RobloxMemoryCookies, type RobloxMode, type RobloxMyPrivateServerPage, RobloxMyPrivateServerPageSchema, type RobloxMyPrivateServersQuery, RobloxNodeStage, type RobloxOnlineFriend, RobloxOnlineFriendSchema, RobloxOnlineFriendsResponseSchema, RobloxOptionsStage, type RobloxOutfitId, RobloxOutfitIdSchema, type RobloxPageLimit, RobloxPageLimitSchema, RobloxPageResponseSchema, RobloxPartialError, type RobloxPlaceDetails, RobloxPlaceDetailsSchema, type RobloxPlaceId, RobloxPlaceIdSchema, RobloxPresenceApi, type RobloxPresenceCacheable, RobloxPresenceType, RobloxPresenceTypeSchema, type RobloxPrimaryGroup, RobloxPrimaryGroupResponseSchema, type RobloxPrivateServer, type RobloxPrivateServerDetail, RobloxPrivateServerDetailSchema, type RobloxPrivateServerId, RobloxPrivateServerIdSchema, type RobloxPrivateServerInvite, RobloxPrivateServerInviteSchema, type RobloxPrivateServerPage, type RobloxPrivateServerPageQuery, RobloxPrivateServerPageSchema, type RobloxPrivateServerPermissions, RobloxPrivateServerPermissionsSchema, RobloxPrivateServerSchema, type RobloxPrivateServerSubscription, RobloxPrivateServerSubscriptionSchema, type RobloxRateLimitState, type RobloxRateLimitStore, type RobloxRecommendationsQuery, type RobloxRecommendedGame, RobloxRecommendedGameSchema, type RobloxRenameConversationRequest, type RobloxRetryOptions, type RobloxSendMessageRequest, type RobloxServer, type RobloxServerAddress, type RobloxServerAddressTarget, type RobloxServerInfo, type RobloxServerLocation, type RobloxServerPage, type RobloxServerPageQuery, RobloxServerPageRawSchema, RobloxServerRawSchema, RobloxServerSchema, type RobloxServerType, RobloxServerTypeSchema, type RobloxSetBirthdateRequest, RobloxSetBirthdateRequestSchema, type RobloxSetDescriptionRequest, RobloxSetDescriptionRequestSchema, type RobloxSetDisplayNameRequest, RobloxSetDisplayNameRequestSchema, type RobloxSetGenderRequest, RobloxSetGenderRequestSchema, type RobloxSortOrder, RobloxSortOrderSchema, type RobloxThumbnail, RobloxThumbnailBatchItemSchema, RobloxThumbnailBatchResponseSchema, type RobloxThumbnailReturnPolicy, RobloxThumbnailReturnPolicySchema, RobloxThumbnailSchema, type RobloxThumbnailSize, RobloxThumbnailSizes, type RobloxThumbnailState, RobloxThumbnailStateSchema, type RobloxThumbnailTarget, type RobloxThumbnailTargetIdOf, type RobloxThumbnailType, RobloxThumbnailsApi, type RobloxThumbnailsCacheable, RobloxThumbnailsResponseSchema, type RobloxTrustedFriendRequestPage, RobloxTrustedFriendRequestPageSchema, type RobloxTtl, type RobloxUniverseBadgesQuery, type RobloxUniverseId, RobloxUniverseIdSchema, type RobloxUniverseThumbnails, type RobloxUniverseThumbnailsQuery, RobloxUniverseThumbnailsResponseSchema, RobloxUniverseThumbnailsSchema, type RobloxUpdateBadgeRequest, type RobloxUpdateGroupRoleRequest, type RobloxUpdateGroupSettingsRequest, type RobloxUpdatePrivateServerPermissionsRequest, type RobloxUpdatePrivateServerRequest, type RobloxUpdatePrivateServerSubscriptionRequest, type RobloxUser, type RobloxUserAgeBracket, RobloxUserAgeBracketSchema, type RobloxUserBadge, RobloxUserBadgePageSchema, RobloxUserBadgeSchema, type RobloxUserByName, RobloxUserByNameSchema, type RobloxUserCountryCode, RobloxUserCountryCodeSchema, type RobloxUserDescription, RobloxUserDescriptionSchema, type RobloxUserDetail, RobloxUserDetailSchema, type RobloxUserDisplayname, RobloxUserDisplaynameSchema, type RobloxUserFriends, type RobloxUserGameVote, RobloxUserGameVoteSchema, type RobloxUserGender, RobloxUserGenderSchema, type RobloxUserGroupRole, RobloxUserGroupRoleV1Schema, RobloxUserGroupRoleV2Schema, RobloxUserGroupRolesV1ResponseSchema, RobloxUserGroupRolesV2ResponseSchema, type RobloxUserGroups, type RobloxUserId, RobloxUserIdSchema, type RobloxUserName, RobloxUserNameSchema, type RobloxUserPresence, RobloxUserPresenceSchema, type RobloxUserPresencesResponse, RobloxUserPresencesResponseSchema, type RobloxUserRoles, RobloxUserRolesSchema, RobloxUserSchema, type RobloxUserSearchQuery, RobloxUserSearchQuerySchema, type RobloxUserSearchResponse, RobloxUserSearchResponseSchema, type RobloxUserSearchResult, RobloxUserSearchResultSchema, type RobloxUserServer, type RobloxUsernameHistoryEntry, RobloxUsernameHistoryEntrySchema, type RobloxUsernameHistoryQuery, RobloxUsernameHistoryQuerySchema, type RobloxUsernameHistoryResponse, RobloxUsernameHistoryResponseSchema, RobloxUsersApi, type RobloxUsersByNameRequest, RobloxUsersByNameRequestSchema, type RobloxUsersByNameResponse, RobloxUsersByNameResponseSchema, type RobloxUsersCacheable, type RobloxUsersRequest, RobloxUsersRequestSchema, type RobloxUsersResponse, RobloxUsersResponseSchema, type RobloxValidateDisplayNameQuery, RobloxValidateDisplayNameQuerySchema, type RobloxValidateUserDisplayNameQuery, RobloxValidateUserDisplayNameQuerySchema, type RobloxViewerKey, type RobloxWithThumbnail, VigorRoblox, vigorRoblox as default, findFetchFailed, isRobloxPartialError, robloxCacheKey, robloxDnrRules, toRobloxCreator, vigorRoblox };

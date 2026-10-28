@@ -99,8 +99,11 @@ export type RobloxGroupIconOptions = Omit<Extract<RobloxThumbnailTarget, { type:
 /** 배지에 붙이는 아이콘 옵션. 기본은 150x150 Png */
 export type RobloxBadgeIconOptions = Omit<Extract<RobloxThumbnailTarget, { type: "BadgeIcon" }>, "targetId" | "type">
 
-/** 썸네일을 붙인 결과. 썸네일이 없으면 `state`가 "Error" 등이고 `imageUrl`이 null이다 */
-export type RobloxWithThumbnail<T> = T & { thumbnail: RobloxThumbnail }
+/**
+ * 썸네일을 붙인 결과. 썸네일이 없으면 `state`가 "Error" 등이고 `imageUrl`이 null이다.
+ * 썸네일 요청 자체가 실패하면 null이다 (주 결과는 그대로 돌려준다).
+ */
+export type RobloxWithThumbnail<T> = T & { thumbnail: RobloxThumbnail | null }
 
 
 // ── 결과 ───────────────────────────────────────────────

@@ -1,6 +1,7 @@
 import { resolveTtl, type RobloxConfig } from "@/core/config"
 import { RobloxBatcher, captureHeaders, type RobloxBatchRoute } from "@/core/batcher"
 import { cached, validate } from "@/core/http"
+import { finish, found, settle, type RobloxItemError } from "@/core/partial"
 import type { RobloxUniverseId } from "@/types/common"
 import {
     RobloxThumbnailBatchResponseSchema,
@@ -242,9 +243,16 @@ export class RobloxThumbnailsApi {
      * 썸네일들. 결과는 입력과 같은 순서이고, 타입이 섞여도 된다. 하나만 필요하면 원소 하나짜리 배열을 넣는다.
      * 엔드포인트는 대상과 남은 한도를 보고 라이브러리가 고른다. 같은 틱에 들어온 호출은 모아서 보내고,
      * Pending이면 잠시 기다렸다 다시 묻는다. 없는 id는 `state: "Error"`로 돌아온다.
+     * 요청이 실패한 대상이 있으면 `RobloxPartialError`를 던진다 (`results`에는 받은 것만 있어 순서가 입력과 어긋난다).
      */
-    get<T extends RobloxThumbnailTarget>(targets: readonly T[]): Promise<RobloxThumbnail<RobloxThumbnailTargetIdOf<T>>[]> {
-        return Promise.all(targets.map(t => this.load(t))) as Promise<RobloxThumbnail<RobloxThumbnailTargetIdOf<T>>[]>
+    async get<T extends RobloxThumbnailTarget>(targets: readonly T[]): Promise<RobloxThumbnail<RobloxThumbnailTargetIdOf<T>>[]> {
+        const { values, errors } = await settle(targets, t => this.load(t))
+        return finish(found(values), errors) as RobloxThumbnail<RobloxThumbnailTargetIdOf<T>>[]
+    }
+
+    /** `get`과 같지만 던지지 않는다. `values`는 입력과 같은 자리이고 요청이 실패한 대상은 null이며, 그 에러는 `errors`에 있다 */
+    async getSettled<T extends RobloxThumbnailTarget>(targets: readonly T[]): Promise<{ values: (RobloxThumbnail<RobloxThumbnailTargetIdOf<T>> | null)[], errors: RobloxItemError<T>[] }> {
+        return settle(targets, t => this.load(t) as Promise<RobloxThumbnail<RobloxThumbnailTargetIdOf<T>>>)
     }
 
     private load(target: RobloxThumbnailTarget): Promise<RobloxThumbnail> {
@@ -253,7 +261,7 @@ export class RobloxThumbnailsApi {
         const run = () => this.batcher.load(key, normalized)
         // token은 매번 새로 발급되는 일회용 값이라 캐시하지 않는다.
         if (normalized.token !== undefined) return run()
-        return cached(this.config, ["thumbnails", "get", normalized as RobloxThumbnailTarget], this.ttl("get"), run, r => FINAL_STATES.has(r.state))
+        return cached(this.config, { service: "thumbnails", method: "get", target: normalized as RobloxThumbnailTarget }, this.ttl("get"), run, r => FINAL_STATES.has(r.state))
     }
 
     /**
@@ -261,9 +269,9 @@ export class RobloxThumbnailsApi {
      * 같은 틱에 들어온 호출은 옵션이 같으면 100개씩 묶는다.
      */
     async getGameThumbnails(universeIds: readonly RobloxUniverseId[], query: RobloxUniverseThumbnailsQuery = {}): Promise<RobloxUniverseThumbnails[]> {
-        const list = await Promise.all(universeIds.map(universeId =>
-            cached(this.config, ["thumbnails", "getGameThumbnails", universeId, query], this.ttl("getGameThumbnails"),
-                () => this.gameThumbnails.load(JSON.stringify([universeId, query]), { universeId, query }))))
-        return list.filter((x): x is RobloxUniverseThumbnails => x !== null)
+        const { values, errors } = await settle(universeIds, universeId =>
+            cached(this.config, { service: "thumbnails", method: "getGameThumbnails", universeId, query }, this.ttl("getGameThumbnails"),
+                () => this.gameThumbnails.load(JSON.stringify([universeId, query]), { universeId, query })))
+        return finish(found(values), errors)
     }
 }

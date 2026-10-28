@@ -64,6 +64,13 @@ export const RobloxDefaultTtl = {
         getMedia:           HOUR,
         getServerAddresses: 30 * MINUTE, // 서버가 살아 있는 동안 같다
         getServerLocations: 31 * DAY,    // IP → 위치
+        // 아래는 금방 바뀌거나 페이지째 받는 목록이라 아주 짧게 둔다. 짧은 시간 안에 같은 걸 다시 묻는 경우(여러 탭, 인스턴스, 새로고침)만 막는다
+        getServerPage:            5 * SECOND, // 엔드포인트당 3회/분
+        getRecommendations:       5 * SECOND,
+        getUserGames:             5 * SECOND,
+        getUserFavoriteGames:     5 * SECOND,
+        getGroupGames:            5 * SECOND,
+        getPrivateServersEnabled: 5 * SECOND,
     },
     friends: {
         getFriends:         10 * MINUTE,

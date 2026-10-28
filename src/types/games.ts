@@ -388,9 +388,8 @@ export type RobloxServerLocation<L = unknown> = {
 
 // ── 고수준 결과 ─────────────────────────────────────────
 
-/** `getPlaces` 결과 */
-export type RobloxPlace = {
-    placeId:     RobloxPlaceId
+/** `getGameInfos` 결과 */
+export type RobloxGameInfo = {
     universeId:  RobloxUniverseId
     game:        RobloxGame
     votes:       RobloxGameVotes | null

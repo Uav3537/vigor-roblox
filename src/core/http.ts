@@ -1,7 +1,7 @@
 import { vigor, isVigorFetchError, VigorFetchPolicySettingsBase } from "vigor-fetch"
 import type { VigorFetchOptions } from "vigor-fetch"
 import type z from "zod"
-import { robloxCacheKeyString, type RobloxCacheKey, type RobloxCacheValue } from "./cache"
+import { canonicalInfo, robloxCacheKey, type RobloxCacheInfo, type RobloxCacheValue } from "./cache"
 import type { RobloxConfig } from "./config"
 import type { RobloxCookie, RobloxCookieRejectReason } from "./cookies"
 
@@ -142,25 +142,28 @@ export function singleFlight<R>(config: RobloxConfig, id: string, run: () => Pro
 
 /**
  * 캐시가 설정돼 있으면 결과를 캐시한다. TTL이 0이어도 get/set은 그대로 부른다 — 0을 어떻게 다룰지는 저장소가 정한다.
- * null(없는 대상)과 `keep`이 false인 결과는 저장하지 않는다. 값의 타입은 키에 맞아야 한다.
- * 같은 키를 동시에 물으면 저장소 조회부터 저장까지 한 번만 한다 (캐시가 없어도 마찬가지).
+ * null(없는 대상)과 `keep`이 false인 결과는 저장하지 않는다. 값의 타입은 분류 데이터에 맞아야 한다.
+ * 같은 요청을 동시에 물으면 저장소 조회부터 저장까지 한 번만 한다 (캐시가 없어도 마찬가지).
+ * 진행 중인 요청은 정리한 분류 데이터의 JSON으로 동기적으로 찾고, 저장소 키(해시)는 저장소를 쓸 때만 만든다.
  */
-export function cached<K extends RobloxCacheKey, R extends RobloxCacheValue<K> | null>(
+export function cached<I extends RobloxCacheInfo, R extends RobloxCacheValue<I> | null>(
     config: RobloxConfig,
-    key: K,
+    info: I,
     ttl: number,
     run: () => Promise<R>,
     keep: (result: Exclude<R, null>) => boolean = () => true,
 ): Promise<R> {
-    return singleFlight(config, robloxCacheKeyString(key), async () => {
+    const normalized = canonicalInfo(info)
+    return singleFlight(config, JSON.stringify(normalized), async () => {
         const store = config.cache
         if (!store) return run()
 
-        const hit = await store.get(key)
+        const key = await robloxCacheKey(normalized)
+        const hit = await store.get(key, normalized)
         if (hit !== undefined) return hit as R
 
         const result = await run()
-        if (result !== null && keep(result as Exclude<R, null>)) await store.set(key, result as RobloxCacheValue<K>, ttl)
+        if (result !== null && keep(result as Exclude<R, null>)) await store.set(key, result as RobloxCacheValue<I>, ttl, normalized)
         return result
     })
 }

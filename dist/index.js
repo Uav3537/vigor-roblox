@@ -8,8 +8,32 @@ import { vigor as vigor2 } from "vigor-fetch";
 import { vigor, isVigorFetchError, VigorFetchPolicySettingsBase } from "vigor-fetch";
 
 // src/core/cache.ts
-function robloxCacheKeyString(key) {
-  return JSON.stringify(key, (_, value) => value && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(Object.keys(value).sort().map((k) => [k, value[k]])) : value);
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (!value || typeof value !== "object") return value;
+  const out = {};
+  for (const key of Object.keys(value).sort()) {
+    const field = value[key];
+    if (field !== void 0) out[key] = canonical(field);
+  }
+  return out;
+}
+function canonicalInfo(info) {
+  return canonical(info);
+}
+var UNVERSIONED = /* @__PURE__ */ new Set(["games.getServerLocations"]);
+var encoder = new TextEncoder();
+function base64url(bytes) {
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+async function robloxCacheKey(info) {
+  const { service, method, ...args } = canonicalInfo(info);
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(JSON.stringify(args)));
+  const name = `${service}.${method}`;
+  const prefix = UNVERSIONED.has(name) ? "" : `${"5.1.1"}:`;
+  return `${prefix}${name}::${base64url(new Uint8Array(digest).slice(0, 16))}`;
 }
 var RobloxMemoryCache = class {
   /** @param sweepInterval 만료된 항목을 한꺼번에 지우는 간격(ms). 저장할 때 확인한다. 기본 1분 */
@@ -25,11 +49,10 @@ var RobloxMemoryCache = class {
     for (const [id2, entry] of this.entries) if (entry.expiresAt <= now) this.entries.delete(id2);
   }
   get(key) {
-    const id2 = robloxCacheKeyString(key);
-    const entry = this.entries.get(id2);
+    const entry = this.entries.get(key);
     if (!entry) return void 0;
     if (entry.expiresAt <= Date.now()) {
-      this.entries.delete(id2);
+      this.entries.delete(key);
       return void 0;
     }
     return entry.value;
@@ -39,7 +62,7 @@ var RobloxMemoryCache = class {
     if (ttl <= 0) return;
     const now = Date.now();
     this.sweep(now);
-    this.entries.set(robloxCacheKeyString(key), { value, expiresAt: now + ttl });
+    this.entries.set(key, { value, expiresAt: now + ttl });
   }
 };
 
@@ -128,14 +151,16 @@ function singleFlight(config, id2, run) {
   config.inflight.set(id2, promise);
   return promise;
 }
-function cached(config, key, ttl, run, keep = () => true) {
-  return singleFlight(config, robloxCacheKeyString(key), async () => {
+function cached(config, info, ttl, run, keep = () => true) {
+  const normalized = canonicalInfo(info);
+  return singleFlight(config, JSON.stringify(normalized), async () => {
     const store = config.cache;
     if (!store) return run();
-    const hit = await store.get(key);
+    const key = await robloxCacheKey(normalized);
+    const hit = await store.get(key, normalized);
     if (hit !== void 0) return hit;
     const result = await run();
-    if (result !== null && keep(result)) await store.set(key, result, ttl);
+    if (result !== null && keep(result)) await store.set(key, result, ttl, normalized);
     return result;
   });
 }
@@ -344,8 +369,16 @@ var RobloxDefaultTtl = {
     getMedia: HOUR,
     getServerAddresses: 30 * MINUTE,
     // 서버가 살아 있는 동안 같다
-    getServerLocations: 31 * DAY
+    getServerLocations: 31 * DAY,
     // IP → 위치
+    // 아래는 금방 바뀌거나 페이지째 받는 목록이라 아주 짧게 둔다. 짧은 시간 안에 같은 걸 다시 묻는 경우(여러 탭, 인스턴스, 새로고침)만 막는다
+    getServerPage: 5 * SECOND,
+    // 엔드포인트당 3회/분
+    getRecommendations: 5 * SECOND,
+    getUserGames: 5 * SECOND,
+    getUserFavoriteGames: 5 * SECOND,
+    getGroupGames: 5 * SECOND,
+    getPrivateServersEnabled: 5 * SECOND
   },
   friends: {
     getFriends: 10 * MINUTE,
@@ -376,6 +409,51 @@ function mergeTtl(base, next) {
   const out = { ...base };
   for (const [service, methods] of Object.entries(next)) out[service] = { ...out[service], ...methods };
   return out;
+}
+
+// src/core/partial.ts
+var RobloxPartialError = class extends Error {
+  constructor(results, errors) {
+    super(`${errors.length}\uAC1C \uD56D\uBAA9\uC744 \uBC1B\uC9C0 \uBABB\uD588\uB2E4 (\uC131\uACF5 ${results.length}\uAC1C)`, { cause: errors[0]?.error });
+    this.results = results;
+    this.errors = errors;
+  }
+  results;
+  errors;
+  name = "RobloxPartialError";
+};
+function isRobloxPartialError(error) {
+  return error instanceof RobloxPartialError;
+}
+var found = (list) => list.filter((x) => x !== null);
+async function settle(inputs, load) {
+  const settled = await Promise.allSettled(inputs.map((input) => load(input)));
+  const errors = [];
+  const values = settled.map((s, i) => {
+    if (s.status === "fulfilled") return s.value;
+    errors.push({ input: inputs[i], error: s.reason });
+    return null;
+  });
+  return { values, errors };
+}
+function finish(results, errors) {
+  if (errors.length) throw new RobloxPartialError(results, [...errors]);
+  return results;
+}
+async function partial(promise) {
+  try {
+    return { results: await promise, errors: [] };
+  } catch (error) {
+    if (error instanceof RobloxPartialError) return { results: error.results, errors: error.errors };
+    throw error;
+  }
+}
+async function extra(promise, fallback = []) {
+  try {
+    return await promise;
+  } catch (error) {
+    return error instanceof RobloxPartialError ? error.results : fallback;
+  }
 }
 
 // src/types/common.ts
@@ -562,17 +640,6 @@ var profilesRoute = {
     });
   }
 };
-var byIdDetailRoute = {
-  bucket: detailRoute.bucket,
-  limit: 1,
-  group: () => "",
-  async send(http, [t], onHeaders) {
-    return mapRoute(detailRoute, (detail) => {
-      if (!detail || t.excludeBannedUsers && detail.isBanned) return null;
-      return { id: detail.id, name: detail.name, displayName: detail.displayName, hasVerifiedBadge: detail.hasVerifiedBadge };
-    }).send(http, [t.userId], onHeaders);
-  }
-};
 var byNameRoute = {
   bucket: "users POST /v1/usernames/users",
   limit: MULTI_GET_LIMIT,
@@ -583,14 +650,13 @@ var byNameRoute = {
     return targets.map((t) => byName.get(t.username.toLowerCase()) ?? null);
   }
 };
-var found = (list) => list.filter((x) => x !== null);
 var RobloxUsersApi = class {
   constructor(config, thumbnails) {
     this.config = config;
     this.thumbnails = thumbnails;
     this.http = createHttp(config, ORIGIN, { userAgent: USER_AGENT });
     this.details = new RobloxBatcher(config, ORIGIN, [detailRoute], { userAgent: USER_AGENT });
-    this.byId = new RobloxBatcher(config, ORIGIN, [profilesRoute, byIdRoute, byIdDetailRoute], { userAgent: USER_AGENT });
+    this.byId = new RobloxBatcher(config, ORIGIN, [profilesRoute, byIdRoute], { userAgent: USER_AGENT });
     this.byName = new RobloxBatcher(config, ORIGIN, [byNameRoute], { userAgent: USER_AGENT });
   }
   config;
@@ -604,38 +670,45 @@ var RobloxUsersApi = class {
   }
   // ── 공개 조회 ──────────────────────────────────────
   // 배열을 받는 메서드는 결과를 입력 순서로 돌려주고, 없는 유저는 뺀다.
+  // 일부 항목이 실패하면 받은 결과를 담아 RobloxPartialError를 던진다.
   // 같은 틱에 들어온 호출은 모아서 보내므로 따로따로 불러도 된다.
-  /** 유저들에 아바타 썸네일을 붙인다. id를 아는 경우 users 조회와 동시에 보낸다. */
+  /**
+   * 유저들을 받아 실패가 있으면 RobloxPartialError로 던진다. `thumbnail`이 있으면 아바타 썸네일을 붙인다 —
+   * id를 아는 경우 users 조회와 동시에 보내고, 썸네일을 받지 못한 유저는 `thumbnail: null`이다.
+   */
   async attach(users, ids, option) {
+    if (!option) {
+      const { values: values2, errors: errors2 } = await users;
+      return finish(found(values2), errors2);
+    }
     const target = option === true ? { type: "AvatarHeadShot" } : option;
-    const thumbnails = (list2) => this.thumbnails.get(list2.map((targetId) => ({ ...target, targetId })));
-    const [list, early] = await Promise.all([users, ids ? thumbnails(ids) : null]);
+    const thumbnails = (list2) => this.thumbnails.getSettled(list2.map((targetId) => ({ ...target, targetId }))).then((s) => s.values);
+    const [{ values, errors }, early] = await Promise.all([users, ids ? thumbnails(ids) : null]);
+    const list = found(values);
     const byId = new Map(early ? ids.map((id2, i) => [id2, early[i]]) : []);
     if (!early) (await thumbnails(list.map((u) => u.id))).forEach((t, i) => byId.set(list[i].id, t));
-    return list.map((u) => ({ ...u, thumbnail: byId.get(u.id) }));
+    return finish(list.map((u) => ({ ...u, thumbnail: byId.get(u.id) ?? null })), errors);
   }
   getUserDetails(userIds, opts = {}) {
-    const users = Promise.all(userIds.map(
-      (id2) => cached(this.config, ["users", "getUserDetails", id2], this.ttl("getUserDetails"), () => this.details.load(String(id2), id2))
-    )).then(found);
-    return opts.thumbnail ? this.attach(users, userIds, opts.thumbnail) : users;
+    const users = settle(userIds, (id2) => cached(this.config, { service: "users", method: "getUserDetails", userId: id2 }, this.ttl("getUserDetails"), () => this.details.load(String(id2), id2)));
+    return this.attach(users, userIds, opts.thumbnail);
   }
   getUsers(userIds, opts = {}) {
     const excludeBannedUsers = opts.excludeBannedUsers ?? false;
-    const users = Promise.all(userIds.map((userId) => {
+    const users = settle(userIds, (userId) => {
       const key = `${userId}:${excludeBannedUsers}`;
-      return cached(this.config, ["users", "getUsers", userId, excludeBannedUsers], this.ttl("getUsers"), () => this.byId.load(key, { userId, excludeBannedUsers }));
-    })).then(found);
-    return opts.thumbnail ? this.attach(users, userIds, opts.thumbnail) : users;
+      return cached(this.config, { service: "users", method: "getUsers", userId, excludeBannedUsers }, this.ttl("getUsers"), () => this.byId.load(key, { userId, excludeBannedUsers }));
+    });
+    return this.attach(users, userIds, opts.thumbnail);
   }
   getUsersByNames(usernames, opts = {}) {
     const excludeBannedUsers = opts.excludeBannedUsers ?? false;
-    const users = Promise.all(usernames.map((username) => {
+    const users = settle(usernames, (username) => {
       const lower = username.toLowerCase();
       const key = `${lower}:${excludeBannedUsers}`;
-      return cached(this.config, ["users", "getUsersByNames", lower, excludeBannedUsers], this.ttl("getUsersByNames"), () => this.byName.load(key, { username, excludeBannedUsers }));
-    })).then(found);
-    return opts.thumbnail ? this.attach(users, null, opts.thumbnail) : users;
+      return cached(this.config, { service: "users", method: "getUsersByNames", username: lower, excludeBannedUsers }, this.ttl("getUsersByNames"), () => this.byName.load(key, { username, excludeBannedUsers }));
+    });
+    return this.attach(users, null, opts.thumbnail);
   }
   /** GET /v1/users/search */
   searchUsers(query) {
@@ -645,7 +718,7 @@ var RobloxUsersApi = class {
   getUsernameHistory(userId, query = {}) {
     return cached(
       this.config,
-      ["users", "getUsernameHistory", userId, query],
+      { service: "users", method: "getUsernameHistory", userId, query },
       this.ttl("getUsernameHistory"),
       () => this.http().path("v1", "users", userId, "username-history").query(query).middlewares(validate(RobloxUsernameHistoryResponseSchema)).request()
     );
@@ -852,13 +925,13 @@ function listRoute(type, path, idsParam, limit) {
     }
   };
 }
-function singleRoute(type, path, idParam, extra = () => ({})) {
+function singleRoute(type, path, idParam, extra2 = () => ({})) {
   return {
     bucket: `thumbnails GET /${path.join("/")}`,
     limit: 1,
     group: (t) => t.type === type ? "" : null,
     async send(http, [t], onHeaders) {
-      const res = await http().path(...path).headers("merge", placeHeader(t)).query({ [idParam]: t.targetId, ...extra(t) }).middlewares(captureHeaders(onHeaders)).middlewares(validate(RobloxThumbnailSchema)).request();
+      const res = await http().path(...path).headers("merge", placeHeader(t)).query({ [idParam]: t.targetId, ...extra2(t) }).middlewares(captureHeaders(onHeaders)).middlewares(validate(RobloxThumbnailSchema)).request();
       return [res];
     }
   };
@@ -911,29 +984,35 @@ var RobloxThumbnailsApi = class {
    * 썸네일들. 결과는 입력과 같은 순서이고, 타입이 섞여도 된다. 하나만 필요하면 원소 하나짜리 배열을 넣는다.
    * 엔드포인트는 대상과 남은 한도를 보고 라이브러리가 고른다. 같은 틱에 들어온 호출은 모아서 보내고,
    * Pending이면 잠시 기다렸다 다시 묻는다. 없는 id는 `state: "Error"`로 돌아온다.
+   * 요청이 실패한 대상이 있으면 `RobloxPartialError`를 던진다 (`results`에는 받은 것만 있어 순서가 입력과 어긋난다).
    */
-  get(targets) {
-    return Promise.all(targets.map((t) => this.load(t)));
+  async get(targets) {
+    const { values, errors } = await settle(targets, (t) => this.load(t));
+    return finish(found(values), errors);
+  }
+  /** `get`과 같지만 던지지 않는다. `values`는 입력과 같은 자리이고 요청이 실패한 대상은 null이며, 그 에러는 `errors`에 있다 */
+  async getSettled(targets) {
+    return settle(targets, (t) => this.load(t));
   }
   load(target) {
     const normalized = normalize(target);
     const key = keyOf(normalized);
     const run = () => this.batcher.load(key, normalized);
     if (normalized.token !== void 0) return run();
-    return cached(this.config, ["thumbnails", "get", normalized], this.ttl("get"), run, (r) => FINAL_STATES.has(r.state));
+    return cached(this.config, { service: "thumbnails", method: "get", target: normalized }, this.ttl("get"), run, (r) => FINAL_STATES.has(r.state));
   }
   /**
    * GET /v1/games/multiget/thumbnails — universe마다 등록된 썸네일 목록. 결과는 입력 순서이고 없는 universe는 뺀다.
    * 같은 틱에 들어온 호출은 옵션이 같으면 100개씩 묶는다.
    */
   async getGameThumbnails(universeIds, query = {}) {
-    const list = await Promise.all(universeIds.map((universeId) => cached(
+    const { values, errors } = await settle(universeIds, (universeId) => cached(
       this.config,
-      ["thumbnails", "getGameThumbnails", universeId, query],
+      { service: "thumbnails", method: "getGameThumbnails", universeId, query },
       this.ttl("getGameThumbnails"),
       () => this.gameThumbnails.load(JSON.stringify([universeId, query]), { universeId, query })
-    )));
-    return list.filter((x) => x !== null);
+    ));
+    return finish(found(values), errors);
   }
 };
 
@@ -1016,15 +1095,16 @@ var RobloxPresenceApi = class {
    * 같은 틱에 들어온 호출은 50명씩 모아서 보내고, 한도(60회/분)가 차면 풀릴 때까지 기다린다.
    * 게임 정보는 요청 계정에 따라 다르게 보일 수 있다 — 특정 계정 관점이 필요하면 `.as(cookie)`를 쓴다.
    */
-  get(userIds) {
-    return Promise.all(userIds.map((id2) => this.load(id2)));
+  async get(userIds) {
+    const { values, errors } = await settle(userIds, (id2) => this.load(id2));
+    return finish(found(values), errors);
   }
   async load(userId) {
     const run = () => this.batcher.load(String(userId), userId);
     const ttl = this.ttl("get");
     const viewer = this.config.cache ? await viewerKey(this.config) : null;
     if (viewer === null) return run();
-    return cached(this.config, ["presence", "get", viewer, userId], ttl, run);
+    return cached(this.config, { service: "presence", method: "get", viewer, userId }, ttl, run);
   }
 };
 
@@ -1046,8 +1126,8 @@ function toRobloxCreator(id2, type) {
   }
   return { type: "Unknown", id: id2, rawType: type };
 }
-function RobloxCreatorSchema(extra = {}) {
-  return z6.object({ id: z6.number(), type: z6.union([z6.string(), z6.number()]), ...extra }).transform((value) => {
+function RobloxCreatorSchema(extra2 = {}) {
+  return z6.object({ id: z6.number(), type: z6.union([z6.string(), z6.number()]), ...extra2 }).transform((value) => {
     const { id: id2, type, ...rest } = value;
     return { ...rest, ...toRobloxCreator(id2, type) };
   });
@@ -1342,7 +1422,6 @@ function avatarHash(t) {
   return t.imageUrl.match(/-([0-9A-Fa-f]{32})-/)?.[1].toUpperCase() ?? t.imageUrl;
 }
 var csv = (ids) => ids.join(",");
-var found2 = (list) => list.filter((x) => x !== null);
 function listRoute2(opts) {
   return {
     bucket: opts.bucket,
@@ -1605,79 +1684,93 @@ var RobloxGamesApi = class {
   ttl(method) {
     return resolveTtl(this.config, "games", method);
   }
-  /** 항목 하나씩 캐시하며 batcher로 보낸다. 계정별로 나누는 키는 viewer를 받는다 (쿠키 로테이션 중이면 캐시하지 않는다). */
+  /**
+   * 항목 하나씩 캐시하며 batcher로 보낸다. 계정별로 나누는 키는 viewer를 받는다 (쿠키 로테이션 중이면 캐시하지 않는다).
+   * 실패한 항목은 null로 두고 errors에 모은다.
+   */
   async each(method, ids, load, key, byViewer = false) {
     const ttl = this.ttl(method);
     const viewer = byViewer ? this.config.cache ? await viewerKey(this.config) : null : "anonymous";
-    return Promise.all(ids.map((id2) => viewer === null ? load(id2) : cached(this.config, key(id2, viewer), ttl, () => load(id2))));
+    return settle(ids, (id2) => viewer === null ? load(id2) : cached(this.config, key(id2, viewer), ttl, () => load(id2)));
   }
   // ── 게임 조회 ──────────────────────────────────────
   // 배열을 받는 메서드는 입력 순서로 돌려주고, 없는 대상은 뺀다.
+  // 일부 항목이 실패하면 받은 결과를 담아 RobloxPartialError를 던진다.
   // 같은 틱에 들어온 호출은 모아서 보내므로 따로따로 불러도 된다.
   /** GET /v1/games — 게임(universe) 상세 */
   async getGames(universeIds) {
-    return found2(await this.each("getGames", universeIds, (id2) => this.games.load(String(id2), id2), (id2) => ["games", "getGames", id2]));
+    const { values, errors } = await this.each("getGames", universeIds, (id2) => this.games.load(String(id2), id2), (universeId) => ({ service: "games", method: "getGames", universeId }));
+    return finish(found(values), errors);
   }
   /** place가 속한 universe. 인증돼 있으면 place 상세를 쓰고, 아니면 apis.roblox.com으로 하나씩 묻는다. */
   async getUniverseIds(placeIds) {
-    const ids = await this.each("getUniverseIds", placeIds, (id2) => this.universeIds.load(String(id2), id2), (id2) => ["games", "getUniverseIds", id2]);
-    return found2(placeIds.map((placeId, i) => ids[i] ? { placeId, universeId: ids[i] } : null));
+    const { values, errors } = await this.each("getUniverseIds", placeIds, (id2) => this.universeIds.load(String(id2), id2), (placeId) => ({ service: "games", method: "getUniverseIds", placeId }));
+    return finish(found(placeIds.map((placeId, i) => values[i] ? { placeId, universeId: values[i] } : null)), errors);
   }
   /** GET /v1/games/multiget-place-details — 인증 필요. 플레이 가능 여부는 요청 계정 기준이다. */
   async getPlaceDetails(placeIds) {
-    return found2(await this.each("getPlaceDetails", placeIds, (id2) => this.placeDetails.load(String(id2), id2), (id2, v) => ["games", "getPlaceDetails", v, id2], true));
+    const { values, errors } = await this.each("getPlaceDetails", placeIds, (id2) => this.placeDetails.load(String(id2), id2), (placeId, viewer) => ({ service: "games", method: "getPlaceDetails", viewer, placeId }), true);
+    return finish(found(values), errors);
   }
   /** GET /v1/games/games-product-info — 유료 게임 구매 정보 */
   async getProductInfo(universeIds) {
-    return found2(await this.each("getProductInfo", universeIds, (id2) => this.products.load(String(id2), id2), (id2) => ["games", "getProductInfo", id2]));
+    const { values, errors } = await this.each("getProductInfo", universeIds, (id2) => this.products.load(String(id2), id2), (universeId) => ({ service: "games", method: "getProductInfo", universeId }));
+    return finish(found(values), errors);
   }
   /** GET /v1/games/multiget-playability-status — 요청 계정이 플레이할 수 있는지 */
   async getPlayability(universeIds) {
-    return found2(await this.each("getPlayability", universeIds, (id2) => this.playability.load(String(id2), id2), (id2, v) => ["games", "getPlayability", v, id2], true));
+    const { values, errors } = await this.each("getPlayability", universeIds, (id2) => this.playability.load(String(id2), id2), (universeId, viewer) => ({ service: "games", method: "getPlayability", viewer, universeId }), true);
+    return finish(found(values), errors);
   }
   /** 좋아요/싫어요 수 */
   async getVotes(universeIds) {
-    return found2(await this.each("getVotes", universeIds, (id2) => this.votes.load(String(id2), id2), (id2) => ["games", "getVotes", id2]));
+    const { values, errors } = await this.each("getVotes", universeIds, (id2) => this.votes.load(String(id2), id2), (universeId) => ({ service: "games", method: "getVotes", universeId }));
+    return finish(found(values), errors);
   }
   /** 즐겨찾기 수 */
   async getFavoriteCounts(universeIds) {
-    const counts = await this.each("getFavoriteCounts", universeIds, (id2) => this.favoriteCounts.load(String(id2), id2), (id2) => ["games", "getFavoriteCounts", id2]);
-    return found2(universeIds.map((universeId, i) => counts[i] === null ? null : { universeId, favoritesCount: counts[i] }));
+    const { values, errors } = await this.each("getFavoriteCounts", universeIds, (id2) => this.favoriteCounts.load(String(id2), id2), (universeId) => ({ service: "games", method: "getFavoriteCounts", universeId }));
+    return finish(found(universeIds.map((universeId, i) => values[i] === null ? null : { universeId, favoritesCount: values[i] })), errors);
   }
   /** GET /v2/games/{universeId}/media — 게임 페이지의 이미지/영상. `all`이면 관련 미디어까지 */
   async getMedia(universeIds, opts = {}) {
     const all = opts.all ?? false;
-    const lists = await this.each(
+    const { values, errors } = await this.each(
       "getMedia",
       universeIds,
       (universeId) => this.media.load(`${universeId}:${all}`, { universeId, all }),
-      (universeId) => ["games", "getMedia", universeId, all]
+      (universeId) => ({ service: "games", method: "getMedia", universeId, all })
     );
-    return found2(universeIds.map((universeId, i) => lists[i] ? { universeId, media: lists[i] } : null));
+    return finish(found(universeIds.map((universeId, i) => values[i] ? { universeId, media: values[i] } : null)), errors);
   }
   /** GET /v1/games/recommendations/game/{universeId} — 비슷한 게임 */
   getRecommendations(universeId, query = {}) {
     const params = { MaxRows: query.maxRows ?? 20 };
     if (query.paginationKey) params.PaginationKey = query.paginationKey;
-    return this.http().path("v1", "games", "recommendations", "game", universeId).query(params).middlewares(validate(RobloxGameRecommendationsSchema)).request();
+    return cached(this.config, { service: "games", method: "getRecommendations", universeId, query }, this.ttl("getRecommendations"), () => this.http().path("v1", "games", "recommendations", "game", universeId).query(params).middlewares(validate(RobloxGameRecommendationsSchema)).request());
   }
   /** GET /v2/users/{userId}/games — 유저가 만든 게임 (limit은 10/25/50) */
   getUserGames(userId, query = {}) {
-    return this.http().path("v2", "users", userId, "games").query(query).middlewares(validate(RobloxGameSummaryPageSchema)).request();
+    return cached(this.config, { service: "games", method: "getUserGames", userId, query }, this.ttl("getUserGames"), () => this.http().path("v2", "users", userId, "games").query(query).middlewares(validate(RobloxGameSummaryPageSchema)).request());
   }
   /** GET /v2/users/{userId}/favorite/games — 유저의 즐겨찾기 */
   getUserFavoriteGames(userId, query = {}) {
-    return this.http().path("v2", "users", userId, "favorite", "games").query(query).middlewares(validate(RobloxFavoriteGamePageSchema)).request();
+    return cached(this.config, { service: "games", method: "getUserFavoriteGames", userId, query }, this.ttl("getUserFavoriteGames"), () => this.http().path("v2", "users", userId, "favorite", "games").query(query).middlewares(validate(RobloxFavoriteGamePageSchema)).request());
   }
   /** 그룹이 만든 게임. /v2/groups/{groupId}/games와 gamesV2를 번갈아 쓴다. */
   getGroupGames(groupId, query = {}) {
-    return this.groupGames.load(JSON.stringify([groupId, query]), { groupId, query });
+    return cached(
+      this.config,
+      { service: "games", method: "getGroupGames", groupId, query },
+      this.ttl("getGroupGames"),
+      () => this.groupGames.load(JSON.stringify([groupId, query]), { groupId, query })
+    );
   }
   // ── 요청 계정 기준 (인증 필요) ─────────────────────
   /** GET /v1/games/{universeId}/favorites — 내가 즐겨찾기했는지 */
   async getFavorited(universeIds) {
-    const list = await Promise.all(universeIds.map((id2) => this.favorited.load(String(id2), id2)));
-    return found2(universeIds.map((universeId, i) => list[i] === null ? null : { universeId, isFavorited: list[i] }));
+    const { values, errors } = await settle(universeIds, (id2) => this.favorited.load(String(id2), id2));
+    return finish(found(universeIds.map((universeId, i) => values[i] === null ? null : { universeId, isFavorited: values[i] })), errors);
   }
   /** POST /v1/games/{universeId}/favorites */
   async setFavorited(universeId, isFavorited) {
@@ -1685,8 +1778,8 @@ var RobloxGamesApi = class {
   }
   /** GET /v1/games/{universeId}/votes/user — 내 투표와 투표 가능 여부 */
   async getUserVotes(universeIds) {
-    const list = await Promise.all(universeIds.map((id2) => this.userVotes.load(String(id2), id2)));
-    return found2(universeIds.map((universeId, i) => list[i] && { universeId, ...list[i] }));
+    const { values, errors } = await settle(universeIds, (id2) => this.userVotes.load(String(id2), id2));
+    return finish(found(universeIds.map((universeId, i) => values[i] && { universeId, ...values[i] })), errors);
   }
   /** PATCH /v1/games/{universeId}/user-votes — true = 좋아요, false = 싫어요, null = 취소. 게임을 플레이한 적이 있어야 한다. */
   async setUserVote(universeId, vote) {
@@ -1697,9 +1790,14 @@ var RobloxGamesApi = class {
    * 서버 목록 한 페이지. 엔드포인트마다 3회/분이라 세 엔드포인트를 나눠 쓴다.
    * 받은 커서는 같은 옵션으로 다시 넘긴다 (어느 엔드포인트의 커서인지는 라이브러리가 기억한다).
    * `Friend`와 `playerTokens`는 인증이 필요하다.
+   * 캐시 키는 Public이면 인증 여부만, Friend면 계정까지 나눈다 (쿠키 로테이션 중의 Friend는 캐시하지 않는다).
    */
-  getServerPage(placeId, query = {}) {
-    return this.serverPages.load(JSON.stringify([placeId, query]), { placeId, query });
+  async getServerPage(placeId, query = {}) {
+    const normalized = { ...query, serverType: query.serverType ?? "Public" };
+    const load = () => this.serverPages.load(JSON.stringify([placeId, normalized]), { placeId, query: normalized });
+    const access = normalized.serverType === "Public" ? this.auth() ? "authenticated" : "anonymous" : this.config.cache ? await viewerKey(this.config) : null;
+    if (access === null) return load();
+    return cached(this.config, { service: "games", method: "getServerPage", access, placeId, query: normalized }, this.ttl("getServerPage"), load);
   }
   /**
    * 서버 접속 주소. gamejoin으로 해당 서버에 접속을 요청해 joinScript에서 뽑는다 (인증 필요, 5회/초).
@@ -1707,13 +1805,14 @@ var RobloxGamesApi = class {
    */
   async getServerAddresses(targets) {
     const ttl = this.ttl("getServerAddresses");
-    return Promise.all(targets.map((t) => cached(
+    const { values, errors } = await settle(targets, (t) => cached(
       this.config,
-      ["games", "getServerAddresses", t.placeId, t.jobId],
+      { service: "games", method: "getServerAddresses", placeId: t.placeId, jobId: t.jobId },
       ttl,
       () => this.addresses.load(`${t.placeId}:${t.jobId}`, t),
       (r) => r.ip !== null
-    )));
+    ));
+    return finish(found(values), errors);
   }
   /**
    * IP → 위치. `.geolocation(fn)`으로 넣은 콜백에 캐시에 없는 IP를 중복 없이 한 번에 넘긴다.
@@ -1723,24 +1822,29 @@ var RobloxGamesApi = class {
   async getServerLocations(ips) {
     const geolocate = this.config.geolocate;
     if (!geolocate) throw new Error(GEOLOCATE_MISSING);
-    const id2 = (ip) => robloxCacheKeyString(["games", "getServerLocations", ip]);
+    const id2 = (ip) => JSON.stringify(canonicalInfo({ service: "games", method: "getServerLocations", ip }));
     const unique = [...new Set(ips)];
     const fresh = unique.filter((ip) => !this.config.inflight.has(id2(ip)));
     const batch = fresh.length ? this.locate(fresh, geolocate) : null;
-    const values = await Promise.all(unique.map((ip) => singleFlight(this.config, id2(ip), () => batch.then((located) => located.get(ip) ?? null))));
+    const { values, errors } = await settle(unique, (ip) => singleFlight(this.config, id2(ip), () => batch.then((located) => located.get(ip) ?? null)));
     const known = new Map(unique.map((ip, i) => [ip, values[i]]));
-    return found2(ips.map((ip) => {
+    return finish(found(ips.map((ip) => {
       const location = known.get(ip);
       return location === null || location === void 0 ? null : { ip, location };
-    }));
+    })), errors);
   }
   /** 캐시를 보고, 없는 IP만 콜백에 넘긴 뒤 저장한다. 모르는 IP는 결과에 없다 */
   async locate(ips, geolocate) {
     const store = this.config.cache;
     const ttl = this.ttl("getServerLocations");
     const known = /* @__PURE__ */ new Map();
+    const entry = async (ip) => {
+      const info = { service: "games", method: "getServerLocations", ip };
+      return { key: await robloxCacheKey(info), info };
+    };
     if (store) await Promise.all(ips.map(async (ip) => {
-      const hit = await store.get(["games", "getServerLocations", ip]);
+      const { key, info } = await entry(ip);
+      const hit = await store.get(key, info);
       if (hit !== void 0 && hit !== null) known.set(ip, hit);
     }));
     const misses = ips.filter((ip) => !known.has(ip));
@@ -1750,7 +1854,9 @@ var RobloxGamesApi = class {
         const location = results[i];
         if (location === null || location === void 0) return;
         known.set(ip, location);
-        if (store) await store.set(["games", "getServerLocations", ip], location, ttl);
+        if (!store) return;
+        const { key, info } = await entry(ip);
+        await store.set(key, location, ttl, info);
       }));
     }
     return known;
@@ -1768,17 +1874,18 @@ var RobloxGamesApi = class {
   }
   /** GET /v1/private-servers/enabled-in-universe/{universeId} */
   async getPrivateServersEnabled(universeIds) {
-    const list = await Promise.all(universeIds.map((id2) => this.privateServersEnabled.load(String(id2), id2)));
-    return found2(universeIds.map((universeId, i) => list[i] === null ? null : { universeId, privateServersEnabled: list[i] }));
+    const { values, errors } = await this.each("getPrivateServersEnabled", universeIds, (id2) => this.privateServersEnabled.load(String(id2), id2), (universeId) => ({ service: "games", method: "getPrivateServersEnabled", universeId }));
+    return finish(found(universeIds.map((universeId, i) => values[i] === null ? null : { universeId, privateServersEnabled: values[i] })), errors);
   }
   /** GET /v1/vip-servers/{id} — 내가 관리하는 비공개 서버의 설정 */
   async getPrivateServerDetails(ids) {
-    return found2(await Promise.all(ids.map((id2) => this.privateServerDetails.load(String(id2), id2))));
+    const { values, errors } = await settle(ids, (id2) => this.privateServerDetails.load(String(id2), id2));
+    return finish(found(values), errors);
   }
   /** GET /v1/vip-server/can-invite/{userId} — 내 비공개 서버에 초대할 수 있는지 */
   async getPrivateServerInvites(userIds) {
-    const list = await Promise.all(userIds.map((id2) => this.invites.load(String(id2), id2)));
-    return found2(userIds.map((userId, i) => list[i] && { userId, ...list[i] }));
+    const { values, errors } = await settle(userIds, (id2) => this.invites.load(String(id2), id2));
+    return finish(found(userIds.map((userId, i) => values[i] && { userId, ...values[i] })), errors);
   }
   /** POST /v1/games/vip-servers/{universeId} — 비공개 서버를 산다 */
   createPrivateServer(universeId, request) {
@@ -1798,41 +1905,41 @@ var RobloxGamesApi = class {
   }
   // ── 고수준 ─────────────────────────────────────────
   /**
-   * place들의 게임 정보를 한 번에. place → universe → 상세/투표/아이콘/썸네일을 모아서 준다.
-   * 없는 place(또는 universe)는 뺀다.
+   * universe들의 게임 정보를 한 번에. 상세/투표/아이콘/썸네일을 모아서 준다. 없는 universe는 뺀다.
+   * place에서 시작하면 `getUniverseIds`로 먼저 바꾼다.
+   * 투표/아이콘/썸네일을 받지 못하면 null(빈 배열)로 두고, 상세를 받지 못한 universe만 실패로 친다.
    */
-  async getPlaces(placeIds) {
-    const pairs = await this.getUniverseIds(placeIds);
-    const universeIds = [...new Set(pairs.map((p) => p.universeId))];
-    if (!universeIds.length) return [];
+  async getGameInfos(universeIds) {
+    const unique = [...new Set(universeIds)];
+    if (!unique.length) return [];
     const [games, votes, icons, thumbnails] = await Promise.all([
-      this.getGames(universeIds),
-      this.getVotes(universeIds),
-      this.thumbnails.get(universeIds.map((id2) => ({ type: "GameIcon", targetId: id2, size: "512x512" }))),
-      this.thumbnails.getGameThumbnails(universeIds, { countPerUniverse: 10 })
+      partial(this.getGames(unique)),
+      extra(this.getVotes(unique)),
+      this.thumbnails.getSettled(unique.map((id2) => ({ type: "GameIcon", targetId: id2, size: "512x512" }))).then((s) => s.values),
+      extra(this.thumbnails.getGameThumbnails(unique, { countPerUniverse: 10 }))
     ]);
-    const gameById = new Map(games.map((g) => [g.id, g]));
+    const gameById = new Map(games.results.map((g) => [g.id, g]));
     const votesById = new Map(votes.map((v) => [v.id, v]));
-    const iconById = new Map(universeIds.map((id2, i) => [id2, icons[i]]));
+    const iconById = new Map(unique.map((id2, i) => [id2, icons[i]]));
     const thumbsById = new Map(thumbnails.map((t) => [t.universeId, t.thumbnails]));
-    return found2(pairs.map(({ placeId, universeId }) => {
+    return finish(found(universeIds.map((universeId) => {
       const game = gameById.get(universeId);
       if (!game) return null;
       const icon = iconById.get(universeId);
       return {
-        placeId,
         universeId,
         game,
         votes: votesById.get(universeId) ?? null,
         icon: icon && icon.state !== "Error" ? icon : null,
         thumbnails: thumbsById.get(universeId) ?? []
       };
-    }));
+    })), games.errors);
   }
   /**
    * 서버 목록을 페이지를 따라가며 `count`개 이상 모으고(페이지 단위), 플레이어 헤드샷/주소/위치를 붙인다.
    * `nextPageCursor`는 마지막으로 받은 페이지의 다음이라, 넘기면 빠짐없이 이어서 받는다.
    * 서버 목록 한도가 빡빡해서(엔드포인트당 3회/분) 많이 모을수록 오래 걸린다.
+   * 헤드샷/주소/위치는 받지 못하면 빈 배열(null)로 두고, 서버 목록 자체가 실패할 때만 던진다.
    */
   async getServers(placeId, opts = {}) {
     const { count = 100, players = {}, address = false, location = false, ...query } = opts;
@@ -1846,20 +1953,20 @@ var RobloxGamesApi = class {
     } while (cursor && servers.length < count);
     const data = servers;
     const [headshots, addresses] = await Promise.all([
-      players === false ? null : this.thumbnails.get(data.flatMap((s) => s.playerTokens.map((token) => ({ type: "AvatarHeadShot", token, ...players })))),
-      address || location ? this.getServerAddresses(data.map((s) => ({ placeId, jobId: s.id }))) : null
+      players === false ? null : this.thumbnails.getSettled(data.flatMap((s) => s.playerTokens.map((token) => ({ type: "AvatarHeadShot", token, ...players })))).then((s) => s.values),
+      address || location ? extra(this.getServerAddresses(data.map((s) => ({ placeId, jobId: s.id })))).then((list) => new Map(list.map((a) => [a.jobId, a]))) : null
     ]);
-    const ips = [...new Set(addresses?.map((a) => a.ip).filter((ip) => ip !== null) ?? [])];
-    const locations = location ? new Map((await this.getServerLocations(ips)).map((l) => [l.ip, l.location])) : null;
+    const ips = [...new Set([...addresses?.values() ?? []].map((a) => a.ip).filter((ip) => ip !== null))];
+    const locations = location ? new Map((await extra(this.getServerLocations(ips))).map((l) => [l.ip, l.location])) : null;
     let offset = 0;
     return {
       nextPageCursor: cursor,
-      data: data.map((server, i) => {
+      data: data.map((server) => {
         const own = headshots ? headshots.slice(offset, offset += server.playerTokens.length) : [];
-        const addr = addresses?.[i] ?? null;
+        const addr = addresses?.get(server.id) ?? null;
         return {
           ...server,
-          players: own.filter((t) => t.state === "Completed"),
+          players: own.filter((t) => t !== null && t.state === "Completed"),
           address: addr,
           location: addr?.ip ? locations?.get(addr.ip) ?? null : null
         };
@@ -1883,7 +1990,7 @@ var RobloxGamesApi = class {
     const targets = [...new Set(userIds)];
     const hits = /* @__PURE__ */ new Map();
     const elsewhere = /* @__PURE__ */ new Set();
-    const presenceTask = presence ? this.presence.get(targets).then((list) => {
+    const presenceTask = presence ? extra(this.presence.get(targets)).then((list) => {
       for (const p of list) {
         if (p.placeId === placeId && p.gameId) {
           if (!hits.has(p.userId)) hits.set(p.userId, { foundBy: "presence", jobId: p.gameId, server: null });
@@ -1891,12 +1998,13 @@ var RobloxGamesApi = class {
           elsewhere.add(p.userId);
         }
       }
-    }, () => {
     }) : null;
     const searching = (userId) => !hits.has(userId) && !elsewhere.has(userId);
-    const shots = await this.thumbnails.get(targets.map((targetId) => ({ type: "AvatarHeadShot", targetId, ...FIND_HEADSHOT })));
+    const shots = await this.thumbnails.getSettled(targets.map((targetId) => ({ type: "AvatarHeadShot", targetId, ...FIND_HEADSHOT })));
+    const shotErrors = new Map(shots.errors.map((e) => [e.input.targetId, e.error]));
     const byHash = /* @__PURE__ */ new Map();
-    shots.forEach((t, i) => {
+    shots.values.forEach((t, i) => {
+      if (!t) return;
       const hash = avatarHash(t);
       if (hash && !DEFAULT_AVATAR_HASHES.has(hash)) byHash.set(hash, [...byHash.get(hash) ?? [], targets[i]]);
     });
@@ -1907,9 +2015,9 @@ var RobloxGamesApi = class {
       const page = await this.getServerPage(placeId, { ...query, cursor });
       scanned += page.data.length;
       const players = page.data.flatMap((server) => server.playerTokens.map((token) => ({ server, token })));
-      const headshots = await this.thumbnails.get(players.map(({ token }) => ({ type: "AvatarHeadShot", token, ...FIND_HEADSHOT })));
-      headshots.forEach((t, i) => {
-        const hash = avatarHash(t);
+      const headshots = await this.thumbnails.getSettled(players.map(({ token }) => ({ type: "AvatarHeadShot", token, ...FIND_HEADSHOT })));
+      headshots.values.forEach((t, i) => {
+        const hash = t && avatarHash(t);
         const [userId] = hash && byHash.get(hash) || [];
         if (!userId || !searching(userId)) return;
         hits.set(userId, { foundBy: "headshot", jobId: players[i].server.id, server: players[i].server });
@@ -1920,10 +2028,11 @@ var RobloxGamesApi = class {
     }
     if (presenceTask && targets.some(searching)) await presenceTask;
     const jobIds = [...new Set([...hits.values()].map((f) => f.jobId))];
-    const addresses = address || location ? new Map((await this.getServerAddresses(jobIds.map((jobId) => ({ placeId, jobId })))).map((a) => [a.jobId, a])) : null;
+    const addresses = address || location ? new Map((await extra(this.getServerAddresses(jobIds.map((jobId) => ({ placeId, jobId }))))).map((a) => [a.jobId, a])) : null;
     const ips = [...new Set([...addresses?.values() ?? []].map((a) => a.ip).filter((ip) => ip !== null))];
-    const locations = location ? new Map((await this.getServerLocations(ips)).map((l) => [l.ip, l.location])) : null;
-    return userIds.map((userId) => {
+    const locations = location ? new Map((await extra(this.getServerLocations(ips))).map((l) => [l.ip, l.location])) : null;
+    const failed = (userId) => shotErrors.has(userId) && searching(userId);
+    return finish(userIds.filter((userId) => !failed(userId)).map((userId) => {
       const f = hits.get(userId);
       const addr = f ? addresses?.get(f.jobId) ?? null : null;
       return {
@@ -1934,7 +2043,7 @@ var RobloxGamesApi = class {
         address: addr,
         location: addr?.ip ? locations?.get(addr.ip) ?? null : null
       };
-    });
+    }), targets.filter(failed).map((userId) => ({ input: userId, error: shotErrors.get(userId) })));
   }
 };
 
@@ -2038,7 +2147,6 @@ import z10 from "zod";
 var ORIGIN4 = "https://friends.roblox.com";
 var FIND_PAGE_LIMIT = 50;
 var MULTI_LIMIT = 100;
-var found3 = (list) => list.filter((x) => x !== null);
 function countRoute(bucket, last) {
   return {
     bucket,
@@ -2146,33 +2254,34 @@ var RobloxFriendsApi = class {
     }
     return id2;
   }
+  /** 항목 하나씩 캐시하며 보낸다. 실패한 항목은 null로 두고 errors에 모은다 */
   each(method, ids, load) {
-    return Promise.all(ids.map((id2) => cached(this.config, ["friends", method, id2], this.ttl(method), () => load(id2))));
+    return settle(ids, (id2) => cached(this.config, { service: "friends", method, userId: id2 }, this.ttl(method), () => load(id2)));
   }
   async getFriends(userIds, opts = {}) {
-    const lists = await this.each("getFriends", userIds, (id2) => this.friendIds.load(String(id2), id2));
+    const { values: lists, errors } = await this.each("getFriends", userIds, (id2) => this.friendIds.load(String(id2), id2));
     const all = [...new Set(lists.flatMap((l) => l ?? []))];
-    const users = opts.thumbnail ? await this.users.getUsers(all, { thumbnail: opts.thumbnail }) : await this.users.getUsers(all);
+    const users = await extra(opts.thumbnail ? this.users.getUsers(all, { thumbnail: opts.thumbnail }) : this.users.getUsers(all));
     const byId = new Map(users.map((u) => [u.id, u]));
-    return found3(userIds.map((userId, i) => {
+    return finish(found(userIds.map((userId, i) => {
       const ids = lists[i];
-      return ids ? { userId, friends: found3(ids.map((id2) => byId.get(id2) ?? null)) } : null;
-    }));
+      return ids ? { userId, friends: found(ids.map((id2) => byId.get(id2) ?? null)) } : null;
+    })), errors);
   }
   /** GET /v1/users/{userId}/friends/count */
   async getFriendCounts(userIds) {
-    const counts = await this.each("getFriendCounts", userIds, (id2) => this.friendCounts.load(String(id2), id2));
-    return found3(userIds.map((userId, i) => counts[i] === null ? null : { userId, count: counts[i] }));
+    const { values, errors } = await this.each("getFriendCounts", userIds, (id2) => this.friendCounts.load(String(id2), id2));
+    return finish(found(userIds.map((userId, i) => values[i] === null ? null : { userId, count: values[i] })), errors);
   }
   /** GET /v1/users/{userId}/followers/count */
   async getFollowerCounts(userIds) {
-    const counts = await this.each("getFollowerCounts", userIds, (id2) => this.followerCounts.load(String(id2), id2));
-    return found3(userIds.map((userId, i) => counts[i] === null ? null : { userId, count: counts[i] }));
+    const { values, errors } = await this.each("getFollowerCounts", userIds, (id2) => this.followerCounts.load(String(id2), id2));
+    return finish(found(userIds.map((userId, i) => values[i] === null ? null : { userId, count: values[i] })), errors);
   }
   /** GET /v1/users/{userId}/followings/count */
   async getFollowingCounts(userIds) {
-    const counts = await this.each("getFollowingCounts", userIds, (id2) => this.followingCounts.load(String(id2), id2));
-    return found3(userIds.map((userId, i) => counts[i] === null ? null : { userId, count: counts[i] }));
+    const { values, errors } = await this.each("getFollowingCounts", userIds, (id2) => this.followingCounts.load(String(id2), id2));
+    return finish(found(userIds.map((userId, i) => values[i] === null ? null : { userId, count: values[i] })), errors);
   }
   /** GET /v1/users/{userId}/followers — 인증 필요. 항목은 id뿐이다 */
   getFollowers(userId, query = {}) {
@@ -2199,18 +2308,20 @@ var RobloxFriendsApi = class {
   /** GET /v1/users/{me}/friends/statuses — 나와의 관계 ("Friends", "RequestSent" 등) */
   async getFriendStatuses(userIds) {
     const me = await this.myId();
-    return found3(await Promise.all(userIds.map((userId) => this.statuses.load(`${me}:${userId}`, { me, userId }))));
+    const { values, errors } = await settle(userIds, (userId) => this.statuses.load(`${me}:${userId}`, { me, userId }));
+    return finish(found(values), errors);
   }
   /** 나와 친구인지. multiget-are-friends와 statuses를 나눠 쓴다. */
   async getAreFriends(userIds) {
     const me = await this.myId();
-    const list = await Promise.all(userIds.map((userId) => this.areFriends.load(`${me}:${userId}`, { me, userId })));
-    return userIds.map((userId, i) => ({ userId, isFriend: list[i] }));
+    const { values, errors } = await settle(userIds, (userId) => this.areFriends.load(`${me}:${userId}`, { me, userId }));
+    return finish(found(userIds.map((userId, i) => values[i] === null ? null : { userId, isFriend: values[i] })), errors);
   }
   /** POST /v1/user/following-exists — 내가 팔로우하는지 / 나를 팔로우하는지 */
   async getFollowingStatuses(userIds) {
     const me = await this.myId();
-    return found3(await Promise.all(userIds.map((userId) => this.followings.load(`${me}:${userId}`, { me, userId }))));
+    const { values, errors } = await settle(userIds, (userId) => this.followings.load(`${me}:${userId}`, { me, userId }));
+    return finish(found(values), errors);
   }
   /** GET /v1/users/{me}/friends/online — 지금 접속 중인 내 친구와 위치 */
   async getOnlineFriends() {
@@ -2363,7 +2474,6 @@ import z12 from "zod";
 var ORIGIN5 = "https://apis.roblox.com";
 var BASE = ["platform-chat-api", "v1"];
 var CONVERSATION_BATCH_LIMIT = 25;
-var found4 = (list) => list.filter((x) => x !== null);
 var conversationsRoute = {
   bucket: "apis POST /platform-chat-api/v1/get-conversations",
   limit: CONVERSATION_BATCH_LIMIT,
@@ -2390,7 +2500,8 @@ var RobloxChatApi = class {
   /** 대화 상세(참가자 이름 포함). 같은 틱에 들어온 호출은 25개씩 묶는다. 내가 참가하지 않은 대화는 뺀다. */
   async getConversations(ids) {
     const viewer = await this.viewer();
-    return found4(await Promise.all(ids.map((id2) => this.conversations.load(`${viewer}:${id2}`, { viewer, id: id2 }))));
+    const { values, errors } = await settle(ids, (id2) => this.conversations.load(`${viewer}:${id2}`, { viewer, id: id2 }));
+    return finish(found(values), errors);
   }
   /** GET get-user-conversations — 내 대화 목록 (120회/분) */
   async listConversations(query = {}) {
@@ -2901,7 +3012,6 @@ var RobloxGroupAuditActionTypes = [
 var ORIGIN6 = "https://groups.roblox.com";
 var MULTI_GET_LIMIT4 = 100;
 var MULTI_WRITE_LIMIT = 100;
-var found5 = (list) => list.filter((x) => x !== null);
 var csv2 = (ids) => ids.join(",");
 var relationshipPath = (type) => type.toLowerCase();
 function singleRoute3(opts) {
@@ -3093,42 +3203,49 @@ var RobloxGroupsApi = class {
     }
     return id2;
   }
-  /** 항목 하나씩 캐시하며 batcher로 보낸다 */
+  /** 항목 하나씩 캐시하며 batcher로 보낸다. 분류 데이터의 id 필드 이름은 메서드마다 다르다 */
   each(method, ids, load) {
-    return Promise.all(ids.map((id2) => cached(this.config, ["groups", method, id2], this.ttl(method), () => load(id2))));
+    const field = method === "getRolesByIds" ? "roleId" : method === "getUserGroups" ? "userId" : "groupId";
+    return settle(ids, (id2) => cached(this.config, { service: "groups", method, [field]: id2 }, this.ttl(method), () => load(id2)));
   }
-  /** 대상마다 batcher로 보내고 없는 대상은 뺀다 */
+  /** 대상마다 batcher로 보내고 없는 대상은 뺀다. 일부가 실패하면 RobloxPartialError */
   async many(batcher, targets, key) {
-    return found5(await Promise.all(targets.map((t) => batcher.load(key(t), t))));
+    const { values, errors } = await settle(targets, (t) => batcher.load(key(t), t));
+    return finish(found(values), errors);
   }
-  /** 그룹들에 아이콘을 붙인다 */
+  /** 그룹들을 받아 실패가 있으면 RobloxPartialError로 던진다. `option`이 있으면 아이콘을 붙이고, 아이콘을 받지 못한 그룹은 `thumbnail: null`이다 */
   async attach(groups, ids, option) {
+    if (!option) {
+      const { values: values2, errors: errors2 } = await groups;
+      return finish(found(values2), errors2);
+    }
     const target = option === true ? {} : option;
-    const [list, icons] = await Promise.all([groups, this.thumbnails.get(ids.map((targetId) => ({ ...target, type: "GroupIcon", targetId })))]);
-    const byId = new Map(ids.map((id2, i) => [id2, icons[i]]));
-    return list.map((g) => ({ ...g, thumbnail: byId.get(g.id) }));
+    const [{ values, errors }, icons] = await Promise.all([groups, this.thumbnails.getSettled(ids.map((targetId) => ({ ...target, type: "GroupIcon", targetId })))]);
+    const byId = new Map(ids.map((id2, i) => [id2, icons.values[i]]));
+    return finish(found(values).map((g) => ({ ...g, thumbnail: byId.get(g.id) ?? null })), errors);
   }
   getGroups(groupIds, opts = {}) {
-    const groups = this.each("getGroups", groupIds, (id2) => this.groups.load(String(id2), id2)).then((list) => found5(list));
-    return opts.thumbnail ? this.attach(groups, groupIds, opts.thumbnail) : groups;
+    const groups = this.each("getGroups", groupIds, (id2) => this.groups.load(String(id2), id2));
+    return this.attach(groups, groupIds, opts.thumbnail);
   }
   getGroupDetails(groupIds, opts = {}) {
-    const groups = this.each("getGroupDetails", groupIds, (id2) => this.details.load(String(id2), id2)).then((list) => found5(list));
-    return opts.thumbnail ? this.attach(groups, groupIds, opts.thumbnail) : groups;
+    const groups = this.each("getGroupDetails", groupIds, (id2) => this.details.load(String(id2), id2));
+    return this.attach(groups, groupIds, opts.thumbnail);
   }
   /** GET /v1/groups/{groupId}/roles — 그룹의 역할 목록 (멤버 수 포함, 낮은 rank부터) */
   async getRoles(groupIds) {
-    const lists = await this.each("getRoles", groupIds, (id2) => this.roles.load(String(id2), id2));
-    return found5(groupIds.map((groupId, i) => lists[i] ? { groupId, roles: lists[i] } : null));
+    const { values: lists, errors } = await this.each("getRoles", groupIds, (id2) => this.roles.load(String(id2), id2));
+    return finish(found(groupIds.map((groupId, i) => lists[i] ? { groupId, roles: lists[i] } : null)), errors);
   }
   /** GET /v1/roles — 역할 id로 역할과 그 역할의 그룹. 100개씩 묶어서 보낸다 (60회/분) */
   async getRolesByIds(roleIds) {
-    return found5(await this.each("getRolesByIds", roleIds, (id2) => this.roleDetails.load(String(id2), id2)));
+    const { values, errors } = await this.each("getRolesByIds", roleIds, (id2) => this.roleDetails.load(String(id2), id2));
+    return finish(found(values), errors);
   }
   /** 유저들이 속한 그룹과 역할. /v1과 /v2의 users/{userId}/groups/roles를 나눠 쓴다 */
   async getUserGroups(userIds) {
-    const lists = await this.each("getUserGroups", userIds, (id2) => this.userGroups.load(String(id2), id2));
-    return found5(userIds.map((userId, i) => lists[i] ? { userId, groups: lists[i] } : null));
+    const { values: lists, errors } = await this.each("getUserGroups", userIds, (id2) => this.userGroups.load(String(id2), id2));
+    return finish(found(userIds.map((userId, i) => lists[i] ? { userId, groups: lists[i] } : null)), errors);
   }
   /** GET /v1/users/{userId}/groups/primary/role — 대표 그룹. 대표 그룹이 없는 유저는 뺀다 */
   getPrimaryGroups(userIds) {
@@ -3165,8 +3282,8 @@ var RobloxGroupsApi = class {
   }
   /** GET /v1/groups/{groupId}/community-feature-freezes — 포럼 등 기능이 멈춰 있는지 */
   async getFeatureFreezes(groupIds) {
-    const lists = await Promise.all(groupIds.map((id2) => this.featureFreezes.load(String(id2), id2)));
-    return found5(groupIds.map((groupId, i) => lists[i] ? { groupId, features: lists[i] } : null));
+    const { values: lists, errors } = await settle(groupIds, (id2) => this.featureFreezes.load(String(id2), id2));
+    return finish(found(groupIds.map((groupId, i) => lists[i] ? { groupId, features: lists[i] } : null)), errors);
   }
   /** GET /v1/featured-content/event — 그룹이 내건 이벤트. 없는 그룹은 뺀다 */
   getFeaturedEvents(groupIds) {
@@ -3191,18 +3308,18 @@ var RobloxGroupsApi = class {
   }
   /** POST /v1/groups/policies — 내 계정으로 그룹을 볼 수 있는지 (지역 정책) */
   async getPolicies(groupIds) {
-    const list = await Promise.all(groupIds.map((id2) => this.policies.load(String(id2), id2)));
-    return found5(groupIds.map((groupId, i) => list[i] === null ? null : { groupId, canViewGroup: list[i] }));
+    const { values: list, errors } = await settle(groupIds, (id2) => this.policies.load(String(id2), id2));
+    return finish(found(groupIds.map((groupId, i) => list[i] === null ? null : { groupId, canViewGroup: list[i] })), errors);
   }
   /** GET /v1/groups/{groupId}/social-links */
   async getSocialLinks(groupIds) {
-    const lists = await Promise.all(groupIds.map((id2) => this.socialLinks.load(String(id2), id2)));
-    return found5(groupIds.map((groupId, i) => lists[i] ? { groupId, links: lists[i] } : null));
+    const { values: lists, errors } = await settle(groupIds, (id2) => this.socialLinks.load(String(id2), id2));
+    return finish(found(groupIds.map((groupId, i) => lists[i] ? { groupId, links: lists[i] } : null)), errors);
   }
   /** GET /v1/groups/{groupId}/emotes — 포럼 이모트 */
   async getEmotes(groupIds) {
-    const lists = await Promise.all(groupIds.map((id2) => this.emotes.load(String(id2), id2)));
-    return found5(groupIds.map((groupId, i) => lists[i] ? { groupId, emoteSets: lists[i] } : null));
+    const { values: lists, errors } = await settle(groupIds, (id2) => this.emotes.load(String(id2), id2));
+    return finish(found(groupIds.map((groupId, i) => lists[i] ? { groupId, emoteSets: lists[i] } : null)), errors);
   }
   /** GET /v1/user/groups/pending — 가입을 요청해 둔 그룹 */
   async getPendingGroups() {
@@ -3306,10 +3423,16 @@ var RobloxGroupsApi = class {
       (UserIds) => this.http().method("DELETE").path("v1", "groups", groupId, "join-requests").body("overwrite", { UserIds }).middlewares(validate(RobloxEmptyResponseSchema)).request()
     );
   }
-  /** 하나면 single, 여럿이면 묶음 엔드포인트로 나눠 보낸다 */
+  /**
+   * 하나면 single, 여럿이면 묶음 엔드포인트로 나눠 보낸다. 실패한 묶음이 있으면 RobloxPartialError를 던진다
+   * (`results`는 처리된 id, `errors`는 실패한 묶음의 id마다 하나).
+   */
   async batchWrite(ids, single, multi) {
     if (!ids.length) return;
-    await Promise.all(ids.length === 1 ? [single(ids[0])] : chunk(ids, MULTI_WRITE_LIMIT).map(multi));
+    const chunks = ids.length === 1 ? [[ids[0]]] : chunk(ids, MULTI_WRITE_LIMIT);
+    const { errors } = await settle(chunks, (part) => ids.length === 1 ? single(part[0]) : multi(part));
+    const failed = new Set(errors.flatMap((e) => e.input));
+    finish(ids.filter((id2) => !failed.has(id2)), errors.flatMap((e) => e.input.map((input) => ({ input, error: e.error }))));
   }
   /** GET /v1/groups/{groupId}/bans */
   getBans(groupId, query = {}) {
@@ -3333,8 +3456,8 @@ var RobloxGroupsApi = class {
   }
   /** GET /v1/groups/{groupId}/settings */
   async getSettings(groupIds) {
-    const list = await Promise.all(groupIds.map((id2) => this.settings.load(String(id2), id2)));
-    return found5(groupIds.map((groupId, i) => list[i] && { groupId, ...list[i] }));
+    const { values: list, errors } = await settle(groupIds, (id2) => this.settings.load(String(id2), id2));
+    return finish(found(groupIds.map((groupId, i) => list[i] && { groupId, ...list[i] })), errors);
   }
   /** PATCH /v1/groups/{groupId}/settings — 넣은 항목만 바꾼다 */
   async updateSettings(groupId, request) {
@@ -3346,13 +3469,13 @@ var RobloxGroupsApi = class {
   }
   /** GET /v1/groups/{groupId}/features — 기능별 차단 상태와 잠금 여부 */
   async getFeatures(groupIds) {
-    const list = await Promise.all(groupIds.map((id2) => this.features.load(String(id2), id2)));
-    return found5(groupIds.map((groupId, i) => list[i] && { groupId, ...list[i] }));
+    const { values: list, errors } = await settle(groupIds, (id2) => this.features.load(String(id2), id2));
+    return finish(found(groupIds.map((groupId, i) => list[i] && { groupId, ...list[i] })), errors);
   }
   /** GET /v1/groups/{groupId}/features/status — 막힌 기능이 하나라도 있는지 */
   async getFeaturesBlocked(groupIds) {
-    const list = await Promise.all(groupIds.map((id2) => this.featuresBlocked.load(String(id2), id2)));
-    return found5(groupIds.map((groupId, i) => list[i] === null ? null : { groupId, hasFeaturesBlocked: list[i] }));
+    const { values: list, errors } = await settle(groupIds, (id2) => this.featuresBlocked.load(String(id2), id2));
+    return finish(found(groupIds.map((groupId, i) => list[i] === null ? null : { groupId, hasFeaturesBlocked: list[i] })), errors);
   }
   /** PATCH /v1/groups/{groupId}/features — 지금은 걸려 있는 차단을 푸는 것만 된다. 바뀌었으면 true */
   async updateFeatures(groupId, features) {
@@ -3447,13 +3570,13 @@ var RobloxGroupsApi = class {
   }
   /** GET /v1/groups/{groupId}/payouts — 정기 지급 대상과 비율 */
   async getPayouts(groupIds) {
-    const lists = await Promise.all(groupIds.map((id2) => this.payouts.load(String(id2), id2)));
-    return found5(groupIds.map((groupId, i) => lists[i] ? { groupId, payouts: lists[i] } : null));
+    const { values: lists, errors } = await settle(groupIds, (id2) => this.payouts.load(String(id2), id2));
+    return finish(found(groupIds.map((groupId, i) => lists[i] ? { groupId, payouts: lists[i] } : null)), errors);
   }
   /** GET /v1/groups/{groupId}/payout-restriction — 지급 기능을 쓸 수 있는지 */
   async getPayoutRestrictions(groupIds) {
-    const list = await Promise.all(groupIds.map((id2) => this.payoutRestrictions.load(String(id2), id2)));
-    return found5(groupIds.map((groupId, i) => list[i] && { groupId, ...list[i] }));
+    const { values: list, errors } = await settle(groupIds, (id2) => this.payoutRestrictions.load(String(id2), id2));
+    return finish(found(groupIds.map((groupId, i) => list[i] && { groupId, ...list[i] })), errors);
   }
   /**
    * POST /v1/groups/{groupId}/payouts — 그룹 자금에서 Robux를 지급한다. 다시 보내도 두 번 나가지 않게
@@ -3549,7 +3672,6 @@ var RobloxBadgeAwardsResponseSchema = z15.object({ data: z15.array(RobloxBadgeAw
 // src/apis/badges.ts
 var ORIGIN7 = "https://badges.roblox.com";
 var AWARDED_DATES_LIMIT = 100;
-var found6 = (list) => list.filter((x) => x !== null);
 var RobloxBadgesApi = class {
   constructor(config, thumbnails) {
     this.config = config;
@@ -3603,15 +3725,16 @@ var RobloxBadgesApi = class {
   ttl(method) {
     return resolveTtl(this.config, "badges", method);
   }
-  getBadges(badgeIds, opts = {}) {
-    const badges = Promise.all(badgeIds.map((id2) => cached(this.config, ["badges", "getBadges", id2], this.ttl("getBadges"), () => this.badges.load(String(id2), id2)))).then(found6);
-    if (!opts.thumbnail) return badges;
+  async getBadges(badgeIds, opts = {}) {
+    const badges = settle(badgeIds, (id2) => cached(this.config, { service: "badges", method: "getBadges", badgeId: id2 }, this.ttl("getBadges"), () => this.badges.load(String(id2), id2)));
+    if (!opts.thumbnail) {
+      const { values: values2, errors: errors2 } = await badges;
+      return finish(found(values2), errors2);
+    }
     const target = opts.thumbnail === true ? {} : opts.thumbnail;
-    const icons = this.thumbnails.get(badgeIds.map((targetId) => ({ ...target, type: "BadgeIcon", targetId })));
-    return Promise.all([badges, icons]).then(([list, icons2]) => {
-      const byId = new Map(badgeIds.map((id2, i) => [id2, icons2[i]]));
-      return list.map((b) => ({ ...b, thumbnail: byId.get(b.id) }));
-    });
+    const [{ values, errors }, icons] = await Promise.all([badges, this.thumbnails.getSettled(badgeIds.map((targetId) => ({ ...target, type: "BadgeIcon", targetId })))]);
+    const byId = new Map(badgeIds.map((id2, i) => [id2, icons.values[i]]));
+    return finish(found(values).map((b) => ({ ...b, thumbnail: byId.get(b.id) ?? null })), errors);
   }
   /** GET /v1/universes/{universeId}/badges — 게임의 배지 (100회/분). 없는 게임이면 빈 목록이다 */
   getUniverseBadges(universeId, query = {}) {
@@ -3627,18 +3750,19 @@ var RobloxBadgesApi = class {
    * awarded-dates(100개씩, 10회/분)와 awarded-date(하나씩, 100회/분)를 나눠 쓴다. 받은 날짜만 캐시한다.
    */
   async getAwardedDates(userId, badgeIds) {
-    const dates = await Promise.all(badgeIds.map((badgeId) => cached(
+    const { values, errors } = await settle(badgeIds, (badgeId) => cached(
       this.config,
-      ["badges", "getAwardedDates", userId, badgeId],
+      { service: "badges", method: "getAwardedDates", userId, badgeId },
       this.ttl("getAwardedDates"),
       () => this.awards.load(`${userId}:${badgeId}`, { userId, badgeId })
-    )));
-    return badgeIds.map((badgeId, i) => ({ badgeId, awardedDate: dates[i] }));
+    ));
+    const failed = new Set(errors.map((e) => e.input));
+    return finish(badgeIds.flatMap((badgeId, i) => failed.has(badgeId) ? [] : [{ badgeId, awardedDate: values[i] }]), errors);
   }
   /** GET /v1/universes/{universeId}/free-badges-quota — 오늘(UTC) 남은 무료 배지 수. 없는 게임은 뺀다 */
   async getFreeQuotas(universeIds) {
-    const quotas = await Promise.all(universeIds.map((id2) => this.freeQuotas.load(String(id2), id2)));
-    return found6(universeIds.map((universeId, i) => quotas[i] === null ? null : { universeId, quota: quotas[i] }));
+    const { values, errors } = await settle(universeIds, (id2) => this.freeQuotas.load(String(id2), id2));
+    return finish(found(universeIds.map((universeId, i) => values[i] === null ? null : { universeId, quota: values[i] })), errors);
   }
   /** GET /v1/badges/metadata — 배지 비용과 이름/설명 길이 제한 */
   getMetadata() {
@@ -4144,6 +4268,7 @@ export {
   RobloxOutfitIdSchema,
   RobloxPageLimitSchema,
   RobloxPageResponseSchema,
+  RobloxPartialError,
   RobloxPlaceDetailsSchema,
   RobloxPlaceIdSchema,
   RobloxPresenceApi,
@@ -4215,7 +4340,8 @@ export {
   VigorRoblox,
   index_default as default,
   findFetchFailed,
-  robloxCacheKeyString,
+  isRobloxPartialError,
+  robloxCacheKey,
   robloxDnrRules,
   toRobloxCreator,
   vigorRoblox

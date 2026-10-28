@@ -1,7 +1,8 @@
 // dist를 대상으로 배처/레이트리밋/캐시 동작을 확인한다. 네트워크는 쓰지 않는다 (fetch를 바꿔 끼운다).
 import { test, beforeEach } from "node:test"
+import { readFile } from "node:fs/promises"
 import assert from "node:assert/strict"
-import { vigorRoblox, RobloxMemoryCache, RobloxMemoryCookies, RobloxCookieSchema, RobloxIpAddressSchema, robloxDnrRules } from "../dist/index.js"
+import { vigorRoblox, robloxCacheKey, RobloxPartialError, RobloxMemoryCache, RobloxMemoryCookies, RobloxCookieSchema, RobloxIpAddressSchema, robloxDnrRules } from "../dist/index.js"
 
 /** path → (url, init) => { status, body, headers?, delay? } */
 let routes = {}
@@ -13,7 +14,8 @@ globalThis.fetch = async (input, init = {}) => {
     const key = `${init.method ?? "GET"} ${url.host.split(".")[0]}${url.pathname}`
     const reqHeaders = new Headers(init.headers)
     calls.push({ key, url, body: init.body ? JSON.parse(init.body) : undefined, headers: reqHeaders })
-    const handler = routes[key]
+    // "*"는 따로 정하지 않은 경로 전부
+    const handler = routes[key] ?? routes["*"]
     if (!handler) return realFetch === undefined ? null : new Response(`no mock for ${key}`, { status: 599 })
     const { status = 200, body = {}, headers = {}, delay = 0 } = await handler(url, init.body ? JSON.parse(init.body) : undefined, reqHeaders)
     if (delay) await new Promise(r => setTimeout(r, delay))
@@ -123,8 +125,8 @@ test("TTL이 0이어도 저장소의 get/set은 불린다", async () => {
     routes[PROFILES] = (_, body) => ({ body: { profileDetails: body.userIds.map(profile), errors: [] } })
     const seen = []
     const store = {
-        get: key => { seen.push(["get", key[1]]); return undefined },
-        set: (key, _, ttl) => { seen.push(["set", key[1], ttl]) },
+        get: (_, info) => { seen.push(["get", info.method]); return undefined },
+        set: (_, __, ttl, info) => { seen.push(["set", info.method, ttl]) },
     }
     await vigorRoblox.mode("node").cache(store).ttl({ users: { getUsers: 0 } }).users.getUsers([1])
     assert.deepEqual(seen, [["get", "getUsers"], ["set", "getUsers", 0]])
@@ -132,18 +134,18 @@ test("TTL이 0이어도 저장소의 get/set은 불린다", async () => {
 
 test("RobloxMemoryCache는 TTL이 0 이하인 항목을 저장하지 않는다", () => {
     const cache = new RobloxMemoryCache()
-    cache.set(["games", "getVotes", 1], { id: 1, upVotes: 1, downVotes: 0 }, 0)
+    cache.set("a", { id: 1, upVotes: 1, downVotes: 0 }, 0)
     assert.equal(cache.entries.size, 0)
 })
 
 test("RobloxMemoryCache는 만료된 항목을 주기적으로 지운다", async () => {
     const cache = new RobloxMemoryCache(10)
-    cache.set(["games", "getVotes", 1], { id: 1, upVotes: 1, downVotes: 0 }, 5)
+    cache.set("a", { id: 1, upVotes: 1, downVotes: 0 }, 5)
     await new Promise(r => setTimeout(r, 20))
-    cache.set(["games", "getVotes", 2], { id: 2, upVotes: 1, downVotes: 0 }, 10_000)
+    cache.set("b", { id: 2, upVotes: 1, downVotes: 0 }, 10_000)
     assert.equal(cache.entries.size, 1)
-    assert.equal(cache.get(["games", "getVotes", 1]), undefined)
-    assert.equal(cache.get(["games", "getVotes", 2]).id, 2)
+    assert.equal(cache.get("a"), undefined)
+    assert.equal(cache.get("b").id, 2)
 })
 
 test("robloxDnrRules는 gamejoin UA 규칙만 만든다", () => {
@@ -328,4 +330,62 @@ test("캐시되는 조회는 같은 키를 동시에 물으면 저장소 조회�
     assert.equal(x, y)
     assert.equal(gets, 1)
     assert.equal(count("GET users/v1/users/1/username-history"), 1)
+})
+
+test("서버 페이지: Public은 쿠키를 돌려 써도 캐시하고, 기본 serverType과 명시한 Public은 같은 키다. Friend는 로테이션 중이면 캐시하지 않는다", async () => {
+    const empty = { previousPageCursor: null, nextPageCursor: null, data: [] }
+    for (const type of ["Public", "Friend"]) {
+        routes[`GET games/v1/games/1/servers/${type}`] = () => ({ body: empty })
+        routes[`GET games/v1/public-server-browser-service/games/1/servers/${type}`] = () => ({ body: empty })
+        routes[`GET games/v2/games/1/servers/${type}`] = () => ({ body: empty })
+    }
+    const servers = key => calls.filter(c => c.key.endsWith(key)).length
+    const cookies = ["cookie-a", "cookie-b"].map(c => RobloxCookieSchema.parse(c))
+    const games = vigorRoblox.mode("node").cookies(cookies).cache(new RobloxMemoryCache()).games
+
+    await games.getServerPage(1)
+    await games.getServerPage(1, { serverType: "Public" })
+    assert.equal(servers("/servers/Public"), 1)
+
+    await games.getServerPage(1, { serverType: "Friend" })
+    await games.getServerPage(1, { serverType: "Friend" })
+    assert.equal(servers("/servers/Friend"), 2)
+})
+
+test("캐시 키: \"<버전>:<서비스>.<메서드>::<해시>\"이고, 인자의 필드 순서와 undefined 필드는 키에 영향이 없다. 위치 조회에는 버전이 없다", async () => {
+    const { version } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
+    const a = await robloxCacheKey({ service: "users", method: "getUsernameHistory", userId: 1, query: { limit: 10, sortOrder: "Asc" } })
+    const b = await robloxCacheKey({ query: { sortOrder: "Asc", cursor: undefined, limit: 10 }, method: "getUsernameHistory", userId: 1, service: "users" })
+    assert.equal(a, b)
+    assert.ok(a.startsWith(`${version}:users.getUsernameHistory::`))
+    assert.match(a, /::[A-Za-z0-9_-]{22}$/)
+    assert.notEqual(a, await robloxCacheKey({ service: "users", method: "getUsernameHistory", userId: 2, query: { limit: 10, sortOrder: "Asc" } }))
+    assert.match(await robloxCacheKey({ service: "games", method: "getServerLocations", ip: "10.0.0.1" }), /^games\.getServerLocations::[A-Za-z0-9_-]{22}$/)
+})
+
+test("저장소는 라이브러리가 만든 키와 정리된 분류 데이터를 받는다", async () => {
+    routes["GET users/v1/users/1/username-history"] = () => ({ body: { previousPageCursor: null, nextPageCursor: null, data: [{ name: "a" }] } })
+    const seen = []
+    const store = { get: (key, info) => { seen.push({ key, info }); return undefined }, set: () => {} }
+    await vigorRoblox.mode("node").cache(store).users.getUsernameHistory(1, { sortOrder: "Asc", cursor: undefined, limit: 10 })
+    assert.deepEqual(seen[0].info, { method: "getUsernameHistory", query: { limit: 10, sortOrder: "Asc" }, service: "users", userId: 1 })
+    assert.equal(seen[0].key, await robloxCacheKey(seen[0].info))
+})
+
+
+test("일부 항목이 실패하면 받은 결과를 담아 RobloxPartialError를 던진다", async () => {
+    routes["GET friends/v1/users/1/friends/count"] = () => ({ body: { count: 10 } })
+    routes["GET friends/v1/users/2/friends/count"] = () => ({ status: 403, body: { errors: [{ code: 0, message: "Forbidden" }] } })
+    routes["GET friends/v1/users/3/friends/count"] = () => ({ body: { count: 30 } })
+    const error = await vigorRoblox.mode("node").friends.getFriendCounts([1, 2, 3]).then(() => null, e => e)
+    assert.ok(error instanceof RobloxPartialError)
+    assert.deepEqual(error.results, [{ userId: 1, count: 10 }, { userId: 3, count: 30 }])
+    assert.deepEqual(error.errors.map(e => e.input), [2])
+})
+
+test("곁들이는 썸네일을 받지 못하면 thumbnail만 null이고 유저는 그대로 돌려준다", async () => {
+    routes[PROFILES] = (_, body) => ({ body: { profileDetails: body.userIds.map(profile), errors: [] } })
+    routes["*"] = () => ({ status: 403, body: { errors: [{ code: 0, message: "Forbidden" }] } })
+    const users = await vigorRoblox.mode("node").users.getUsers([1, 2], { thumbnail: true })
+    assert.deepEqual(users.map(u => [u.id, u.thumbnail]), [[1, null], [2, null]])
 })
