@@ -48,7 +48,7 @@ type PngWebp = "Png" | "Webp"
 // 엔드포인트가 아니라 "무엇의 썸네일인가"로 고른다. 어느 엔드포인트로 보낼지는 라이브러리가 정한다.
 
 type Id<I> = { targetId: I }
-/** 게임 서버 목록의 `playerTokens` 등. targetId 대신 쓴다. */
+/** 게임 서버 목록의 플레이어 토큰. targetId 대신 쓴다 (라이브러리가 서버 목록의 헤드샷을 받을 때 쓴다). */
 type UserIdOrToken = Id<RobloxUserId> | { token: string }
 
 type Image<T extends keyof typeof RobloxThumbnailSizes, F extends string> = {

@@ -5,7 +5,7 @@ import type { RobloxUserPresence } from "@/types/presence"
 import type {
     RobloxFavoriteGamePage, RobloxGame, RobloxGameListQuery, RobloxGameMedia, RobloxGamePlayability, RobloxGameProduct,
     RobloxGameRecommendations, RobloxGameSummaryPage, RobloxGameVotes, RobloxIpAddress, RobloxPlaceDetails,
-    RobloxRecommendationsQuery, RobloxServerAddress, RobloxServerPage, RobloxServerPageQuery,
+    RobloxRecommendationsQuery, RobloxServerAddress, RobloxCachedServerPage, RobloxServerPageQuery,
 } from "@/types/games"
 import type { RobloxBadge } from "@/types/badges"
 import type { RobloxGroup, RobloxGroupDetail, RobloxGroupRole, RobloxGroupRoleDetail, RobloxGroupRoleId, RobloxUserGroupRole } from "@/types/groups"
@@ -52,9 +52,9 @@ export type RobloxCacheEntry =
     | Entry<"games", "getServerLocations", { ip: RobloxIpAddress }, unknown>
     /**
      * Public은 인증 여부만 구분한다 (플레이어 토큰은 받은 계정에 묶이지 않는다 — 2026-10 실측). Friend는 계정별이다.
-     * query의 serverType은 기본값(Public)을 채운 뒤의 모양
+     * query의 serverType은 기본값(Public)을 채운 뒤의 모양. 값에는 썸네일을 받는 데 쓰는 플레이어 토큰이 들어 있다
      */
-    | Entry<"games", "getServerPage", { access: RobloxViewerKey | "authenticated", placeId: RobloxPlaceId, query: RobloxServerPageQuery }, RobloxServerPage>
+    | Entry<"games", "getServerPage", { access: RobloxViewerKey | "authenticated", placeId: RobloxPlaceId, query: RobloxServerPageQuery }, RobloxCachedServerPage>
     | Entry<"games", "getRecommendations", { universeId: RobloxUniverseId, query: RobloxRecommendationsQuery }, RobloxGameRecommendations>
     | Entry<"games", "getUserGames", { userId: RobloxUserId, query: RobloxGameListQuery }, RobloxGameSummaryPage>
     | Entry<"games", "getUserFavoriteGames", { userId: RobloxUserId, query: RobloxGameListQuery }, RobloxFavoriteGamePage>

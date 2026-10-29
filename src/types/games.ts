@@ -16,7 +16,7 @@ import {
     type RobloxUniverseId,
 } from "./common";
 import { RobloxUserIdSchema, type RobloxUserId } from "./users";
-import type { RobloxThumbnail } from "./thumbnails";
+import type { RobloxThumbnail, RobloxThumbnailSize } from "./thumbnails";
 import { RobloxCreatorSchema, toRobloxCreator } from "./creator";
 
 // 스펙(create.roblox.com 문서)과 실제 응답이 다른 곳이 많아 실측을 따랐다.
@@ -216,38 +216,37 @@ export const RobloxServerTypeSchema = z.enum(["Public", "Friend"])
 export type RobloxServerType = z.infer<typeof RobloxServerTypeSchema>
 
 /**
- * `GameServerResponse` — 서버 목록 항목. 엔드포인트마다 필드가 조금씩 달라 공통 부분만 남겼다.
- * `playerTokens`는 인증된 요청에서만 채워진다 (아바타 헤드샷의 token 대상으로 쓴다).
+ * `GameServerPlayerResponse` — 서버에 있는 플레이어 중 누구인지 알려 주는 항목.
+ * 친구 서버 목록(`serverType: "Friend"`)과 비공개 서버 목록에만 온다. `playerToken`은 라이브러리가 썸네일을 받을 때만 쓴다.
  */
-export const RobloxServerSchema = z.object({
-    id:           RobloxJobIdSchema,
-    maxPlayers:   z.number(),
-    playing:      z.number(),
-    playerTokens: z.array(z.string()),
-    fps:          z.number(),
-    /** v2 목록에서 인증 없이 받으면 없다 */
-    ping:         z.number().nullable(),
+export const RobloxServerPlayerRawSchema = z.object({
+    playerToken: z.string(),
+    id:          RobloxUserIdSchema,
+    name:        z.string(),
+    displayName: z.string(),
 })
 
-export type RobloxServer = z.infer<typeof RobloxServerSchema>
-
+/** `GameServerResponse` — 서버 목록 항목의 응답 그대로. 엔드포인트마다 필드가 조금씩 달라 공통 부분만 남겼다. */
 export const RobloxServerRawSchema = z.object({
     id:           RobloxJobIdSchema,
     maxPlayers:   z.number(),
     playing:      z.number().nullish(),
+    /** 인증된 요청에서만 채워진다 (아바타 헤드샷의 token 대상) */
     playerTokens: z.array(z.string()).nullish(),
+    players:      z.array(RobloxServerPlayerRawSchema).nullish(),
     fps:          z.number().nullish(),
     ping:         z.number().nullish(),
 })
 
 export const RobloxServerPageRawSchema = RobloxPageResponseSchema(RobloxServerRawSchema)
 
-/** `PrivateServersApi.GameServerResponse` — 실행 중이 아니면 id/playing/fps/ping이 없다 */
-export const RobloxPrivateServerSchema = z.object({
+/** `PrivateServersApi.GameServerResponse` — 응답 그대로. 실행 중이 아니면 id/playing/fps/ping이 없다 */
+export const RobloxPrivateServerRawSchema = z.object({
     id:           RobloxJobIdSchema.nullish(),
     maxPlayers:   z.number(),
     playing:      z.number().nullish(),
     playerTokens: z.array(z.string()).nullish(),
+    players:      z.array(RobloxServerPlayerRawSchema).nullish(),
     fps:          z.number().nullish(),
     ping:         z.number().nullish(),
     name:         z.string(),
@@ -261,13 +260,64 @@ export const RobloxPrivateServerSchema = z.object({
     }).nullish(),
 })
 
-/** `GetPrivateServerListResponse` */
-export const RobloxPrivateServerPageSchema = z.object({
+/** `GetPrivateServerListResponse` — 응답 그대로 */
+export const RobloxPrivateServerPageRawSchema = z.object({
     gameJoinRestricted: z.boolean().nullish(),
     previousPageCursor: RobloxCursorSchema.nullable(),
     nextPageCursor:     RobloxCursorSchema.nullable(),
-    data:               z.array(RobloxPrivateServerSchema),
+    data:               z.array(RobloxPrivateServerRawSchema),
 })
+
+/** 서버 목록이 누구인지 알려 준 플레이어 */
+export type RobloxServerPlayerUser = { id: RobloxUserId, name: string, displayName: string }
+
+/**
+ * 서버에 있는 플레이어 하나. 서버 목록은 서버마다 몇 명만 알려 준다 (`playing`보다 적을 수 있다).
+ * `user`는 서버 목록이 누구인지 알려 줬을 때만 있다 (친구 서버 목록, 비공개 서버 목록).
+ * `thumbnail`은 아바타 헤드샷이고, `headshots: false`였거나 받지 못하면 null이다. 인증해야 받을 수 있다.
+ */
+export type RobloxServerPlayer = {
+    user:      RobloxServerPlayerUser | null
+    thumbnail: RobloxThumbnail | null
+}
+
+/** 서버 목록 항목 */
+export type RobloxServer = {
+    id:         RobloxJobId
+    maxPlayers: number
+    playing:    number
+    fps:        number
+    /** v2 목록에서 인증 없이 받으면 없다 */
+    ping:       number | null
+    players:    RobloxServerPlayer[]
+}
+
+/** 비공개 서버 목록 항목. 실행 중이 아니면 id/playing/fps/ping이 없다 */
+export type RobloxPrivateServer = Omit<z.infer<typeof RobloxPrivateServerRawSchema>, "playerTokens" | "players"> & {
+    players: RobloxServerPlayer[]
+}
+
+export type RobloxPrivateServerPage = {
+    gameJoinRestricted?: boolean | null
+    previousPageCursor:  RobloxCursor | null
+    nextPageCursor:      RobloxCursor | null
+    data:                RobloxPrivateServer[]
+}
+
+/** 서버 목록 한 페이지를 캐시에 저장하는 모양. 플레이어 토큰이 들어 있어 사용자에게 돌려주지 않는다 */
+export type RobloxCachedServerPage = {
+    previousPageCursor: RobloxCursor | null
+    nextPageCursor:     RobloxCursor | null
+    data: {
+        id:           RobloxJobId
+        maxPlayers:   number
+        playing:      number
+        fps:          number
+        ping:         number | null
+        playerTokens: string[]
+        players:      z.infer<typeof RobloxServerPlayerRawSchema>[]
+    }[]
+}
 
 /** `MyPrivateServersResponse` — 항목 모양은 문서화돼 있지 않다 */
 export const RobloxMyPrivateServerPageSchema = z.object({
@@ -399,20 +449,18 @@ export type RobloxGameInfo = {
 
 /** `getServers` 결과의 항목. `L`은 `.geolocation(fn)` 콜백이 돌려주는 위치 타입 */
 export type RobloxServerInfo<L = unknown> = RobloxServer & {
-    /** 플레이어 헤드샷. `players` 옵션이 false거나 토큰이 없으면 빈 배열 */
-    players:  RobloxThumbnail[]
     /** `address`/`location` 옵션을 켰을 때만 */
-    address:  RobloxServerAddress | null
-    location: L | null
+    address:   RobloxServerAddress | null
+    location:  L | null
 }
 
 /** `findUsers` 결과의 항목. `L`은 `.geolocation(fn)` 콜백이 돌려주는 위치 타입 */
 export type RobloxUserServer<L = unknown> = {
     userId:   RobloxUserId
-    /** 어떻게 찾았는지. 못 찾았으면 null */
-    foundBy:  "presence" | "headshot" | null
+    /** 어떻게 찾았는지. "server"는 서버 목록이 알려 준 플레이어 id로 찾은 것이다. 못 찾았으면 null */
+    foundBy:  "server" | "presence" | "headshot" | null
     jobId:    RobloxJobId | null
-    /** 서버 목록에서 본 서버. presence로 찾았으면 null */
+    /** 서버 목록에서 본 서버. presence로 찾았으면 null. 플레이어 헤드샷은 150x150 Png다 */
     server:   RobloxServer | null
     /** `address`/`location` 옵션을 켰을 때만 */
     address:  RobloxServerAddress | null
@@ -488,8 +536,6 @@ export type RobloxGameSummary = z.infer<typeof RobloxGameSummarySchema>
 export type RobloxFavoriteGame = z.infer<typeof RobloxFavoriteGameSchema>
 export type RobloxGameSummaryPage = z.infer<typeof RobloxGameSummaryPageSchema>
 export type RobloxFavoriteGamePage = z.infer<typeof RobloxFavoriteGamePageSchema>
-export type RobloxPrivateServer = z.infer<typeof RobloxPrivateServerSchema>
-export type RobloxPrivateServerPage = z.infer<typeof RobloxPrivateServerPageSchema>
 export type RobloxMyPrivateServerPage = z.infer<typeof RobloxMyPrivateServerPageSchema>
 export type RobloxPrivateServerDetail = z.infer<typeof RobloxPrivateServerDetailSchema>
 export type RobloxPrivateServerSubscription = z.infer<typeof RobloxPrivateServerSubscriptionSchema>
@@ -497,3 +543,6 @@ export type RobloxPrivateServerPermissions = z.infer<typeof RobloxPrivateServerP
 export type RobloxPrivateServerInvite = z.infer<typeof RobloxPrivateServerInviteSchema>
 export type RobloxJoinResponse = z.infer<typeof RobloxJoinResponseSchema>
 export type RobloxServerPage = { previousPageCursor: RobloxCursor | null, nextPageCursor: RobloxCursor | null, data: RobloxServer[] }
+
+/** 플레이어 헤드샷 옵션. false면 받지 않는다. 기본 150x150 Png */
+export type RobloxServerHeadshotOptions = false | { size?: RobloxThumbnailSize<"AvatarHeadShot">, format?: "Png" | "Jpeg" | "Webp", isCircular?: boolean }

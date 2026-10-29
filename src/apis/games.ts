@@ -34,11 +34,12 @@ import {
     RobloxPlaceDetailsSchema,
     RobloxPrivateServerDetailSchema,
     RobloxPrivateServerInviteSchema,
-    RobloxPrivateServerPageSchema,
+    RobloxPrivateServerPageRawSchema,
     RobloxPrivateServerPermissionsSchema,
     RobloxPrivateServerSubscriptionSchema,
     RobloxServerPageRawSchema,
     RobloxUserGameVoteSchema,
+    type RobloxCachedServerPage,
     type RobloxCreatePrivateServerRequest,
     type RobloxFavoriteGamePage,
     type RobloxGame,
@@ -56,6 +57,7 @@ import {
     type RobloxPlaceDetails,
     type RobloxPrivateServerDetail,
     type RobloxPrivateServerInvite,
+    type RobloxPrivateServerPage,
     type RobloxPrivateServerPageQuery,
     type RobloxRecommendationsQuery,
     type RobloxServer,
@@ -66,13 +68,16 @@ import {
     type RobloxServerLocation,
     type RobloxServerPage,
     type RobloxServerPageQuery,
+    type RobloxServerHeadshotOptions,
+    type RobloxServerPlayer,
+    type RobloxServerPlayerRawSchema,
     type RobloxUpdatePrivateServerPermissionsRequest,
     type RobloxUpdatePrivateServerRequest,
     type RobloxUpdatePrivateServerSubscriptionRequest,
     type RobloxUserGameVote,
     type RobloxUserServer,
 } from "@/types/games"
-import type { RobloxThumbnail, RobloxThumbnailSize } from "@/types/thumbnails"
+import type { RobloxThumbnail } from "@/types/thumbnails"
 import type { RobloxUserId } from "@/types/users"
 import z from "zod"
 
@@ -184,7 +189,7 @@ function singleRoute<R>(opts: {
 type ServerPageTarget = { placeId: RobloxPlaceId, query: RobloxServerPageQuery }
 
 /** 서버 목록. v1과 public-server-browser-service는 응답과 커서가 같고, v2는 커서 형식이 다르다. */
-function serverRoute(bucket: string, path: (placeId: RobloxPlaceId, type: string) => (string | number)[], v2: boolean): RobloxBatchRoute<ServerPageTarget, RobloxServerPage> {
+function serverRoute(bucket: string, path: (placeId: RobloxPlaceId, type: string) => (string | number)[], v2: boolean): RobloxBatchRoute<ServerPageTarget, RobloxCachedServerPage> {
     return {
         bucket,
         limit: 1,
@@ -211,11 +216,12 @@ function serverRoute(bucket: string, path: (placeId: RobloxPlaceId, type: string
             return [{
                 previousPageCursor: tag(res.previousPageCursor),
                 nextPageCursor:     tag(res.nextPageCursor),
-                data: res.data.map((s): RobloxServer => ({
+                data: res.data.map(s => ({
                     id:           s.id,
                     maxPlayers:   s.maxPlayers,
                     playing:      s.playing ?? 0,
                     playerTokens: s.playerTokens ?? [],
+                    players:      s.players ?? [],
                     fps:          s.fps ?? 0,
                     ping:         s.ping ?? null,
                 })),
@@ -257,12 +263,12 @@ export type RobloxGetServersOptions = RobloxServerPageQuery & {
      * 커서는 페이지 경계만 가리킬 수 있어서 마지막 페이지를 자르지 않는다 — 결과가 이보다 많을 수 있다.
      */
     count?:    number
-    /** 플레이어 헤드샷. false면 받지 않는다. 기본 150x150 Png (playerTokens가 있어야 하므로 인증 필요) */
-    players?:  false | { size?: RobloxThumbnailSize<"AvatarHeadShot">, format?: "Png" | "Jpeg" | "Webp", isCircular?: boolean }
+    /** 플레이어 헤드샷. false면 받지 않는다. 기본 150x150 Png (인증해야 받을 수 있다) */
+    headshots?: RobloxServerHeadshotOptions
     /** gamejoin으로 서버 주소를 받는다. 인증 필요. 꽉 찬 서버는 주소가 없다 */
-    address?:  boolean
+    address?:   boolean
     /** 서버 위치. address를 포함하고 `.geolocation(fn)`이 필요하다 */
-    location?: boolean
+    location?:  boolean
 }
 
 /** `findUsers` 옵션 */
@@ -579,10 +585,19 @@ export class RobloxGamesApi<L = unknown> {
     /**
      * 서버 목록 한 페이지. 엔드포인트마다 3회/분이라 세 엔드포인트를 나눠 쓴다.
      * 받은 커서는 같은 옵션으로 다시 넘긴다 (어느 엔드포인트의 커서인지는 라이브러리가 기억한다).
-     * `Friend`와 `playerTokens`는 인증이 필요하다.
+     * `Friend`와 플레이어 헤드샷은 인증이 필요하다. 헤드샷은 서버 목록의 플레이어 토큰으로 이어서 받는다 (`headshots: false`면 받지 않는다).
+     */
+    async getServerPage(placeId: RobloxPlaceId, query: RobloxServerPageQuery & { headshots?: RobloxServerHeadshotOptions } = {}): Promise<RobloxServerPage> {
+        const { headshots = {}, ...rest } = query
+        const page = await this.loadServerPage(placeId, rest)
+        return { ...page, data: await this.withPlayers(page.data, headshots) }
+    }
+
+    /**
+     * 서버 목록 한 페이지를 플레이어 토큰째로 받는다.
      * 캐시 키는 Public이면 인증 여부만, Friend면 계정까지 나눈다 (쿠키 로테이션 중의 Friend는 캐시하지 않는다).
      */
-    async getServerPage(placeId: RobloxPlaceId, query: RobloxServerPageQuery = {}): Promise<RobloxServerPage> {
+    private async loadServerPage(placeId: RobloxPlaceId, query: RobloxServerPageQuery): Promise<RobloxCachedServerPage> {
         const normalized = { ...query, serverType: query.serverType ?? "Public" }
         const load = () => this.serverPages.load(JSON.stringify([placeId, normalized]), { placeId, query: normalized })
         const access = normalized.serverType === "Public"
@@ -660,16 +675,48 @@ export class RobloxGamesApi<L = unknown> {
         return known
     }
 
-    /** GET /v1/games/{placeId}/private-servers — 내가 들어갈 수 있는 비공개 서버 */
-    getPrivateServers(placeId: RobloxPlaceId, query: RobloxPrivateServerPageQuery = {}) {
+    /** GET /v1/games/{placeId}/private-servers — 내가 들어갈 수 있는 비공개 서버. 플레이어 헤드샷을 이어서 받는다 (`headshots: false`면 받지 않는다) */
+    async getPrivateServers(placeId: RobloxPlaceId, query: RobloxPrivateServerPageQuery & { headshots?: RobloxServerHeadshotOptions } = {}): Promise<RobloxPrivateServerPage> {
         const params: Record<string, string | boolean> = {}
         if (query.cursor) params.exclusiveStartKeyCursor = query.cursor
         if (query.excludeFriendServers !== undefined) params.excludeFriendServers = query.excludeFriendServers
-        return this.http()
+        const res = await this.http()
             .path("v1", "games", placeId, "private-servers")
             .query(params)
-            .middlewares(validate(RobloxPrivateServerPageSchema))
+            .middlewares(validate(RobloxPrivateServerPageRawSchema))
             .request()
+        const players = await this.players(res.data.map(s => ({ playerTokens: s.playerTokens ?? [], players: s.players ?? [] })), query.headshots ?? {})
+        return { ...res, data: res.data.map(({ playerTokens, players: _, ...server }, i) => ({ ...server, players: players[i] })) }
+    }
+
+    /** 서버마다 플레이어 토큰을 헤드샷으로 바꿔 붙이고 토큰은 뗀다 */
+    private async withPlayers(servers: RobloxCachedServerPage["data"], headshots: RobloxServerHeadshotOptions): Promise<RobloxServer[]> {
+        const players = await this.players(servers, headshots)
+        return servers.map(({ playerTokens, players: _, ...server }, i) => ({ ...server, players: players[i] }))
+    }
+
+    /**
+     * 서버마다 플레이어 목록. 토큰마다 한 명이고, 서버 목록이 누구인지 알려 준 플레이어는 `user`가 있다.
+     * 누구인지 아는 플레이어는 유저 id로(캐시된다), 나머지는 토큰으로 헤드샷을 한 번에 묶어 받는다. 받지 못한 헤드샷은 null이다.
+     */
+    private async players(
+        servers: readonly { playerTokens: readonly string[], players: readonly z.infer<typeof RobloxServerPlayerRawSchema>[] }[],
+        headshots: RobloxServerHeadshotOptions,
+    ): Promise<RobloxServerPlayer[][]> {
+        const lists = servers.map(server => {
+            const byToken = new Map(server.players.map(p => [p.playerToken, p]))
+            const tokens = [...server.playerTokens, ...server.players.map(p => p.playerToken).filter(t => !server.playerTokens.includes(t))]
+            return tokens.map(token => {
+                const p = byToken.get(token)
+                return { token, user: p ? { id: p.id, name: p.name, displayName: p.displayName } : null }
+            })
+        })
+        const all = lists.flat()
+        const shots = headshots === false ? null : (await this.thumbnails.getSettled(all.map(({ token, user }) => user
+            ? { type: "AvatarHeadShot", targetId: user.id, ...headshots } as const
+            : { type: "AvatarHeadShot", token, ...headshots } as const))).values
+        let offset = 0
+        return lists.map(list => list.map(({ user }) => ({ user, thumbnail: shots?.[offset++] ?? null })))
     }
 
     /** 내 비공개 서버 목록. /v1/vip-servers/…와 /v1/private-servers/…를 번갈아 쓴다. */
@@ -777,35 +824,31 @@ export class RobloxGamesApi<L = unknown> {
      * 헤드샷/주소/위치는 받지 못하면 빈 배열(null)로 두고, 서버 목록 자체가 실패할 때만 던진다.
      */
     async getServers(placeId: RobloxPlaceId, opts: RobloxGetServersOptions = {}): Promise<{ data: RobloxServerInfo<L>[], nextPageCursor: RobloxCursor | null }> {
-        const { count = 100, players = {}, address = false, location = false, ...query } = opts
+        const { count = 100, headshots: shotOptions = {}, address = false, location = false, ...query } = opts
         if (location && !this.config.geolocate) throw new Error(GEOLOCATE_MISSING)
 
-        const servers: RobloxServer[] = []
+        const servers: RobloxCachedServerPage["data"] = []
         let cursor = query.cursor ?? null
         do {
-            const page = await this.getServerPage(placeId, { ...query, cursor: cursor ?? undefined })
+            const page = await this.loadServerPage(placeId, { ...query, cursor: cursor ?? undefined })
             servers.push(...page.data)
             cursor = page.nextPageCursor
         } while (cursor && servers.length < count)
         // 자르면 잘린 서버를 돌려받은 커서로 다시 받을 수 없다.
-        const data = servers
 
-        const [headshots, addresses] = await Promise.all([
-            players === false ? null : this.thumbnails.getSettled(data.flatMap(s => s.playerTokens.map(token => ({ type: "AvatarHeadShot", token, ...players }) as const))).then(s => s.values),
-            address || location ? extra(this.getServerAddresses(data.map(s => ({ placeId, jobId: s.id })))).then(list => new Map(list.map(a => [a.jobId, a]))) : null,
+        const [data, addresses] = await Promise.all([
+            this.withPlayers(servers, shotOptions),
+            address || location ? extra(this.getServerAddresses(servers.map(s => ({ placeId, jobId: s.id })))).then(list => new Map(list.map(a => [a.jobId, a]))) : null,
         ])
         const ips = [...new Set([...addresses?.values() ?? []].map(a => a.ip).filter((ip): ip is RobloxIpAddress => ip !== null))]
         const locations = location ? new Map((await extra(this.getServerLocations(ips))).map(l => [l.ip, l.location])) : null
 
-        let offset = 0
         return {
             nextPageCursor: cursor,
             data: data.map((server): RobloxServerInfo<L> => {
-                const own = headshots ? headshots.slice(offset, offset += server.playerTokens.length) : []
                 const addr = addresses?.get(server.id) ?? null
                 return {
                     ...server,
-                    players:  own.filter(t => t !== null && t.state === "Completed") as RobloxThumbnail[],
                     address:  addr,
                     location: addr?.ip ? locations?.get(addr.ip) ?? null : null,
                 }
@@ -815,7 +858,8 @@ export class RobloxGamesApi<L = unknown> {
 
     /**
      * 유저들이 place의 어느 서버에 있는지. 결과는 입력 순서이고, 못 찾은 유저도 `jobId: null`로 들어간다.
-     * 서버 목록을 따라가며 플레이어 헤드샷을 대상의 헤드샷과 맞추고, 모두 찾으면 바로 멈춘다.
+     * 서버 목록을 따라가며, 목록이 플레이어 id를 알려 주면(친구 서버 목록의 `players`) 그걸로 바로 찾고,
+     * 못 찾은 대상은 플레이어 헤드샷을 대상의 헤드샷과 맞춰 찾는다. 모두 찾으면 바로 멈춘다.
      * presence는 보조로만 쓴다 — 한도가 빡빡하고(60회/분) 대상의 공개 설정에 따라 보이는 게 달라서, 서버 탐색과 나란히 묻고 기다리지 않는다.
      * presence가 이 place의 서버를 보여주면 그걸 쓰고, 다른 place의 게임에 있다고 확정되면 그 유저는 그만 찾는다.
      * 오프라인·온라인으로 나오거나 게임 정보가 가려진 유저는 계속 찾는다 (접속 상태를 숨겼을 수 있다).
@@ -829,7 +873,8 @@ export class RobloxGamesApi<L = unknown> {
         if (!this.auth()) throw new Error("서버 목록에서 유저를 찾으려면 플레이어 토큰이 필요해 인증해야 한다.")
 
         const targets = [...new Set(userIds)]
-        const hits = new Map<RobloxUserId, { foundBy: "presence" | "headshot", jobId: RobloxJobId, server: RobloxServer | null }>()
+        type Server = RobloxCachedServerPage["data"][number]
+        const hits = new Map<RobloxUserId, { foundBy: "server" | "presence" | "headshot", jobId: RobloxJobId, server: Server | null }>()
         /** presence로 다른 place에 있다고 확정된 유저 */
         const elsewhere = new Set<RobloxUserId>()
         // 실패해도 헤드샷 탐색은 그대로 간다. 일부만 받았으면 받은 만큼 쓴다.
@@ -856,20 +901,39 @@ export class RobloxGamesApi<L = unknown> {
         // 아바타가 같은 대상끼리는 누가 누군지 구별할 수 없다.
         for (const [hash, users] of byHash) if (users.length > 1) byHash.delete(hash)
 
+        const wanted = new Set(targets)
+        const hashOf = new Map([...byHash].map(([hash, [userId]]) => [userId, hash]))
+        const hit = (userId: RobloxUserId, foundBy: "server" | "headshot", server: Server) => {
+            hits.set(userId, { foundBy, jobId: server.id, server })
+            const hash = hashOf.get(userId)
+            if (hash) byHash.delete(hash)
+        }
+        // 친구 서버 목록은 플레이어 id를 알려 준다. 그러면 헤드샷으로 찾을 수 없는 대상(기본 아바타 등)도 찾을 수 있다.
+        let listsIds = query.serverType === "Friend"
+        const findable = (userId: RobloxUserId) => searching(userId) && (listsIds || hashOf.has(userId) && byHash.has(hashOf.get(userId)!))
+
         let cursor: RobloxCursor | undefined
         let scanned = 0
-        while ([...byHash.values()].some(([userId]) => searching(userId)) && scanned < maxServers) {
-            const page = await this.getServerPage(placeId, { ...query, cursor })
+        while (targets.some(findable) && scanned < maxServers) {
+            const page = await this.loadServerPage(placeId, { ...query, cursor })
             scanned += page.data.length
-            const players = page.data.flatMap(server => server.playerTokens.map(token => ({ server, token })))
+            const identified = new Set<string>()
+            for (const server of page.data) for (const p of server.players) {
+                listsIds = true
+                identified.add(p.playerToken)
+                if (wanted.has(p.id) && searching(p.id)) hit(p.id, "server", server)
+            }
+            // 누구인지 아는 플레이어는 헤드샷을 받지 않는다. 헤드샷으로 찾을 대상이 남았을 때만 받는다.
+            const players = byHash.size
+                ? page.data.flatMap(server => server.playerTokens.filter(token => !identified.has(token)).map(token => ({ server, token })))
+                : []
             // 받지 못한 플레이어 헤드샷은 토큰 수 제한으로 안 보이는 플레이어처럼 건너뛴다.
             const headshots = await this.thumbnails.getSettled(players.map(({ token }) => ({ type: "AvatarHeadShot", token, ...FIND_HEADSHOT }) as const))
             headshots.values.forEach((t, i) => {
                 const hash = t && avatarHash(t)
                 const [userId] = hash && byHash.get(hash) || []
                 if (!userId || !searching(userId)) return
-                hits.set(userId, { foundBy: "headshot", jobId: players[i].server.id, server: players[i].server })
-                byHash.delete(hash!)
+                hit(userId, "headshot", players[i].server)
             })
             if (!page.nextPageCursor) break
             cursor = page.nextPageCursor
@@ -883,6 +947,9 @@ export class RobloxGamesApi<L = unknown> {
             : null
         const ips = [...new Set([...addresses?.values() ?? []].map(a => a.ip).filter((ip): ip is RobloxIpAddress => ip !== null))]
         const locations = location ? new Map((await extra(this.getServerLocations(ips))).map(l => [l.ip, l.location])) : null
+        // 찾은 서버의 플레이어 목록 (헤드샷은 비교에 쓴 옵션으로)
+        const seen = [...new Map([...hits.values()].flatMap(f => f.server ? [[f.server.id, f.server] as const] : [])).values()]
+        const servers = new Map((await this.withPlayers(seen, FIND_HEADSHOT)).map(s => [s.id, s]))
 
         // 헤드샷을 받지 못했고 presence로도 못 찾은 유저는 "못 찾음"이 아니라 실패다.
         const failed = (userId: RobloxUserId) => shotErrors.has(userId) && searching(userId)
@@ -893,7 +960,7 @@ export class RobloxGamesApi<L = unknown> {
                 userId,
                 foundBy:  f?.foundBy ?? null,
                 jobId:    f?.jobId ?? null,
-                server:   f?.server ?? null,
+                server:   f?.server ? servers.get(f.server.id) ?? null : null,
                 address:  addr,
                 location: addr?.ip ? locations?.get(addr.ip) ?? null : null,
             }

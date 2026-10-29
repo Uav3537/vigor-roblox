@@ -114,9 +114,9 @@ test("getServers는 페이지를 자르지 않아 커서로 빠짐없이 이어 
     routes["GET games/v2/games/1/servers/Public"] = handler
 
     const games = vigorRoblox.mode("node").games
-    const first = await games.getServers(1, { count: 30, limit: 25, players: false })
+    const first = await games.getServers(1, { count: 30, limit: 25, headshots: false })
     assert.equal(first.data.length, 50)
-    const rest = await games.getServers(1, { count: 100, limit: 25, players: false, cursor: first.nextPageCursor })
+    const rest = await games.getServers(1, { count: 100, limit: 25, headshots: false, cursor: first.nextPageCursor })
     const ids = new Set([...first.data, ...rest.data].map(s => s.id))
     assert.equal(ids.size, 75)
 })
@@ -389,3 +389,31 @@ test("곁들이는 썸네일을 받지 못하면 thumbnail만 null이고 유저�
     const users = await vigorRoblox.mode("node").users.getUsers([1, 2], { thumbnail: true })
     assert.deepEqual(users.map(u => [u.id, u.thumbnail]), [[1, null], [2, null]])
 })
+
+test("친구 서버 목록의 players(유저 id)를 버리지 않고, findUsers는 그 id로 바로 찾는다", async () => {
+    const server = { id: "00000000-0000-4000-8000-000000000001", maxPlayers: 10, playing: 2, playerTokens: ["t1", "t2"], fps: 60, ping: 50,
+        players: [{ playerToken: "t1", id: 42, name: "u42", displayName: "d42" }] }
+    const handler = () => ({ body: { previousPageCursor: null, nextPageCursor: null, data: [server] } })
+    routes["GET games/v1/games/1/servers/Friend"] = handler
+    routes["GET games/v1/public-server-browser-service/games/1/servers/Friend"] = handler
+    routes["GET games/v2/games/1/servers/Friend"] = handler
+    // 대상 헤드샷은 기본 아바타라 헤드샷으로는 찾을 수 없다
+    routes["POST thumbnails/v1/batch"] = (_, body) => ({ body: { data: body.map(r => ({
+        requestId: r.requestId, targetId: r.targetId ?? 0, state: "Completed", errorCode: 0, errorMessage: "", version: null,
+        imageUrl: "https://tr.rbxcdn.com/30DAY-AvatarHeadshot-5816BB6B457A7A2FD8F0299D6F79DADF-Png/150/150/AvatarHeadshot/Png/noFilter",
+    })) } })
+
+    const client = vigorRoblox.mode("node").cookies(new RobloxMemoryCookies([RobloxCookieSchema.parse("cookie-a")]))
+    const page = await client.games.getServerPage(1, { serverType: "Friend" })
+    // 토큰은 돌려주지 않고, 플레이어마다 헤드샷을 붙인다. 이름이 나온 플레이어는 유저 id로 받는다
+    assert.ok(!("playerTokens" in page.data[0]))
+    assert.deepEqual(page.data[0].players.map(p => p.user), [{ id: 42, name: "u42", displayName: "d42" }, null])
+    assert.ok(page.data[0].players.every(p => p.thumbnail?.state === "Completed"))
+    const requested = calls.filter(c => c.key === "POST thumbnails/v1/batch").flatMap(c => c.body)
+    assert.ok(requested.some(r => r.targetId === 42) && requested.some(r => r.token === "t2") && !requested.some(r => r.token === "t1"))
+
+    const [found] = await client.games.findUsers(1, [42], { serverType: "Friend", presence: false })
+    assert.equal(found.foundBy, "server")
+    assert.equal(found.jobId, server.id)
+})
+
