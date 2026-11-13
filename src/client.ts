@@ -1,4 +1,4 @@
-import type { RobloxConfig } from "./core/config"
+import type { RobloxConfig, RobloxMode } from "./core/config"
 import { withRobloxErrors } from "./core/error"
 import type { RobloxCookie } from "./core/cookies"
 import { RobloxUsersApi } from "./apis/users"
@@ -10,6 +10,7 @@ import { RobloxChatApi } from "./apis/chat"
 import { RobloxGroupsApi } from "./apis/groups"
 import { RobloxBadgesApi } from "./apis/badges"
 import { RobloxTradesApi } from "./apis/trades"
+import { RobloxAuthApi } from "./apis/auth"
 
 /**
  * 서비스 네임스페이스를 제공하는 공통 부모. 빌더의 모든 단계가 이걸 상속하므로
@@ -27,6 +28,7 @@ export class RobloxClient<L = unknown> {
     private _groups?: RobloxGroupsApi
     private _badges?: RobloxBadgesApi
     private _trades?: RobloxTradesApi
+    private _auth?: RobloxAuthApi
     /** 쿠키 → 고정 클라이언트. 같은 쿠키면 같은 클라이언트를 돌려줘 요청 묶기·중복 제거·내 id 캐시가 이어진다 */
     private readonly asClients = new Map<RobloxCookie, RobloxClient<L>>()
 
@@ -49,7 +51,7 @@ export class RobloxClient<L = unknown> {
 
     /** games.roblox.com + gamejoin.roblox.com */
     get games(): RobloxGamesApi<L> {
-        return this._games ??= withRobloxErrors(new RobloxGamesApi<L>(this.config, this.thumbnails, this.presence))
+        return this._games ??= withRobloxErrors(new RobloxGamesApi<L>(this.config, this.thumbnails, this.presence, this.users))
     }
 
     /** friends.roblox.com */
@@ -67,6 +69,11 @@ export class RobloxClient<L = unknown> {
         return this._badges ??= withRobloxErrors(new RobloxBadgesApi(this.config, this.thumbnails))
     }
 
+    /** `auth` getter의 본체. 타입에는 확장 모드 클라이언트에만 드러난다 (RobloxExtensionServices) */
+    protected authApi(): RobloxAuthApi {
+        return this._auth ??= withRobloxErrors(new RobloxAuthApi(this.config))
+    }
+
     /** trades.roblox.com — 요청 계정 기준 */
     get trades(): RobloxTradesApi {
         return this._trades ??= withRobloxErrors(new RobloxTradesApi(this.config))
@@ -77,13 +84,55 @@ export class RobloxClient<L = unknown> {
         return this._chat ??= withRobloxErrors(new RobloxChatApi(this.config))
     }
 
-    /**
-     * 지정한 쿠키로 고정한 클라이언트. 요청 계정에 따라 응답이 달라지는 API용.
-     * 확장 모드에서는 쿠키를 붙일 수 없으므로 의미가 없다.
-     */
-    as(cookie: RobloxCookie): RobloxClient<L> {
+    /** `as(cookie)`의 본체. 타입에는 node 모드 클라이언트에만 드러난다 (RobloxNodeServices) */
+    protected pin(cookie: RobloxCookie): RobloxPinnedClient<L> {
         let client = this.asClients.get(cookie)
         if (!client) this.asClients.set(cookie, client = new RobloxClient<L>({ ...this.config, fixedCookie: cookie }))
-        return client
+        return client as RobloxPinnedClient<L>
     }
 }
+
+/**
+ * 확장 모드 클라이언트에만 있는 서비스. `mode("extension")`에서 이어진 단계의 타입에만 붙고,
+ * node 모드 타입에는 없어 자동 완성에도 뜨지 않는다.
+ */
+export interface RobloxExtensionServices {
+    /** auth.roblox.com — 확장 모드 전용 (roblox.com 페이지에서 쓴다) */
+    readonly auth: RobloxAuthApi
+}
+
+/** node 모드 클라이언트에만 있는 기능. 확장 모드는 브라우저의 쿠키를 쓰므로 계정을 고를 수 없다. */
+export interface RobloxNodeServices<L = unknown> {
+    /**
+     * 지정한 쿠키로 고정한 클라이언트. 요청 계정에 따라 응답이 달라지는 API용.
+     * 같은 쿠키면 같은 클라이언트를 돌려준다.
+     */
+    as(cookie: RobloxCookie): RobloxPinnedClient<L>
+}
+
+/** `.as(cookie)`로 고정한 node 모드 클라이언트 */
+export type RobloxPinnedClient<L = unknown> = RobloxClient<L> & RobloxNodeServices<L>
+
+/** 단계 타입에 모드 전용 기능을 붙인다: 확장 모드면 `auth`, node 모드면 `as` */
+export type RobloxModeStage<S, M extends RobloxMode, L = unknown> =
+    M extends "extension" ? S & RobloxExtensionServices
+    : M extends "node" ? S & RobloxNodeServices<L>
+    : S
+
+// 런타임에는 모든 클라이언트에 있다. 타입에서만 모드별로 나눈다
+// (타입을 우회한 auth 호출은 메서드가 모드를 다시 확인해 막는다).
+Object.defineProperties(RobloxClient.prototype, {
+    auth: {
+        configurable: true,
+        get(this: RobloxClient) {
+            return (this as unknown as { authApi(): RobloxAuthApi }).authApi()
+        },
+    },
+    as: {
+        configurable: true,
+        writable: true,
+        value(this: RobloxClient, cookie: RobloxCookie) {
+            return (this as unknown as { pin(cookie: RobloxCookie): RobloxPinnedClient }).pin(cookie)
+        },
+    },
+})

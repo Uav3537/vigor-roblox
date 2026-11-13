@@ -123,6 +123,8 @@ const conversations = await me.chat.listConversations()
 
 APIs that answer for "me" throw if the client has a cookie pool, because each request could come from a different account. In extension mode the signed-in account is used.
 
+`.as()` exists only on node-mode clients, and `auth` only on extension-mode clients: each stage remembers its mode in its type, so the other mode's members never show up in completions and using them is a compile error.
+
 ### Extensions
 
 Roblox APIs only allow cross-origin requests from `https://www.roblox.com`, so `extension` mode works from an extension's service worker, popup or offscreen page (host permissions skip CORS) and from scripts running on roblox.com (content scripts, userscripts). A regular web page is blocked by CORS in either mode and needs its own backend running `node` mode.
@@ -200,6 +202,7 @@ data[0].location?.countryCode   // typed from your callback
 | `getAuthenticated()`, `getAgeBracket()`, `getCountryCode()`, `getRoles()` | The signed-in account. |
 | `getBirthdate()`, `setBirthdate()`, `getDescription()`, `setDescription()`, `getGender()`, `setGender()` | Account settings. |
 | `validateDisplayName()`, `validateUserDisplayName()`, `setDisplayName()` | Display names. |
+| `getProfileActions(userId)` | The header buttons and "…" menu items roblox.com shows the requesting account on that profile (`profile-platform-api`). Not cached. |
 
 `thumbnail: true` attaches a 150×150 PNG headshot to each user. Pass an object to pick the type and size, for example `{ type: "Avatar", size: "420x420" }`.
 
@@ -234,6 +237,7 @@ const images = await roblox.thumbnails.get([
 | `getServerAddresses(targets)`, `getServerLocations(ips)` | gamejoin addresses for `{ placeId, jobId }` targets (`RobloxServerAddressTarget`; needs a signed-in account; full servers have none) and IP locations from your `geolocation` callback. Addresses are cached per place and job id, since a job id is only unique within its place. IPs the callback can't place are left out. |
 | `getRecommendations`, `getUserGames`, `getUserFavoriteGames`, `getGroupGames` | Paged lists. |
 | `getFavorited`, `setFavorited`, `getUserVotes`, `setUserVote` | The requesting account's favorites and votes. |
+| `getFollowing`, `setFollowing` | The requesting account's game follows (`followings.roblox.com`), with its follow count and limit. |
 | `getPrivateServers`, `getMyPrivateServers`, `getPrivateServerDetails`, `getPrivateServersEnabled`, `getPrivateServerInvites`, `createPrivateServer`, `updatePrivateServer`, `updatePrivateServerPermissions`, `updatePrivateServerSubscription` | Private servers. |
 
 gamejoin only answers requests whose `User-Agent` looks like the Roblox client. Node mode sends `Roblox/WinInet` itself. A `fetch` cannot set that header, so in extension mode addresses come back with `status: 12` and no IP unless the `robloxDnrRules()` rules are installed.
@@ -247,6 +251,14 @@ gamejoin only answers requests whose `User-Agent` looks like the Roblox client. 
 | `getFollowers`, `getFollowings`, `searchFriends`, `getMetadata` | Paged lists and page metadata. |
 | `getFriendStatuses`, `getAreFriends`, `getFollowingStatuses`, `getBlockStatuses`, `getOnlineFriends`, `getInactiveFriends`, `getFriendRequests`, `getTrustedFriendRequests`, `getFriendRequestCount` | Relative to the requesting account. |
 | `sendFriendRequest`, `acceptFriendRequest`, `declineFriendRequest`, `declineAllFriendRequests`, `unfriend`, `follow`, `unfollow`, `block`, `unblock`, `setUserTag`, `createTrustedFriendLink` | Actions. Friend requests may require a captcha. |
+
+### `auth`
+
+Only on clients built with `mode("extension")`: node-mode clients don't have `auth` in their type at all, so it never shows up in completions there.
+
+| Method | Description |
+| --- | --- |
+| `createAuthenticationTicket()` | A one-time ticket for launching the Roblox client as the requesting account. **Extension mode only, from a roblox.com page**: asked for from anywhere else (node), Roblox refuses it and signs that session out. A call that gets around the types in node mode throws `MODE_UNSUPPORTED` without sending a request. The ticket can be exchanged for a session: use it only to launch the client, never log or send it anywhere. |
 
 ### `trades`
 
@@ -384,6 +396,7 @@ Every error a service method throws is a `RobloxError`. Its `code` says what wen
 | `PARTIAL` | Some items of an array call failed | `results`, `errors` |
 | `VIEWER_REQUIRED` | An API that answers for one account was called on a rotating cookie pool. Thrown before sending anything | — |
 | `AUTH_REQUIRED` | The API needs a signed-in account | `reason` |
+| `MODE_UNSUPPORTED` | The API can't be used in this client mode. Thrown before sending anything | `mode`, `reason` |
 | `GEOLOCATION_REQUIRED` | Server locations were asked for without `.geolocation(fn)` | — |
 | `NO_ROUTE` | No endpoint could take or answer the request | `target` |
 | `UNKNOWN` | Anything else (a network failure, a callback that threw, ...) | — |

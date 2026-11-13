@@ -20,6 +20,8 @@ import {
     RobloxUsersByNameResponseSchema,
     RobloxUsersResponseSchema,
     RobloxUserSchema,
+    RobloxProfileActionsSchema,
+    type RobloxProfileActions,
     type RobloxGender,
     type RobloxUser,
     type RobloxUserByName,
@@ -36,6 +38,7 @@ import {
 export type RobloxUsersCacheable = "getUserDetails" | "getUsers" | "getUsersByNames" | "getUsernameHistory"
 
 const ORIGIN = "https://users.roblox.com"
+const APIS = "https://apis.roblox.com"
 /** 이전 버전부터 users 요청은 WinInet UA로 보낸다. */
 const USER_AGENT = "Roblox/WinInet"
 
@@ -140,12 +143,14 @@ const byNameRoute: RobloxBatchRoute<ByNameTarget, RobloxUserByName | null> = {
 /** users.roblox.com */
 export class RobloxUsersApi {
     private readonly http
+    private readonly apisHttp
     private readonly details
     private readonly byId
     private readonly byName
 
     constructor(private readonly config: RobloxConfig, private readonly thumbnails: RobloxThumbnailsApi) {
         this.http = createHttp(config, ORIGIN, { userAgent: USER_AGENT })
+        this.apisHttp = createHttp(config, APIS, { browserTracker: true })
         this.details = new RobloxBatcher(config, ORIGIN, [detailRoute], { userAgent: USER_AGENT })
         this.byId = new RobloxBatcher(config, ORIGIN, [profilesRoute, byIdRoute], { userAgent: USER_AGENT })
         this.byName = new RobloxBatcher(config, ORIGIN, [byNameRoute], { userAgent: USER_AGENT })
@@ -252,6 +257,19 @@ export class RobloxUsersApi {
     }
 
     // ── 인증된 계정 ────────────────────────────────────
+
+    /**
+     * POST apis /profile-platform-api/v1/profiles/get — roblox.com 프로필 화면이 쓰는 비공개 엔드포인트.
+     * 요청 계정이 이 유저의 프로필에서 볼 헤더 버튼과 "…" 메뉴 항목. 관계(친구, 팔로우, 차단, 신뢰하는 친구)와
+     * 계정 조건(연령, 거래 자격)에 따라 서버가 고른다. 계정마다 다르고 바로 바뀌므로 캐시하지 않는다.
+     */
+    getProfileActions(userId: RobloxUserId): Promise<RobloxProfileActions> {
+        return this.apisHttp()
+            .path("profile-platform-api", "v1", "profiles", "get")
+            .body("overwrite", { profileType: "User", profileId: String(userId), components: [{ component: "Actions" }] })
+            .middlewares(validate(RobloxProfileActionsSchema))
+            .request()
+    }
 
     /** GET /v1/users/authenticated */
     getAuthenticated() {

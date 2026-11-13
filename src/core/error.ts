@@ -21,6 +21,8 @@ export const RobloxErrorMessageFuncs = {
     VIEWER_REQUIRED: (_: {}) => "This API answers for the requesting account. Pin an account with .as(cookie) instead of rotating cookies",
     /** The API needs a signed-in account */
     AUTH_REQUIRED: ({ reason }: { reason: string }) => `Authentication required: ${reason}`,
+    /** The API can't be used in this client mode */
+    MODE_UNSUPPORTED: ({ mode, reason }: { mode: string, reason: string }) => `Not available in ${mode} mode: ${reason}`,
     /** Server locations need `.geolocation(fn)` */
     GEOLOCATION_REQUIRED: (_: {}) => "Looking up server locations needs an IP-to-location callback set with .geolocation(fn)",
     /** No endpoint could take or answer this request */

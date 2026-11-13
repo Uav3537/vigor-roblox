@@ -4,9 +4,10 @@ import { canonicalInfo, robloxCacheKey, type RobloxCacheInfo, type RobloxCacheVa
 import { resolveTtl, type RobloxConfig } from "@/core/config"
 import { cached, singleFlight, createHttp, validate } from "@/core/http"
 import { extra, finish, found, partial, settle } from "@/core/partial"
-import { canAuthenticate, viewerKey } from "@/core/viewer"
+import { canAuthenticate, requireViewer, viewerKey } from "@/core/viewer"
 import type { RobloxThumbnailsApi } from "@/apis/thumbnails"
 import type { RobloxPresenceApi } from "@/apis/presence"
+import type { RobloxUsersApi } from "@/apis/users"
 import { RobloxPresenceType } from "@/types/presence"
 import {
     RobloxCursorSchema,
@@ -23,6 +24,8 @@ import {
     RobloxFavoriteGamePageSchema,
     RobloxGameMediaResponseSchema,
     RobloxGamePlayabilitySchema,
+    RobloxGameFollowStatusRawSchema,
+    type RobloxGameFollowStatus,
     RobloxGameSocialLinksResponseSchema,
     RobloxGameProductsResponseSchema,
     RobloxGameRecommendationsSchema,
@@ -93,6 +96,7 @@ export type RobloxGamesCacheable =
 const GAMES = "https://games.roblox.com"
 const APIS = "https://apis.roblox.com"
 const GAMEJOIN = "https://gamejoin.roblox.com"
+const FOLLOWINGS = "https://followings.roblox.com"
 /** `.geolocation(fn)` 없이 위치를 물었을 때 */
 /** gamejoin은 Roblox 클라이언트 UA가 아니면 거절한다 (status 12) */
 const CLIENT_USER_AGENT = "Roblox/WinInet"
@@ -291,7 +295,10 @@ export type RobloxFindUsersOptions = Omit<RobloxServerPageQuery, "cursor"> & {
 /** games.roblox.com + gamejoin.roblox.com */
 export class RobloxGamesApi<L = unknown> {
     private readonly http
+    private readonly followingsHttp
     private readonly auth = () => canAuthenticate(this.config)
+    /** viewer → 인증된 내 id */
+    private readonly me = new Map<string, Promise<RobloxUserId>>()
 
     private readonly games
     private readonly favoriteCounts
@@ -312,8 +319,14 @@ export class RobloxGamesApi<L = unknown> {
     private readonly myPrivateServers
     private readonly addresses
 
-    constructor(private readonly config: RobloxConfig, private readonly thumbnails: RobloxThumbnailsApi, private readonly presence: RobloxPresenceApi) {
+    constructor(
+        private readonly config: RobloxConfig,
+        private readonly thumbnails: RobloxThumbnailsApi,
+        private readonly presence: RobloxPresenceApi,
+        private readonly users: RobloxUsersApi,
+    ) {
         this.http = createHttp(config, GAMES)
+        this.followingsHttp = createHttp(config, FOLLOWINGS)
 
         const gamesRoute = <R>(pick: (g: RobloxGame) => R): RobloxBatchRoute<number, R | null> => {
             const route = listRoute<RobloxGame>({
@@ -594,6 +607,47 @@ export class RobloxGamesApi<L = unknown> {
             .body("overwrite", { vote })
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
+    }
+
+    /** 요청 계정의 id. 계정이 정해져 있지 않으면 에러 (requireViewer) */
+    private async myId(): Promise<RobloxUserId> {
+        const viewer = await requireViewer(this.config)
+        let id = this.me.get(viewer)
+        if (!id) {
+            this.me.set(viewer, id = this.users.getAuthenticated().then(u => u.id))
+            id.catch(() => this.me.delete(viewer))
+        }
+        return id
+    }
+
+    /** GET followings /v1/users/{me}/universes/{universeId}/status — 내가 팔로우하는지, 더 팔로우할 수 있는지 */
+    async getFollowing(universeIds: readonly RobloxUniverseId[]): Promise<RobloxGameFollowStatus[]> {
+        const me = await this.myId()
+        const { values, errors } = await settle(universeIds, async universeId => {
+            const res = await this.followingsHttp()
+                .path("v1", "users", me, "universes", universeId, "status")
+                .middlewares(validate(RobloxGameFollowStatusRawSchema))
+                .request()
+            return {
+                universeId,
+                isFollowing:    res.IsFollowing,
+                canFollow:      res.CanFollow,
+                followingCount: res.FollowingCountByType,
+                followingLimit: res.FollowingLimitByType,
+            }
+        })
+        return finish(found(values), errors)
+    }
+
+    /** POST(팔로우) / DELETE(취소) followings /v1/users/{me}/universes/{universeId} — 게임 업데이트 알림을 받는다 */
+    async setFollowing(universeId: RobloxUniverseId, isFollowing: boolean): Promise<void> {
+        const me = await this.myId()
+        const path = ["v1", "users", me, "universes", universeId] as const
+        if (isFollowing) {
+            await this.followingsHttp().path(...path).body("overwrite", {}).middlewares(validate(z.unknown())).request()
+        } else {
+            await this.followingsHttp().method("DELETE").path(...path).middlewares(validate(z.unknown())).request()
+        }
     }
 
     // ── 서버 ───────────────────────────────────────────

@@ -1,7 +1,7 @@
 import { vigorRoblox } from "./builder"
 
 export { vigorRoblox, VigorRoblox, RobloxExtensionStage, RobloxNodeStage, RobloxOptionsStage, RobloxCacheStage } from "./builder"
-export { RobloxClient } from "./client"
+export { RobloxClient, type RobloxExtensionServices, type RobloxNodeServices, type RobloxPinnedClient, type RobloxModeStage } from "./client"
 export {
     RobloxMemoryCache, robloxCacheKey,
     type RobloxCacheStore, type RobloxCacheInfo, type RobloxCacheValue, type RobloxCacheValues, type RobloxCacheEntry, type RobloxViewerKey,
@@ -23,6 +23,7 @@ export { RobloxChatApi } from "./apis/chat"
 export { RobloxGroupsApi, type RobloxGroupsCacheable } from "./apis/groups"
 export { RobloxBadgesApi, type RobloxBadgesCacheable } from "./apis/badges"
 export { RobloxTradesApi } from "./apis/trades"
+export { RobloxAuthApi } from "./apis/auth"
 export * from "./types/common"
 export * from "./types/creator"
 export * from "./types/users"

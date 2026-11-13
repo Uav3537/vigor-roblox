@@ -34,6 +34,7 @@ __export(index_exports, {
   RobloxAgeBracketSchema: () => RobloxAgeBracketSchema,
   RobloxArrayResponseSchema: () => RobloxArrayResponseSchema,
   RobloxAssetIdSchema: () => RobloxAssetIdSchema,
+  RobloxAuthApi: () => RobloxAuthApi,
   RobloxAuthenticatedUserSchema: () => RobloxAuthenticatedUserSchema,
   RobloxBadgeAwardSchema: () => RobloxBadgeAwardSchema,
   RobloxBadgeAwardsResponseSchema: () => RobloxBadgeAwardsResponseSchema,
@@ -99,6 +100,7 @@ __export(index_exports, {
   RobloxFriendsGroupsResponseSchema: () => RobloxFriendsGroupsResponseSchema,
   RobloxFriendsMetadataSchema: () => RobloxFriendsMetadataSchema,
   RobloxGameCreatorSchema: () => RobloxGameCreatorSchema,
+  RobloxGameFollowStatusRawSchema: () => RobloxGameFollowStatusRawSchema,
   RobloxGameMediaResponseSchema: () => RobloxGameMediaResponseSchema,
   RobloxGameMediaSchema: () => RobloxGameMediaSchema,
   RobloxGamePassIdSchema: () => RobloxGamePassIdSchema,
@@ -200,6 +202,8 @@ __export(index_exports, {
   RobloxPrivateServerPermissionsSchema: () => RobloxPrivateServerPermissionsSchema,
   RobloxPrivateServerRawSchema: () => RobloxPrivateServerRawSchema,
   RobloxPrivateServerSubscriptionSchema: () => RobloxPrivateServerSubscriptionSchema,
+  RobloxProfileActionSchema: () => RobloxProfileActionSchema,
+  RobloxProfileActionsSchema: () => RobloxProfileActionsSchema,
   RobloxRecommendedGameSchema: () => RobloxRecommendedGameSchema,
   RobloxServerPageRawSchema: () => RobloxServerPageRawSchema,
   RobloxServerPlayerRawSchema: () => RobloxServerPlayerRawSchema,
@@ -282,6 +286,8 @@ var RobloxErrorMessageFuncs = {
   VIEWER_REQUIRED: (_) => "This API answers for the requesting account. Pin an account with .as(cookie) instead of rotating cookies",
   /** The API needs a signed-in account */
   AUTH_REQUIRED: ({ reason }) => `Authentication required: ${reason}`,
+  /** The API can't be used in this client mode */
+  MODE_UNSUPPORTED: ({ mode, reason }) => `Not available in ${mode} mode: ${reason}`,
   /** Server locations need `.geolocation(fn)` */
   GEOLOCATION_REQUIRED: (_) => "Looking up server locations needs an IP-to-location callback set with .geolocation(fn)",
   /** No endpoint could take or answer this request */
@@ -395,7 +401,7 @@ async function robloxCacheKey(info) {
   const { service, method, ...args } = canonicalInfo(info);
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(JSON.stringify(args)));
   const name = `${service}.${method}`;
-  const prefix = UNVERSIONED.has(name) ? "" : `${"6.0.0"}:`;
+  const prefix = UNVERSIONED.has(name) ? "" : `${"6.1.0"}:`;
   return `${prefix}${name}::${base64url(new Uint8Array(digest).slice(0, 16))}`;
 }
 var RobloxMemoryCache = class {
@@ -952,9 +958,30 @@ var RobloxValidateDisplayNameQuerySchema = import_zod3.default.object({
 var RobloxValidateUserDisplayNameQuerySchema = import_zod3.default.object({
   displayName: import_zod3.default.string()
 });
+var RobloxProfileActionSchema = import_zod3.default.string();
+var RobloxProfileActionsRawSchema = import_zod3.default.object({
+  components: import_zod3.default.object({
+    Actions: import_zod3.default.object({
+      buttons: import_zod3.default.array(import_zod3.default.object({ type: RobloxProfileActionSchema, disabledReason: import_zod3.default.string().nullish() })).nullish(),
+      /** 구분선으로 나뉜 묶음들. 묶음이 하나면 평평한 배열로 오기도 한다 */
+      contextual: import_zod3.default.union([import_zod3.default.array(import_zod3.default.array(RobloxProfileActionSchema)), import_zod3.default.array(RobloxProfileActionSchema)]).nullish()
+    }).nullish()
+  })
+});
+var RobloxProfileActionsSchema = RobloxProfileActionsRawSchema.transform((raw) => {
+  const actions = raw.components.Actions;
+  const contextual = actions?.contextual ?? [];
+  return {
+    /** 헤더 버튼, 보이는 순서대로. `disabledReason`이 있으면 눌 수 없는 상태로 그린다 */
+    buttons: (actions?.buttons ?? []).map((b) => ({ type: b.type, disabledReason: b.disabledReason ?? null })),
+    /** "…" 메뉴의 항목. 묶음 사이에 구분선이 들어간다 */
+    contextual: contextual.length === 0 ? [] : contextual.every((g) => Array.isArray(g)) ? contextual : [contextual]
+  };
+});
 
 // src/apis/users.ts
 var ORIGIN = "https://users.roblox.com";
+var APIS = "https://apis.roblox.com";
 var USER_AGENT = "Roblox/WinInet";
 var MULTI_GET_LIMIT = 100;
 var detailRoute = {
@@ -1014,6 +1041,7 @@ var RobloxUsersApi = class {
     this.config = config;
     this.thumbnails = thumbnails;
     this.http = createHttp(config, ORIGIN, { userAgent: USER_AGENT });
+    this.apisHttp = createHttp(config, APIS, { browserTracker: true });
     this.details = new RobloxBatcher(config, ORIGIN, [detailRoute], { userAgent: USER_AGENT });
     this.byId = new RobloxBatcher(config, ORIGIN, [profilesRoute, byIdRoute], { userAgent: USER_AGENT });
     this.byName = new RobloxBatcher(config, ORIGIN, [byNameRoute], { userAgent: USER_AGENT });
@@ -1021,6 +1049,7 @@ var RobloxUsersApi = class {
   config;
   thumbnails;
   http;
+  apisHttp;
   details;
   byId;
   byName;
@@ -1087,6 +1116,14 @@ var RobloxUsersApi = class {
     await this.http().path("v1", "display-names", "validate").query(query).middlewares(validate(RobloxEmptyResponseSchema)).request();
   }
   // ── 인증된 계정 ────────────────────────────────────
+  /**
+   * POST apis /profile-platform-api/v1/profiles/get — roblox.com 프로필 화면이 쓰는 비공개 엔드포인트.
+   * 요청 계정이 이 유저의 프로필에서 볼 헤더 버튼과 "…" 메뉴 항목. 관계(친구, 팔로우, 차단, 신뢰하는 친구)와
+   * 계정 조건(연령, 거래 자격)에 따라 서버가 고른다. 계정마다 다르고 바로 바뀌므로 캐시하지 않는다.
+   */
+  getProfileActions(userId) {
+    return this.apisHttp().path("profile-platform-api", "v1", "profiles", "get").body("overwrite", { profileType: "User", profileId: String(userId), components: [{ component: "Actions" }] }).middlewares(validate(RobloxProfileActionsSchema)).request();
+  }
   /** GET /v1/users/authenticated */
   getAuthenticated() {
     return this.http().path("v1", "users", "authenticated").middlewares(validate(RobloxAuthenticatedUserSchema)).request();
@@ -1595,6 +1632,15 @@ var RobloxUserGameVoteSchema = import_zod8.default.object({
   userVote: import_zod8.default.boolean().nullable(),
   reasonForNotVoteable: import_zod8.default.string().nullable()
 });
+var RobloxGameFollowStatusRawSchema = import_zod8.default.object({
+  UniverseId: import_zod8.default.number(),
+  CanFollow: import_zod8.default.boolean(),
+  IsFollowing: import_zod8.default.boolean(),
+  /** 지금 팔로우 중인 게임 수 */
+  FollowingCountByType: import_zod8.default.number(),
+  /** 팔로우할 수 있는 게임 수 한도 */
+  FollowingLimitByType: import_zod8.default.number()
+});
 var RobloxGameMediaSchema = import_zod8.default.object({
   assetTypeId: import_zod8.default.number(),
   /** "Image" | "YouTubeVideo" | "GamePreviewVideo" ... */
@@ -1760,8 +1806,9 @@ var RobloxFavoriteGamePageSchema = RobloxPageResponseSchema(RobloxFavoriteGameSc
 // src/apis/games.ts
 var import_zod9 = __toESM(require("zod"), 1);
 var GAMES = "https://games.roblox.com";
-var APIS = "https://apis.roblox.com";
+var APIS2 = "https://apis.roblox.com";
 var GAMEJOIN = "https://gamejoin.roblox.com";
+var FOLLOWINGS = "https://followings.roblox.com";
 var CLIENT_USER_AGENT = "Roblox/WinInet";
 var SERVER_PAGE_LIMIT = 100;
 var V2_CURSOR = "v2:";
@@ -1868,11 +1915,13 @@ var addressRoute = {
   }
 };
 var RobloxGamesApi = class {
-  constructor(config, thumbnails, presence) {
+  constructor(config, thumbnails, presence, users) {
     this.config = config;
     this.thumbnails = thumbnails;
     this.presence = presence;
+    this.users = users;
     this.http = createHttp(config, GAMES);
+    this.followingsHttp = createHttp(config, FOLLOWINGS);
     const gamesRoute = (pick) => {
       const route = listRoute2({
         bucket: "games GET /v1/games",
@@ -1946,7 +1995,7 @@ var RobloxGamesApi = class {
       mapRoute(placeDetailsRoute, (p) => p?.universeId ?? null),
       singleRoute2({
         bucket: "apis GET /universes/v1/places/{id}/universe",
-        origin: APIS,
+        origin: APIS2,
         path: (id2) => ["universes", "v1", "places", id2, "universe"],
         schema: import_zod9.default.object({ universeId: RobloxUniverseIdSchema.nullable() }),
         pick: (res) => res.universeId
@@ -2038,8 +2087,12 @@ var RobloxGamesApi = class {
   config;
   thumbnails;
   presence;
+  users;
   http;
+  followingsHttp;
   auth = () => canAuthenticate(this.config);
+  /** viewer → 인증된 내 id */
+  me = /* @__PURE__ */ new Map();
   games;
   favoriteCounts;
   votes;
@@ -2166,6 +2219,41 @@ var RobloxGamesApi = class {
   /** PATCH /v1/games/{universeId}/user-votes — true = 좋아요, false = 싫어요, null = 취소. 게임을 플레이한 적이 있어야 한다. */
   async setUserVote(universeId, vote) {
     await this.http().method("PATCH").path("v1", "games", universeId, "user-votes").body("overwrite", { vote }).middlewares(validate(RobloxEmptyResponseSchema)).request();
+  }
+  /** 요청 계정의 id. 계정이 정해져 있지 않으면 에러 (requireViewer) */
+  async myId() {
+    const viewer = await requireViewer(this.config);
+    let id2 = this.me.get(viewer);
+    if (!id2) {
+      this.me.set(viewer, id2 = this.users.getAuthenticated().then((u) => u.id));
+      id2.catch(() => this.me.delete(viewer));
+    }
+    return id2;
+  }
+  /** GET followings /v1/users/{me}/universes/{universeId}/status — 내가 팔로우하는지, 더 팔로우할 수 있는지 */
+  async getFollowing(universeIds) {
+    const me = await this.myId();
+    const { values, errors } = await settle(universeIds, async (universeId) => {
+      const res = await this.followingsHttp().path("v1", "users", me, "universes", universeId, "status").middlewares(validate(RobloxGameFollowStatusRawSchema)).request();
+      return {
+        universeId,
+        isFollowing: res.IsFollowing,
+        canFollow: res.CanFollow,
+        followingCount: res.FollowingCountByType,
+        followingLimit: res.FollowingLimitByType
+      };
+    });
+    return finish(found(values), errors);
+  }
+  /** POST(팔로우) / DELETE(취소) followings /v1/users/{me}/universes/{universeId} — 게임 업데이트 알림을 받는다 */
+  async setFollowing(universeId, isFollowing) {
+    const me = await this.myId();
+    const path = ["v1", "users", me, "universes", universeId];
+    if (isFollowing) {
+      await this.followingsHttp().path(...path).body("overwrite", {}).middlewares(validate(import_zod9.default.unknown())).request();
+    } else {
+      await this.followingsHttp().method("DELETE").path(...path).middlewares(validate(import_zod9.default.unknown())).request();
+    }
   }
   // ── 서버 ───────────────────────────────────────────
   /**
@@ -2582,7 +2670,7 @@ var RobloxCaptchaStatusSchema = import_zod10.default.object({
 var import_zod11 = __toESM(require("zod"), 1);
 var ORIGIN4 = "https://friends.roblox.com";
 var CONTACTS = "https://contacts.roblox.com";
-var APIS2 = "https://apis.roblox.com";
+var APIS3 = "https://apis.roblox.com";
 var FIND_PAGE_LIMIT = 50;
 var MULTI_LIMIT = 100;
 var BLOCK_CHECK_LIMIT = 50;
@@ -2630,7 +2718,7 @@ var RobloxFriendsApi = class {
     this.users = users;
     this.http = createHttp(config, ORIGIN4);
     this.contactsHttp = createHttp(config, CONTACTS);
-    this.apisHttp = createHttp(config, APIS2, { browserTracker: true });
+    this.apisHttp = createHttp(config, APIS3, { browserTracker: true });
     this.friendIds = new RobloxBatcher(config, ORIGIN4, friendIdRoutes);
     this.friendCounts = new RobloxBatcher(config, ORIGIN4, [countRoute("friends GET /v1/users/{id}/friends/count", ["friends", "count"])]);
     this.followerCounts = new RobloxBatcher(config, ORIGIN4, [countRoute("friends GET /v1/users/{id}/followers/count", ["followers", "count"])]);
@@ -4300,6 +4388,48 @@ var RobloxTradesApi = class {
   }
 };
 
+// src/apis/auth.ts
+var import_vigor_fetch4 = require("vigor-fetch");
+var import_zod19 = __toESM(require("zod"), 1);
+var ORIGIN9 = "https://auth.roblox.com";
+var RobloxAuthApi = class {
+  constructor(config) {
+    this.config = config;
+    this.http = createHttp(config, ORIGIN9);
+  }
+  config;
+  http;
+  /**
+   * POST /v1/authentication-ticket — Roblox 클라이언트를 요청 계정으로 실행할 때 넘기는 일회용 티켓.
+   * 응답 body는 비어 있고 티켓은 `rbx-authentication-ticket` 헤더로 온다. 짧은 시간 안에 한 번만 쓸 수 있다.
+   *
+   * 확장 모드 전용이다. 세션이 만들어진 브라우저 밖(node)에서 부르면 Roblox가 401로 거절하고
+   * **그 세션 쿠키를 무효로 만든다** (2026-11 실측: 요청 직전까지 유효하던 쿠키가 요청 뒤 로그아웃됐다).
+   * 그래서 node 모드에서는 요청을 보내지 않고 MODE_UNSUPPORTED로 실패한다.
+   *
+   * roblox.com 페이지(content script, userscript)에서 불러야 Referer가 roblox.com이 된다.
+   *
+   * 티켓은 세션 쿠키로 바꿀 수 있는 자격 증명이다. 클라이언트 실행(`roblox-player:` 링크)에만 쓰고,
+   * 로그·서버·다른 사람에게 넘기지 않는다.
+   */
+  async createAuthenticationTicket() {
+    if (this.config.mode !== "extension") {
+      throw new RobloxError("MODE_UNSUPPORTED", { mode: this.config.mode, reason: "Roblox signs the session out when a ticket is asked for outside the browser that holds it" });
+    }
+    let ticket = null;
+    await this.http().path("v1", "authentication-ticket").body("overwrite", {}).middlewares(import_vigor_fetch4.vigor.builders.fetch.middlewares().after("fluent", (ctx) => {
+      ticket = ctx.response.headers.get("rbx-authentication-ticket");
+    })).middlewares(validate(import_zod19.default.unknown())).request();
+    if (!ticket) {
+      throw new RobloxError("INVALID_RESPONSE", {
+        issues: [{ code: "custom", path: ["rbx-authentication-ticket"], message: "Missing ticket header", input: null }],
+        url: `${ORIGIN9}/v1/authentication-ticket`
+      });
+    }
+    return ticket;
+  }
+};
+
 // src/client.ts
 var RobloxClient = class _RobloxClient {
   constructor(config) {
@@ -4315,6 +4445,7 @@ var RobloxClient = class _RobloxClient {
   _groups;
   _badges;
   _trades;
+  _auth;
   /** 쿠키 → 고정 클라이언트. 같은 쿠키면 같은 클라이언트를 돌려줘 요청 묶기·중복 제거·내 id 캐시가 이어진다 */
   asClients = /* @__PURE__ */ new Map();
   /** users.roblox.com */
@@ -4331,7 +4462,7 @@ var RobloxClient = class _RobloxClient {
   }
   /** games.roblox.com + gamejoin.roblox.com */
   get games() {
-    return this._games ??= withRobloxErrors(new RobloxGamesApi(this.config, this.thumbnails, this.presence));
+    return this._games ??= withRobloxErrors(new RobloxGamesApi(this.config, this.thumbnails, this.presence, this.users));
   }
   /** friends.roblox.com */
   get friends() {
@@ -4345,6 +4476,10 @@ var RobloxClient = class _RobloxClient {
   get badges() {
     return this._badges ??= withRobloxErrors(new RobloxBadgesApi(this.config, this.thumbnails));
   }
+  /** `auth` getter의 본체. 타입에는 확장 모드 클라이언트에만 드러난다 (RobloxExtensionServices) */
+  authApi() {
+    return this._auth ??= withRobloxErrors(new RobloxAuthApi(this.config));
+  }
   /** trades.roblox.com — 요청 계정 기준 */
   get trades() {
     return this._trades ??= withRobloxErrors(new RobloxTradesApi(this.config));
@@ -4353,20 +4488,32 @@ var RobloxClient = class _RobloxClient {
   get chat() {
     return this._chat ??= withRobloxErrors(new RobloxChatApi(this.config));
   }
-  /**
-   * 지정한 쿠키로 고정한 클라이언트. 요청 계정에 따라 응답이 달라지는 API용.
-   * 확장 모드에서는 쿠키를 붙일 수 없으므로 의미가 없다.
-   */
-  as(cookie) {
+  /** `as(cookie)`의 본체. 타입에는 node 모드 클라이언트에만 드러난다 (RobloxNodeServices) */
+  pin(cookie) {
     let client = this.asClients.get(cookie);
     if (!client) this.asClients.set(cookie, client = new _RobloxClient({ ...this.config, fixedCookie: cookie }));
     return client;
   }
 };
+Object.defineProperties(RobloxClient.prototype, {
+  auth: {
+    configurable: true,
+    get() {
+      return this.authApi();
+    }
+  },
+  as: {
+    configurable: true,
+    writable: true,
+    value(cookie) {
+      return this.pin(cookie);
+    }
+  }
+});
 
 // src/core/cookies.ts
-var import_zod19 = __toESM(require("zod"), 1);
-var RobloxCookieSchema = import_zod19.default.string().min(1).brand("RobloxCookie");
+var import_zod20 = __toESM(require("zod"), 1);
+var RobloxCookieSchema = import_zod20.default.string().min(1).brand("RobloxCookie");
 var RobloxMemoryCookies = class {
   cookies;
   index = 0;
@@ -4526,7 +4673,7 @@ var RobloxRateLimiter = class {
 };
 
 // src/builder.ts
-var import_vigor_fetch4 = require("vigor-fetch");
+var import_vigor_fetch5 = require("vigor-fetch");
 var RobloxConfigurableStage = class extends RobloxClient {
   /** 모든 서비스 요청의 재시도 설정 */
   retry(options) {
@@ -4555,7 +4702,7 @@ var VigorRoblox = class {
    */
   guards = {
     roblox: isRobloxError,
-    fetch: import_vigor_fetch4.isVigorFetchError
+    fetch: import_vigor_fetch5.isVigorFetchError
   };
   mode(mode) {
     const config = {
@@ -4602,16 +4749,19 @@ var RobloxOptionsStage = class extends RobloxConfigurableStage {
 var RobloxCacheStage = class _RobloxCacheStage extends RobloxClient {
   /** 서비스 → 메서드 → TTL(ms). 적지 않은 메서드는 기본값(`RobloxDefaultTtl`)을 쓴다. 0이어도 저장소의 get/set은 불린다 (0의 처리는 저장소가 정한다). */
   ttl(ttl) {
-    return new _RobloxCacheStage({ ...this.config, ttl: mergeTtl(this.config.ttl, ttl) });
+    return this.next({ ...this.config, ttl: mergeTtl(this.config.ttl, ttl) });
   }
   retry(options) {
-    return new _RobloxCacheStage({ ...this.config, retry: { ...this.config.retry, ...options } });
+    return this.next({ ...this.config, retry: { ...this.config.retry, ...options } });
   }
   geolocation(geolocate) {
-    return new _RobloxCacheStage({ ...this.config, geolocate });
+    return this.next({ ...this.config, geolocate });
   }
   rateLimits(store) {
-    return new _RobloxCacheStage({ ...this.config, rateLimits: new RobloxRateLimiter(store) });
+    return this.next({ ...this.config, rateLimits: new RobloxRateLimiter(store) });
+  }
+  next(config) {
+    return new _RobloxCacheStage(config);
   }
 };
 var vigorRoblox = new VigorRoblox();
@@ -4637,6 +4787,7 @@ var index_default = vigorRoblox;
   RobloxAgeBracketSchema,
   RobloxArrayResponseSchema,
   RobloxAssetIdSchema,
+  RobloxAuthApi,
   RobloxAuthenticatedUserSchema,
   RobloxBadgeAwardSchema,
   RobloxBadgeAwardsResponseSchema,
@@ -4702,6 +4853,7 @@ var index_default = vigorRoblox;
   RobloxFriendsGroupsResponseSchema,
   RobloxFriendsMetadataSchema,
   RobloxGameCreatorSchema,
+  RobloxGameFollowStatusRawSchema,
   RobloxGameMediaResponseSchema,
   RobloxGameMediaSchema,
   RobloxGamePassIdSchema,
@@ -4803,6 +4955,8 @@ var index_default = vigorRoblox;
   RobloxPrivateServerPermissionsSchema,
   RobloxPrivateServerRawSchema,
   RobloxPrivateServerSubscriptionSchema,
+  RobloxProfileActionSchema,
+  RobloxProfileActionsSchema,
   RobloxRecommendedGameSchema,
   RobloxServerPageRawSchema,
   RobloxServerPlayerRawSchema,

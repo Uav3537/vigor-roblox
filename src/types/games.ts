@@ -146,6 +146,20 @@ export const RobloxUserGameVoteSchema = z.object({
     reasonForNotVoteable: z.string().nullable(),
 })
 
+/**
+ * GET followings /v1/users/{me}/universes/{universeId}/status — 게임 팔로우 상태 (PascalCase 응답).
+ * 팔로우 수에 한도가 있어 `CanFollow`가 false일 수 있다.
+ */
+export const RobloxGameFollowStatusRawSchema = z.object({
+    UniverseId:  z.number(),
+    CanFollow:   z.boolean(),
+    IsFollowing: z.boolean(),
+    /** 지금 팔로우 중인 게임 수 */
+    FollowingCountByType: z.number(),
+    /** 팔로우할 수 있는 게임 수 한도 */
+    FollowingLimitByType: z.number(),
+})
+
 /** `GameMediaItemResponseV2` — GET /v2/games/{universeId}/media 의 항목 */
 export const RobloxGameMediaSchema = z.object({
     assetTypeId: z.number(),
@@ -546,6 +560,15 @@ export type RobloxGamePlayability = z.infer<typeof RobloxGamePlayabilitySchema>
 export type RobloxGameSocialLink = z.infer<typeof RobloxGameSocialLinkSchema>
 export type RobloxGameVotes = z.infer<typeof RobloxGameVotesSchema>
 export type RobloxUserGameVote = z.infer<typeof RobloxUserGameVoteSchema>
+/** 게임 팔로우 상태. `canFollow`는 이미 팔로우 중이거나 한도(`followingLimit`)에 닿았으면 false다 */
+export type RobloxGameFollowStatus = {
+    universeId:     RobloxUniverseId
+    isFollowing:    boolean
+    canFollow:      boolean
+    /** 요청 계정이 팔로우 중인 게임 수 */
+    followingCount: number
+    followingLimit: number
+}
 export type RobloxGameMedia = z.infer<typeof RobloxGameMediaSchema>
 export type RobloxRecommendedGame = z.infer<typeof RobloxRecommendedGameSchema>
 export type RobloxGameRecommendations = z.infer<typeof RobloxGameRecommendationsSchema>

@@ -196,3 +196,42 @@ export type RobloxUsernameHistoryQuery = z.input<typeof RobloxUsernameHistoryQue
 export type RobloxUserSearchQuery = z.input<typeof RobloxUserSearchQuerySchema>
 export type RobloxValidateDisplayNameQuery = z.input<typeof RobloxValidateDisplayNameQuerySchema>
 export type RobloxValidateUserDisplayNameQuery = z.input<typeof RobloxValidateUserDisplayNameQuerySchema>
+
+// ── 프로필 동작 (profile-platform-api) ─────────────────
+
+/**
+ * 프로필 화면의 동작 키. roblox.com 웹은 헤더 버튼을 `#user-profile-header-{키}`로 그린다.
+ * 서버가 요청 계정과 대상의 관계에 따라 고른다. 새 키가 와도 깨지지 않게 문자열로 받는다.
+ *
+ * 알려진 키: "AddFriend", "Unfriend", "AcceptFriendRequest", "PendingFriendRequest", "IgnoreFriendRequest",
+ * "CannotAddFriend", "Follow", "Unfollow", "Block", "Unblock", "Chat", "JoinExperience", "EditAlias", "Report",
+ * "TradeItems", "ViewInventory", "ViewFavorites", "CurrencyTransfer", "ImpersonateUser", "EditProfile", "EditAvatar",
+ * "CopyLink", "ShareProfile", "QrCode", "AddTrustedConnection", "AddTrustedConnectionViaLink",
+ * "AddIncomingTrustedConnection", "PendingTrustedConnection", "PendingIncomingTrustedConnection", "RemoveTrustedConnection"
+ */
+export const RobloxProfileActionSchema = z.string()
+
+const RobloxProfileActionsRawSchema = z.object({
+    components: z.object({
+        Actions: z.object({
+            buttons:    z.array(z.object({ type: RobloxProfileActionSchema, disabledReason: z.string().nullish() })).nullish(),
+            /** 구분선으로 나뉜 묶음들. 묶음이 하나면 평평한 배열로 오기도 한다 */
+            contextual: z.union([z.array(z.array(RobloxProfileActionSchema)), z.array(RobloxProfileActionSchema)]).nullish(),
+        }).nullish(),
+    }),
+})
+
+/** POST apis /profile-platform-api/v1/profiles/get 의 `Actions` 컴포넌트를 정리한 것 */
+export const RobloxProfileActionsSchema = RobloxProfileActionsRawSchema.transform(raw => {
+    const actions = raw.components.Actions
+    const contextual = actions?.contextual ?? []
+    return {
+        /** 헤더 버튼, 보이는 순서대로. `disabledReason`이 있으면 눌 수 없는 상태로 그린다 */
+        buttons: (actions?.buttons ?? []).map(b => ({ type: b.type, disabledReason: b.disabledReason ?? null })),
+        /** "…" 메뉴의 항목. 묶음 사이에 구분선이 들어간다 */
+        contextual: contextual.length === 0 ? [] : contextual.every(g => Array.isArray(g)) ? contextual as string[][] : [contextual as string[]],
+    }
+})
+
+export type RobloxProfileAction = z.infer<typeof RobloxProfileActionSchema>
+export type RobloxProfileActions = z.output<typeof RobloxProfileActionsSchema>
