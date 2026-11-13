@@ -3,7 +3,7 @@ import type { RobloxUserId, RobloxUserDetail, RobloxUser, RobloxUserByName, Robl
 import type { RobloxThumbnail, RobloxThumbnailTarget, RobloxUniverseThumbnails, RobloxUniverseThumbnailsQuery } from "@/types/thumbnails"
 import type { RobloxUserPresence } from "@/types/presence"
 import type {
-    RobloxFavoriteGamePage, RobloxGame, RobloxGameListQuery, RobloxGameMedia, RobloxGamePlayability, RobloxGameProduct,
+    RobloxFavoriteGamePage, RobloxGame, RobloxGameListQuery, RobloxGameMedia, RobloxGamePlayability, RobloxGameSocialLink, RobloxGameProduct,
     RobloxGameRecommendations, RobloxGameSummaryPage, RobloxGameVotes, RobloxIpAddress, RobloxPlaceDetails,
     RobloxRecommendationsQuery, RobloxServerAddress, RobloxCachedServerPage, RobloxServerPageQuery,
 } from "@/types/games"
@@ -46,6 +46,7 @@ export type RobloxCacheEntry =
     | Entry<"games", "getVotes", { universeId: RobloxUniverseId }, RobloxGameVotes>
     | Entry<"games", "getFavoriteCounts", { universeId: RobloxUniverseId }, number>
     | Entry<"games", "getMedia", { universeId: RobloxUniverseId, all: boolean }, RobloxGameMedia[]>
+    | Entry<"games", "getSocialLinks", { universeId: RobloxUniverseId }, RobloxGameSocialLink[]>
     /** jobId는 place 안에서만 겹치지 않으므로 placeId와 함께 쓴다 */
     | Entry<"games", "getServerAddresses", { placeId: RobloxPlaceId, jobId: RobloxJobId }, RobloxServerAddress>
     /** 값은 `.geolocation(fn)` 콜백이 돌려준 값 그대로다. 모양은 사용자가 정하므로 타입을 알 수 없고, 키에 라이브러리 버전이 붙지 않는다 */

@@ -2,7 +2,7 @@
 import { test, beforeEach } from "node:test"
 import { readFile } from "node:fs/promises"
 import assert from "node:assert/strict"
-import { vigorRoblox, robloxCacheKey, RobloxPartialError, RobloxMemoryCache, RobloxMemoryCookies, RobloxCookieSchema, RobloxIpAddressSchema, robloxDnrRules } from "../dist/index.js"
+import { vigorRoblox, robloxCacheKey, RobloxError, isRobloxError, RobloxMemoryCache, RobloxMemoryCookies, RobloxCookieSchema, RobloxIpAddressSchema, robloxDnrRules } from "../dist/index.js"
 
 /** path → (url, init) => { status, body, headers?, delay? } */
 let routes = {}
@@ -373,14 +373,48 @@ test("저장소는 라이브러리가 만든 키와 정리된 분류 데이터�
 })
 
 
-test("일부 항목이 실패하면 받은 결과를 담아 RobloxPartialError를 던진다", async () => {
+test("일부 항목이 실패하면 받은 결과를 담아 PARTIAL을 던지고, 항목 에러도 RobloxError다", async () => {
     routes["GET friends/v1/users/1/friends/count"] = () => ({ body: { count: 10 } })
     routes["GET friends/v1/users/2/friends/count"] = () => ({ status: 403, body: { errors: [{ code: 0, message: "Forbidden" }] } })
     routes["GET friends/v1/users/3/friends/count"] = () => ({ body: { count: 30 } })
     const error = await vigorRoblox.mode("node").friends.getFriendCounts([1, 2, 3]).then(() => null, e => e)
-    assert.ok(error instanceof RobloxPartialError)
-    assert.deepEqual(error.results, [{ userId: 1, count: 10 }, { userId: 3, count: 30 }])
-    assert.deepEqual(error.errors.map(e => e.input), [2])
+    assert.ok(error instanceof RobloxError)
+    assert.ok(vigorRoblox.guards.roblox(error, "PARTIAL"))
+    assert.deepEqual(error.data.results, [{ userId: 1, count: 10 }, { userId: 3, count: 30 }])
+    assert.deepEqual(error.data.errors.map(e => e.input), [2])
+    const item = error.data.errors[0].error
+    assert.ok(isRobloxError(item, "HTTP_FAILED"))
+    assert.equal(item.data.status, 403)
+    assert.deepEqual(item.data.robloxErrors, [{ code: 0, message: "Forbidden" }])
+    // 콜백을 넣으면 PARTIAL의 cause(첫 항목 에러)까지 찾아 들어간다
+    assert.equal(vigorRoblox.guards.roblox(error, "HTTP_FAILED", e => e.data.status), 403)
+})
+
+test("단일 요청의 HTTP 실패는 HTTP_FAILED이고, 원래 vigor-fetch 에러는 cause 쪽에 남는다", async () => {
+    routes["POST friends/v1/users/5/unfollow"] = () => ({ status: 400, body: { errors: [{ code: 1, message: "The target user is invalid or does not exist." }] } })
+    const error = await vigorRoblox.mode("node").as(RobloxCookieSchema.parse("c")).friends.unfollow(5).then(() => null, e => e)
+    assert.ok(isRobloxError(error, "HTTP_FAILED"))
+    assert.equal(error.data.status, 400)
+    assert.equal(error.data.robloxErrors[0].message, "The target user is invalid or does not exist.")
+    assert.ok(error.data.url.endsWith("/v1/users/5/unfollow"))
+    assert.equal(vigorRoblox.guards.fetch(error, "FETCH_FAILED", e => e.data.status), 400)
+    assert.ok(!isRobloxError(error, "PARTIAL"))
+    assert.equal(isRobloxError(error, "PARTIAL", () => 1), undefined)
+})
+
+test("응답 모양이 다르면 INVALID_RESPONSE", async () => {
+    routes["POST friends/v1/users/5/follow"] = () => ({ body: { nope: true } })
+    const error = await vigorRoblox.mode("node").as(RobloxCookieSchema.parse("c")).friends.follow(5).then(() => null, e => e)
+    assert.ok(isRobloxError(error, "INVALID_RESPONSE"), String(error))
+    assert.ok(error.data.issues.length > 0)
+})
+
+test("계정을 정하지 않고 계정 기준 API를 부르면 VIEWER_REQUIRED (요청을 보내지 않는다)", async () => {
+    const client = vigorRoblox.mode("node").cookies([RobloxCookieSchema.parse("a"), RobloxCookieSchema.parse("b")])
+    const error = await client.chat.listConversations().then(() => null, e => e)
+    assert.ok(isRobloxError(error, "VIEWER_REQUIRED", "AUTH_REQUIRED"))
+    assert.equal(error.code, "VIEWER_REQUIRED")
+    assert.equal(calls.length, 0)
 })
 
 test("곁들이는 썸네일을 받지 못하면 thumbnail만 null이고 유저는 그대로 돌려준다", async () => {

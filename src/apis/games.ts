@@ -1,4 +1,5 @@
 import { RobloxBatcher, captureHeaders, mapRoute, nullOn, type RobloxBatchRoute } from "@/core/batcher"
+import { RobloxError } from "@/core/error"
 import { canonicalInfo, robloxCacheKey, type RobloxCacheInfo, type RobloxCacheValue, type RobloxViewerKey } from "@/core/cache"
 import { resolveTtl, type RobloxConfig } from "@/core/config"
 import { cached, singleFlight, createHttp, validate } from "@/core/http"
@@ -22,6 +23,7 @@ import {
     RobloxFavoriteGamePageSchema,
     RobloxGameMediaResponseSchema,
     RobloxGamePlayabilitySchema,
+    RobloxGameSocialLinksResponseSchema,
     RobloxGameProductsResponseSchema,
     RobloxGameRecommendationsSchema,
     RobloxGamesResponseSchema,
@@ -48,6 +50,7 @@ import {
     type RobloxGameListQuery,
     type RobloxGameMedia,
     type RobloxGamePlayability,
+    type RobloxGameSocialLink,
     type RobloxGameProduct,
     type RobloxGameRecommendations,
     type RobloxGameSummaryPage,
@@ -84,15 +87,13 @@ import z from "zod"
 /** `.ttl({ games: { ... } })`로 캐시할 수 있는 메서드. 배열을 받는 메서드는 항목 하나씩 캐시한다. */
 export type RobloxGamesCacheable =
     | "getGames" | "getUniverseIds" | "getPlaceDetails" | "getProductInfo" | "getPlayability" | "getVotes"
-    | "getFavoriteCounts" | "getMedia" | "getServerAddresses" | "getServerLocations"
+    | "getFavoriteCounts" | "getMedia" | "getSocialLinks" | "getServerAddresses" | "getServerLocations"
     | "getServerPage" | "getRecommendations" | "getUserGames" | "getUserFavoriteGames" | "getGroupGames" | "getPrivateServersEnabled"
 
 const GAMES = "https://games.roblox.com"
 const APIS = "https://apis.roblox.com"
 const GAMEJOIN = "https://gamejoin.roblox.com"
 /** `.geolocation(fn)` 없이 위치를 물었을 때 */
-const GEOLOCATE_MISSING = "서버 위치를 조회하려면 .geolocation(fn)으로 IP → 위치 콜백을 넣어야 한다."
-
 /** gamejoin은 Roblox 클라이언트 UA가 아니면 거절한다 (status 12) */
 const CLIENT_USER_AGENT = "Roblox/WinInet"
 
@@ -194,6 +195,8 @@ function serverRoute(bucket: string, path: (placeId: RobloxPlaceId, type: string
         bucket,
         limit: 1,
         group(t) {
+            // orderBy는 v2만 받는다
+            if (t.query.orderBy !== undefined && !v2) return null
             const cursor = t.query.cursor
             if (!cursor) return ""
             return cursor.startsWith(V2_CURSOR) === v2 ? "" : null
@@ -204,6 +207,7 @@ function serverRoute(bucket: string, path: (placeId: RobloxPlaceId, type: string
             if (rest.limit !== undefined) query.limit = rest.limit
             if (rest.excludeFullGames !== undefined) query.excludeFullGames = rest.excludeFullGames
             if (rest.sortOrder !== undefined) query.sortOrder = rest.sortOrder
+            if (rest.orderBy !== undefined) query.orderBy = rest.orderBy
             if (cursor) query.cursor = v2 ? cursor.slice(V2_CURSOR.length) : cursor
 
             const res = await http()
@@ -297,6 +301,7 @@ export class RobloxGamesApi<L = unknown> {
     private readonly placeDetails
     private readonly universeIds
     private readonly media
+    private readonly socialLinks
     private readonly favorited
     private readonly userVotes
     private readonly privateServersEnabled
@@ -375,6 +380,11 @@ export class RobloxGamesApi<L = unknown> {
                 return [res?.data ?? null]
             },
         }])
+        // 인증 필요, 200회/분. 13세 미만 계정은 403
+        this.socialLinks = new RobloxBatcher(config, GAMES, [singleRoute<RobloxGameSocialLink[]>({
+            bucket: "games GET /v1/games/{id}/social-links/list", path: id => ["v1", "games", id, "social-links", "list"],
+            schema: RobloxGameSocialLinksResponseSchema, pick: res => res.data, missing: [400, 404],
+        })])
         this.favorited = new RobloxBatcher(config, GAMES, [singleRoute<boolean>({
             bucket: "games GET /v1/games/{id}/favorites", path: id => ["v1", "games", id, "favorites"], auth: this.auth,
             schema: z.object({ isFavorited: z.boolean() }), pick: res => res.isFavorited,
@@ -458,7 +468,7 @@ export class RobloxGamesApi<L = unknown> {
 
     // ── 게임 조회 ──────────────────────────────────────
     // 배열을 받는 메서드는 입력 순서로 돌려주고, 없는 대상은 뺀다.
-    // 일부 항목이 실패하면 받은 결과를 담아 RobloxPartialError를 던진다.
+    // 일부 항목이 실패하면 받은 결과를 담아 RobloxError(PARTIAL)를 던진다.
     // 같은 틱에 들어온 호출은 모아서 보내므로 따로따로 불러도 된다.
 
     /** GET /v1/games — 게임(universe) 상세 */
@@ -510,6 +520,12 @@ export class RobloxGamesApi<L = unknown> {
             universeId => this.media.load(`${universeId}:${all}`, { universeId, all }),
             universeId => ({ service: "games", method: "getMedia", universeId, all }))
         return finish(found(universeIds.map((universeId, i) => values[i] ? { universeId, media: values[i] } : null)), errors)
+    }
+
+    /** GET /v1/games/{universeId}/social-links/list — 게임 페이지의 소셜 링크. 인증 필요, 13세 미만 계정은 403 */
+    async getSocialLinks(universeIds: readonly RobloxUniverseId[]): Promise<{ universeId: RobloxUniverseId, socialLinks: RobloxGameSocialLink[] }[]> {
+        const { values, errors } = await this.each("getSocialLinks", universeIds, id => this.socialLinks.load(String(id), id), universeId => ({ service: "games", method: "getSocialLinks", universeId }))
+        return finish(found(universeIds.map((universeId, i) => values[i] ? { universeId, socialLinks: values[i] } : null)), errors)
     }
 
     /** GET /v1/games/recommendations/game/{universeId} — 비슷한 게임 */
@@ -583,7 +599,7 @@ export class RobloxGamesApi<L = unknown> {
     // ── 서버 ───────────────────────────────────────────
 
     /**
-     * 서버 목록 한 페이지. 엔드포인트마다 3회/분이라 세 엔드포인트를 나눠 쓴다.
+     * 서버 목록 한 페이지. 엔드포인트마다 3회/분이라 세 엔드포인트를 나눠 쓴다 (`orderBy`를 넣으면 v2만 쓴다).
      * 받은 커서는 같은 옵션으로 다시 넘긴다 (어느 엔드포인트의 커서인지는 라이브러리가 기억한다).
      * `Friend`와 플레이어 헤드샷은 인증이 필요하다. 헤드샷은 서버 목록의 플레이어 토큰으로 이어서 받는다 (`headshots: false`면 받지 않는다).
      */
@@ -626,7 +642,7 @@ export class RobloxGamesApi<L = unknown> {
      */
     async getServerLocations(ips: readonly RobloxIpAddress[]): Promise<RobloxServerLocation<L>[]> {
         const geolocate = this.config.geolocate
-        if (!geolocate) throw new Error(GEOLOCATE_MISSING)
+        if (!geolocate) throw new RobloxError("GEOLOCATION_REQUIRED", {})
         const id = (ip: RobloxIpAddress) => JSON.stringify(canonicalInfo({ service: "games", method: "getServerLocations", ip }))
 
         // 진행 중이 아닌 IP만 한 번에 묻고, IP마다 그 결과를 등록한다. 여기까지는 await 없이 이어져 다른 호출이 끼어들지 않는다.
@@ -825,7 +841,7 @@ export class RobloxGamesApi<L = unknown> {
      */
     async getServers(placeId: RobloxPlaceId, opts: RobloxGetServersOptions = {}): Promise<{ data: RobloxServerInfo<L>[], nextPageCursor: RobloxCursor | null }> {
         const { count = 100, headshots: shotOptions = {}, address = false, location = false, ...query } = opts
-        if (location && !this.config.geolocate) throw new Error(GEOLOCATE_MISSING)
+        if (location && !this.config.geolocate) throw new RobloxError("GEOLOCATION_REQUIRED", {})
 
         const servers: RobloxCachedServerPage["data"] = []
         let cursor = query.cursor ?? null
@@ -869,8 +885,8 @@ export class RobloxGamesApi<L = unknown> {
      */
     async findUsers(placeId: RobloxPlaceId, userIds: readonly RobloxUserId[], opts: RobloxFindUsersOptions = {}): Promise<RobloxUserServer<L>[]> {
         const { maxServers = 1000, presence = true, address = false, location = false, ...query } = opts
-        if (location && !this.config.geolocate) throw new Error(GEOLOCATE_MISSING)
-        if (!this.auth()) throw new Error("서버 목록에서 유저를 찾으려면 플레이어 토큰이 필요해 인증해야 한다.")
+        if (location && !this.config.geolocate) throw new RobloxError("GEOLOCATION_REQUIRED", {})
+        if (!this.auth()) throw new RobloxError("AUTH_REQUIRED", { reason: "finding users in servers needs player tokens" })
 
         const targets = [...new Set(userIds)]
         type Server = RobloxCachedServerPage["data"][number]
@@ -964,6 +980,6 @@ export class RobloxGamesApi<L = unknown> {
                 address:  addr,
                 location: addr?.ip ? locations?.get(addr.ip) ?? null : null,
             }
-        }), targets.filter(failed).map(userId => ({ input: userId, error: shotErrors.get(userId) })))
+        }), targets.filter(failed).map(userId => ({ input: userId, error: shotErrors.get(userId)! })))
     }
 }

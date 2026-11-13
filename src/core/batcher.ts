@@ -1,4 +1,5 @@
 import { vigor } from "vigor-fetch"
+import { RobloxError } from "./error"
 import type { RobloxConfig } from "./config"
 import { createHttp, findFetchFailed } from "./http"
 
@@ -80,7 +81,7 @@ export class RobloxBatcher<T, R> {
 
     private enqueue(target: T): Promise<R> {
         const routes = this.routes.filter(r => r.group(target) !== null)
-        if (!routes.length) return Promise.reject(new Error(`No endpoint accepts ${JSON.stringify(target)}`))
+        if (!routes.length) return Promise.reject(new RobloxError("NO_ROUTE", { target }))
         return new Promise((resolve, reject) => {
             this.queue.push({ target, routes, resolve, reject, notBefore: 0, againTries: 0, limitedTries: 0 })
             this.wake(0)
@@ -159,7 +160,7 @@ export class RobloxBatcher<T, R> {
                 const result = results[i]
                 if (result === RobloxBatchSkip) {
                     job.routes = job.routes.filter(r => r !== route)
-                    if (!job.routes.length) return job.reject(new Error(`No endpoint could answer ${JSON.stringify(job.target)}`))
+                    if (!job.routes.length) return job.reject(new RobloxError("NO_ROUTE", { target: job.target }))
                     this.queue.push(job)
                     return
                 }

@@ -9,8 +9,10 @@ export {
 export { RobloxCookieSchema, RobloxMemoryCookies, type RobloxCookie, type RobloxCookieStore, type RobloxCookieRejectedHandler, type RobloxCookieRejectReason } from "./core/cookies"
 export type { RobloxRateLimitStore, RobloxRateLimitState } from "./core/ratelimit"
 export { RobloxDefaultTtl, type RobloxMode, type RobloxRetryOptions, type RobloxTtl } from "./core/config"
-export { findFetchFailed } from "./core/http"
-export { RobloxPartialError, isRobloxPartialError, type RobloxItemError } from "./core/partial"
+export {
+    RobloxError, isRobloxError, RobloxErrorMessageFuncs,
+    type RobloxErrorCode, type RobloxErrorData, type RobloxErrors, type RobloxApiError, type RobloxItemError,
+} from "./core/error"
 export { robloxDnrRules, type RobloxDnrRule, type RobloxDnrOptions } from "./extension"
 export { RobloxUsersApi, type RobloxUsersCacheable } from "./apis/users"
 export { RobloxThumbnailsApi, type RobloxThumbnailsCacheable } from "./apis/thumbnails"

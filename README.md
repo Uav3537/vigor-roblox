@@ -176,7 +176,7 @@ data[0].location?.countryCode   // typed from your callback
 
 ## Conventions
 
-- **Lookups take arrays and return results in input order.** Ask for one item with a one-element array. Missing items are dropped (thumbnails come back with `state: "Error"` instead, presence comes back offline). If some items fail, the call throws a `RobloxPartialError` that still holds the items that succeeded (see [Errors](#errors)).
+- **Lookups take arrays and return results in input order.** Ask for one item with a one-element array. Missing items are dropped (thumbnails come back with `state: "Error"` instead, presence comes back offline). If some items fail, the call throws a `RobloxError` with code `PARTIAL` that still holds the items that succeeded (see [Errors](#errors)).
 - **Extras never fail the call.** When a method attaches extra data (a `thumbnail` option, votes and images in `getGameInfos`, headshots, addresses and locations in `getServers`/`findUsers`), a failed extra comes back as `null` or an empty array and the main result is returned as usual.
 - **Paged lists take one entity.** Methods that walk a cursor (`getUsernameHistory`, `getServerPage`, `getUserGames`, `getFollowers`, ...) take a single id plus a query, since a cursor belongs to one list.
 - **Ids are branded.** Parse plain values with the matching schema, for example `RobloxPlaceIdSchema.parse(1818)`. The same goes for cookies (`RobloxCookieSchema`), job ids, conversation ids and server IPs.
@@ -229,8 +229,8 @@ const images = await roblox.thumbnails.get([
 | `getGameInfos(universeIds)` | Details, votes, icon and thumbnails of each universe in one call. Start from a place with `getUniverseIds`. |
 | `getServers(placeId, { count, serverType, headshots, address, location })` | Walks the server list until `count` servers are collected (whole pages), with gamejoin addresses and locations. Each server's `players` lists the players the server list shows (a few per server) as `{ user, thumbnail }`: `thumbnail` is the avatar headshot, fetched in one batch from the list's player tokens (`headshots: false` skips it), and `user` is `{ id, name, displayName }` when the list names the player (friend and private server lists). Player tokens stay inside the library. |
 | `findUsers(placeId, userIds, { maxServers, presence, serverType, address, location })` | Which server of a place each user is in. Walks the server list, takes users the list names by id (`serverType: "Friend"`, `foundBy: "server"`), and finds the rest by matching player headshots against each user's headshot, stopping once everyone is found. Presence is asked in parallel as a hint and never waited on unless someone is still missing: a visible server in this place is used, a user confirmed in another place is dropped, and offline or hidden users keep being searched. `presence: false` skips it. Needs a signed-in account. The server list only shows up to 5 players per server, so a user who is in a server can still be missed; users with a default avatar, or sharing an avatar with another target, can't be matched by headshot. |
-| `getGames`, `getPlaceDetails`, `getProductInfo`, `getPlayability`, `getVotes`, `getFavoriteCounts`, `getMedia` | Batched lookups. |
-| `getServerPage(placeId, { ...query, headshots })` | One page of servers, with `players` filled in the same way. Spread over three endpoints, each limited to 3 requests per minute per IP. |
+| `getGames`, `getPlaceDetails`, `getProductInfo`, `getPlayability`, `getVotes`, `getFavoriteCounts`, `getMedia`, `getSocialLinks` | Batched lookups. `getSocialLinks` needs an account aged 13 or over (otherwise 403). |
+| `getServerPage(placeId, { ...query, headshots })` | One page of servers, with `players` filled in the same way. Spread over three endpoints, each limited to 3 requests per minute per IP. `orderBy: "Recommended"` uses only the v2 endpoint and needs authentication. |
 | `getServerAddresses(targets)`, `getServerLocations(ips)` | gamejoin addresses for `{ placeId, jobId }` targets (`RobloxServerAddressTarget`; needs a signed-in account; full servers have none) and IP locations from your `geolocation` callback. Addresses are cached per place and job id, since a job id is only unique within its place. IPs the callback can't place are left out. |
 | `getRecommendations`, `getUserGames`, `getUserFavoriteGames`, `getGroupGames` | Paged lists. |
 | `getFavorited`, `setFavorited`, `getUserVotes`, `setUserVote` | The requesting account's favorites and votes. |
@@ -246,7 +246,7 @@ gamejoin only answers requests whose `User-Agent` looks like the Roblox client. 
 | `getFriendCounts`, `getFollowerCounts`, `getFollowingCounts` | Counts. |
 | `getFollowers`, `getFollowings`, `searchFriends`, `getMetadata` | Paged lists and page metadata. |
 | `getFriendStatuses`, `getAreFriends`, `getFollowingStatuses`, `getOnlineFriends`, `getInactiveFriends`, `getFriendRequests`, `getTrustedFriendRequests`, `getFriendRequestCount` | Relative to the requesting account. |
-| `sendFriendRequest`, `acceptFriendRequest`, `declineFriendRequest`, `declineAllFriendRequests`, `unfriend`, `follow`, `unfollow` | Actions. Friend requests may require a captcha. |
+| `sendFriendRequest`, `acceptFriendRequest`, `declineFriendRequest`, `declineAllFriendRequests`, `unfriend`, `follow`, `unfollow`, `block`, `unblock`, `setUserTag`, `createTrustedFriendLink` | Actions. Friend requests may require a captcha. |
 
 ### `groups`
 
@@ -286,6 +286,8 @@ Management methods need the matching group permission and fail with `403` otherw
 `listConversations`, `getConversations`, `searchConversations`, `getMessages`, `searchMessages`, `getUnreadCounts`, `getMetadata`, `sendMessages`, `markRead`, `setTyping`, `createConversations`, `renameConversations`, `addUsers`, `removeUsers`.
 
 These use Roblox's `platform-chat-api`, which is undocumented and may change without notice. Accounts without chat access (see `getMetadata().isChatUserMessagesEnabled`) get `403 chat_disabled_for_user` when sending.
+
+`listConversations` may include friends you have never chatted with (`source: "friends"`, `id: null`). To message one, create the conversation first with `createConversations([{ type: "one_to_one", userId }])`.
 
 ## Rate limits
 
@@ -366,21 +368,55 @@ Every method has a default TTL (`RobloxDefaultTtl`), used whenever a cache is se
 
 ## Errors
 
-A request that fails after its retries, on its last available endpoint, throws the underlying vigor-fetch error (`findFetchFailed(error)` digs out the HTTP failure). A response that does not match its schema throws a `ZodError`. APIs that need a pinned account throw before sending anything.
+Every error a service method throws is a `RobloxError`. Its `code` says what went wrong and narrows `data`; the original error (vigor-fetch, zod, ...) is kept as `cause`.
 
-Array lookups keep going when some items fail. Once every item has settled, the call throws a `RobloxPartialError`:
+| code | when | `data` |
+|---|---|---|
+| `HTTP_FAILED` | The request failed after its retries, on its last available endpoint | `status`, `url`, `robloxErrors` (`[{ code, message }]` from Roblox's error body), `parsed`, `response` |
+| `TIMED_OUT` | The request did not finish in time | `limit` |
+| `INVALID_RESPONSE` | The response did not match the expected shape (Roblox may have changed the API) | `issues` (zod), `url` |
+| `PARTIAL` | Some items of an array call failed | `results`, `errors` |
+| `VIEWER_REQUIRED` | An API that answers for one account was called on a rotating cookie pool. Thrown before sending anything | — |
+| `AUTH_REQUIRED` | The API needs a signed-in account | `reason` |
+| `GEOLOCATION_REQUIRED` | Server locations were asked for without `.geolocation(fn)` | — |
+| `NO_ROUTE` | No endpoint could take or answer the request | `target` |
+| `UNKNOWN` | Anything else (a network failure, a callback that threw, ...) | — |
+
+Narrow with the guard, from the main object or as an import (`isRobloxError`):
+
+```ts
+try {
+    await roblox.friends.follow(userId)
+} catch (error) {
+    if (vigorRoblox.guards.roblox(error, "HTTP_FAILED")) {
+        error.data.status        // 403
+        error.data.robloxErrors  // [{ code: 0, message: "..." }]
+    }
+}
+```
+
+With a callback as the third argument (the code, or an array of codes, as the second), the guard also looks inside the errors `error` wraps and calls the callback with the first match. It returns what the callback returns, or `undefined`:
+
+```ts
+vigorRoblox.guards.roblox(error, "HTTP_FAILED", e => e.data.status)            // number | undefined
+vigorRoblox.guards.roblox(error, ["HTTP_FAILED", "TIMED_OUT"], e => e.code)    // also finds the first failed item of a PARTIAL
+```
+
+`vigorRoblox.guards.fetch` is vigor-fetch's `isVigorFetchError`, for reaching the raw vigor-fetch error through `cause`.
+
+Array lookups keep going when some items fail. Once every item has settled, the call throws `PARTIAL`:
 
 ```ts
 try {
     const games = await roblox.games.getGames(universeIds)
 } catch (error) {
-    if (!isRobloxPartialError(error)) throw error
-    error.results  // what the call would have returned, minus the failed items (input order)
-    error.errors   // [{ input, error }] for each failed item
+    if (!vigorRoblox.guards.roblox(error, "PARTIAL")) throw error
+    error.data.results  // what the call would have returned, minus the failed items (input order)
+    error.data.errors   // [{ input, error }] for each failed item; each error is a RobloxError
 }
 ```
 
-`error.cause` is the first item's error, so `findFetchFailed(error)` still works. Items batched into the same HTTP request succeed or fail together. `thumbnails.getSettled(targets)` is a variant of `thumbnails.get` that never throws: results stay in the same positions as the targets, with `null` where a request failed.
+`error.cause` is the first item's error. Items batched into the same HTTP request succeed or fail together. `thumbnails.getSettled(targets)` is a variant of `thumbnails.get` that never throws: results stay in the same positions as the targets, with `null` where a request failed.
 
 ## License
 

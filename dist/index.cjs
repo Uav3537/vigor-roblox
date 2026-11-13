@@ -75,6 +75,8 @@ __export(index_exports, {
   RobloxDefaultTtl: () => RobloxDefaultTtl,
   RobloxDeveloperProductIdSchema: () => RobloxDeveloperProductIdSchema,
   RobloxEmptyResponseSchema: () => RobloxEmptyResponseSchema,
+  RobloxError: () => RobloxError,
+  RobloxErrorMessageFuncs: () => RobloxErrorMessageFuncs,
   RobloxErrorResponseSchema: () => RobloxErrorResponseSchema,
   RobloxExtensionStage: () => RobloxExtensionStage,
   RobloxFavoriteGamePageSchema: () => RobloxFavoriteGamePageSchema,
@@ -102,6 +104,8 @@ __export(index_exports, {
   RobloxGameProductsResponseSchema: () => RobloxGameProductsResponseSchema,
   RobloxGameRecommendationsSchema: () => RobloxGameRecommendationsSchema,
   RobloxGameSchema: () => RobloxGameSchema,
+  RobloxGameSocialLinkSchema: () => RobloxGameSocialLinkSchema,
+  RobloxGameSocialLinksResponseSchema: () => RobloxGameSocialLinksResponseSchema,
   RobloxGameSummaryPageSchema: () => RobloxGameSummaryPageSchema,
   RobloxGameSummarySchema: () => RobloxGameSummarySchema,
   RobloxGameThumbnailIdSchema: () => RobloxGameThumbnailIdSchema,
@@ -180,7 +184,6 @@ __export(index_exports, {
   RobloxOutfitIdSchema: () => RobloxOutfitIdSchema,
   RobloxPageLimitSchema: () => RobloxPageLimitSchema,
   RobloxPageResponseSchema: () => RobloxPageResponseSchema,
-  RobloxPartialError: () => RobloxPartialError,
   RobloxPlaceDetailsSchema: () => RobloxPlaceDetailsSchema,
   RobloxPlaceIdSchema: () => RobloxPlaceIdSchema,
   RobloxPresenceApi: () => RobloxPresenceApi,
@@ -251,8 +254,7 @@ __export(index_exports, {
   RobloxValidateUserDisplayNameQuerySchema: () => RobloxValidateUserDisplayNameQuerySchema,
   VigorRoblox: () => VigorRoblox,
   default: () => index_default,
-  findFetchFailed: () => findFetchFailed,
-  isRobloxPartialError: () => isRobloxPartialError,
+  isRobloxError: () => isRobloxError,
   robloxCacheKey: () => robloxCacheKey,
   robloxDnrRules: () => robloxDnrRules,
   toRobloxCreator: () => toRobloxCreator,
@@ -260,14 +262,109 @@ __export(index_exports, {
 });
 module.exports = __toCommonJS(index_exports);
 
+// src/core/error.ts
+var import_vigor_fetch = require("vigor-fetch");
+var import_zod = require("zod");
+var RobloxErrorMessageFuncs = {
+  /** The request failed after its retries, on its last available endpoint */
+  HTTP_FAILED: ({ status, url, robloxErrors: robloxErrors2 }) => `${status} from ${url}${robloxErrors2.length ? `: ${robloxErrors2.map((e) => e.message).join(", ")}` : ""}`,
+  /** The request did not finish in time */
+  TIMED_OUT: ({ limit }) => `Timed out after ${limit}ms`,
+  /** The response did not match the expected shape. Roblox may have changed the API */
+  INVALID_RESPONSE: ({ issues, url }) => `Unexpected response shape${url ? ` from ${url}` : ""}: ${import_zod.z.prettifyError({ issues }).replace(/\n/g, " ")}`,
+  /** Some items of an array call failed. `results` holds the rest, in input order */
+  PARTIAL: ({ results, errors }) => `${errors.length} item(s) failed (${results.length} succeeded)`,
+  /** The API answers for one account, but the client rotates cookies */
+  VIEWER_REQUIRED: (_) => "This API answers for the requesting account. Pin an account with .as(cookie) instead of rotating cookies",
+  /** The API needs a signed-in account */
+  AUTH_REQUIRED: ({ reason }) => `Authentication required: ${reason}`,
+  /** Server locations need `.geolocation(fn)` */
+  GEOLOCATION_REQUIRED: (_) => "Looking up server locations needs an IP-to-location callback set with .geolocation(fn)",
+  /** No endpoint could take or answer this request */
+  NO_ROUTE: ({ target }) => `No endpoint could answer ${JSON.stringify(target)}`,
+  /** Anything else: a network failure, a callback that threw, ... The original is `cause` */
+  UNKNOWN: (_) => "Request failed"
+};
+var RobloxError = class extends Error {
+  name = "RobloxError";
+  code;
+  data;
+  constructor(code, data, options = {}) {
+    const message = RobloxErrorMessageFuncs[code](data);
+    super(`[${code}] ${message}`, { cause: options.cause });
+    this.code = code;
+    this.data = data;
+  }
+};
+function isRobloxError(error, ...args) {
+  const is = (e, codes2) => e instanceof RobloxError && (codes2.length === 0 || codes2.includes(e.code));
+  const callback = args[args.length - 1];
+  if (typeof callback !== "function") return is(error, args);
+  const codes = Array.isArray(args[0]) ? args[0] : [args[0]];
+  const found2 = (0, import_vigor_fetch.findInVigorErrorChain)(error, (e) => is(e, codes));
+  return found2 === void 0 ? void 0 : callback(found2);
+}
+function robloxErrors(parsed) {
+  const errors = parsed?.errors;
+  if (!Array.isArray(errors)) return [];
+  return errors.map((e) => {
+    const { code, message } = e ?? {};
+    return {
+      code: typeof code === "number" || typeof code === "string" ? code : null,
+      message: typeof message === "string" ? message : ""
+    };
+  });
+}
+function toRobloxError(error) {
+  const inner = (0, import_vigor_fetch.findInVigorErrorChain)(error, (e) => e instanceof RobloxError);
+  if (inner) return inner;
+  const http = (0, import_vigor_fetch.isVigorFetchError)(error, "FETCH_FAILED", (e) => new RobloxError("HTTP_FAILED", {
+    status: e.data.status,
+    url: e.data.url || e.context.href,
+    robloxErrors: robloxErrors(e.data.parsed),
+    parsed: e.data.parsed,
+    response: e.data.response
+  }, { cause: error }));
+  if (http) return http;
+  const timeout = (0, import_vigor_fetch.isVigorFetchError)(error, "TIMED_OUT", (e) => new RobloxError("TIMED_OUT", { limit: e.data.limit }, { cause: error }));
+  if (timeout) return timeout;
+  const zod = (0, import_vigor_fetch.findInVigorErrorChain)(error, (e) => e instanceof import_zod.z.ZodError);
+  if (zod) return new RobloxError("INVALID_RESPONSE", { issues: zod.issues, url: null }, { cause: error });
+  return new RobloxError("UNKNOWN", {}, { cause: error });
+}
+function withRobloxErrors(target) {
+  const wrappers = /* @__PURE__ */ new Map();
+  return new Proxy(target, {
+    get(obj, prop) {
+      const value = Reflect.get(obj, prop, obj);
+      if (typeof value !== "function" || prop === "constructor") return value;
+      let wrapper = wrappers.get(prop);
+      if (!wrapper) {
+        wrapper = (...args) => {
+          try {
+            const result = value.apply(obj, args);
+            return result instanceof Promise ? result.catch((e) => {
+              throw toRobloxError(e);
+            }) : result;
+          } catch (e) {
+            throw toRobloxError(e);
+          }
+        };
+        wrappers.set(prop, wrapper);
+      }
+      return wrapper;
+    }
+  });
+}
+
 // src/apis/users.ts
-var import_zod3 = __toESM(require("zod"), 1);
+var import_zod4 = __toESM(require("zod"), 1);
 
 // src/core/batcher.ts
-var import_vigor_fetch2 = require("vigor-fetch");
+var import_vigor_fetch3 = require("vigor-fetch");
 
 // src/core/http.ts
-var import_vigor_fetch = require("vigor-fetch");
+var import_vigor_fetch2 = require("vigor-fetch");
 
 // src/core/cache.ts
 function canonical(value) {
@@ -294,7 +391,7 @@ async function robloxCacheKey(info) {
   const { service, method, ...args } = canonicalInfo(info);
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(JSON.stringify(args)));
   const name = `${service}.${method}`;
-  const prefix = UNVERSIONED.has(name) ? "" : `${"5.2.0"}:`;
+  const prefix = UNVERSIONED.has(name) ? "" : `${"5.3.0"}:`;
   return `${prefix}${name}::${base64url(new Uint8Array(digest).slice(0, 16))}`;
 }
 var RobloxMemoryCache = class {
@@ -330,13 +427,7 @@ var RobloxMemoryCache = class {
 
 // src/core/http.ts
 function findFetchFailed(error) {
-  let current = error;
-  for (let depth = 0; depth < 5 && current != null; depth++) {
-    if ((0, import_vigor_fetch.isVigorFetchError)(current, "FETCH_FAILED")) return current;
-    const next = current;
-    current = next.data?.error ?? next.cause;
-  }
-  return null;
+  return (0, import_vigor_fetch2.isVigorFetchError)(error, "FETCH_FAILED", (failed) => failed) ?? null;
 }
 var SAFE_METHODS = ["GET", "HEAD", "OPTIONS"];
 function errorMessages(parsed) {
@@ -357,14 +448,23 @@ function rejectCookie(config, cookie, reason) {
   }
   return running;
 }
+var browserIds = /* @__PURE__ */ new Map();
+function browserId(cookie) {
+  let id2 = browserIds.get(cookie);
+  if (!id2) browserIds.set(cookie, id2 = String(Date.now() * 1e3 + Math.floor(Math.random() * 1e3)));
+  return id2;
+}
 function authMiddlewares(config, opts) {
   let picked = null;
   const pick = () => picked ??= Promise.resolve(config.mode === "node" ? config.fixedCookie ?? config.cookies?.next() ?? null : null);
   const csrfKey = (cookie) => config.mode === "extension" ? "extension" : cookie;
-  return import_vigor_fetch.vigor.builders.fetch.middlewares().before("fluent", async (ctx) => {
+  return import_vigor_fetch2.vigor.builders.fetch.middlewares().before("fluent", async (ctx) => {
     const options = ctx.options;
     const cookie = await pick();
-    if (cookie) options.headers["Cookie"] = `.ROBLOSECURITY=${cookie}`;
+    if (cookie) {
+      options.headers["Cookie"] = `.ROBLOSECURITY=${cookie}`;
+      if (opts.browserTracker) options.headers["Cookie"] += `; RBXEventTrackerV2=browserid=${browserId(cookie)}`;
+    }
     if (config.mode === "node" && opts.userAgent) options.headers["User-Agent"] = opts.userAgent;
     const key = csrfKey(cookie);
     const token = key ? config.csrf.get(key) : void 0;
@@ -391,15 +491,17 @@ function authMiddlewares(config, opts) {
   });
 }
 function createHttp(config, origin, opts = {}) {
-  const unretryStatus = opts.retryRateLimited === false ? [...import_vigor_fetch.VigorFetchPolicySettingsBase.unretryStatus, 429] : [...import_vigor_fetch.VigorFetchPolicySettingsBase.unretryStatus];
-  return () => import_vigor_fetch.vigor.fetch(origin).options("merge", config.mode === "extension" ? { credentials: "include" } : {}).settings((s) => s.unretryStatus(...unretryStatus)).retry((r) => r.settings({
+  const unretryStatus = opts.retryRateLimited === false ? [...import_vigor_fetch2.VigorFetchPolicySettingsBase.unretryStatus, 429] : [...import_vigor_fetch2.VigorFetchPolicySettingsBase.unretryStatus];
+  return () => import_vigor_fetch2.vigor.fetch(origin).options("merge", config.mode === "extension" ? { credentials: "include" } : {}).settings((s) => s.unretryStatus(...unretryStatus)).retry((r) => r.settings({
     maxAttempts: config.retry.maxAttempts ?? 5,
     timeout: config.retry.timeout ?? 2e4
   })).middlewares(authMiddlewares(config, opts));
 }
 function validate(schema) {
-  return import_vigor_fetch.vigor.builders.fetch.middlewares().after("intercept", (ctx, api) => {
-    const result = schema.parse(ctx.result);
+  return import_vigor_fetch2.vigor.builders.fetch.middlewares().after("intercept", (ctx, api) => {
+    const parsed = schema.safeParse(ctx.result);
+    if (!parsed.success) throw new RobloxError("INVALID_RESPONSE", { issues: parsed.error.issues, url: ctx.response?.url || ctx.href || null }, { cause: parsed.error });
+    const result = parsed.data;
     api.setResult(result);
     return { ...ctx, result };
   });
@@ -469,7 +571,7 @@ var RobloxBatcher = class {
   }
   enqueue(target) {
     const routes = this.routes.filter((r) => r.group(target) !== null);
-    if (!routes.length) return Promise.reject(new Error(`No endpoint accepts ${JSON.stringify(target)}`));
+    if (!routes.length) return Promise.reject(new RobloxError("NO_ROUTE", { target }));
     return new Promise((resolve, reject) => {
       this.queue.push({ target, routes, resolve, reject, notBefore: 0, againTries: 0, limitedTries: 0 });
       this.wake(0);
@@ -542,7 +644,7 @@ var RobloxBatcher = class {
         const result = results[i];
         if (result === RobloxBatchSkip) {
           job.routes = job.routes.filter((r) => r !== route);
-          if (!job.routes.length) return job.reject(new Error(`No endpoint could answer ${JSON.stringify(job.target)}`));
+          if (!job.routes.length) return job.reject(new RobloxError("NO_ROUTE", { target: job.target }));
           this.queue.push(job);
           return;
         }
@@ -574,7 +676,7 @@ var RobloxBatcher = class {
     }
   }
 };
-var captureHeaders = (onHeaders) => import_vigor_fetch2.vigor.builders.fetch.middlewares().after("fluent", (ctx) => onHeaders(ctx.response.headers));
+var captureHeaders = (onHeaders) => import_vigor_fetch3.vigor.builders.fetch.middlewares().after("fluent", (ctx) => onHeaders(ctx.response.headers));
 async function nullOn(statuses, onHeaders, run) {
   try {
     return await run();
@@ -629,6 +731,7 @@ var RobloxDefaultTtl = {
     getVotes: 5 * MINUTE,
     getFavoriteCounts: 5 * MINUTE,
     getMedia: HOUR,
+    getSocialLinks: HOUR,
     getServerAddresses: 30 * MINUTE,
     // 서버가 살아 있는 동안 같다
     getServerLocations: 31 * DAY,
@@ -674,39 +777,29 @@ function mergeTtl(base, next) {
 }
 
 // src/core/partial.ts
-var RobloxPartialError = class extends Error {
-  constructor(results, errors) {
-    super(`${errors.length}\uAC1C \uD56D\uBAA9\uC744 \uBC1B\uC9C0 \uBABB\uD588\uB2E4 (\uC131\uACF5 ${results.length}\uAC1C)`, { cause: errors[0]?.error });
-    this.results = results;
-    this.errors = errors;
-  }
-  results;
-  errors;
-  name = "RobloxPartialError";
-};
-function isRobloxPartialError(error) {
-  return error instanceof RobloxPartialError;
-}
 var found = (list) => list.filter((x) => x !== null);
 async function settle(inputs, load) {
   const settled = await Promise.allSettled(inputs.map((input) => load(input)));
   const errors = [];
   const values = settled.map((s, i) => {
     if (s.status === "fulfilled") return s.value;
-    errors.push({ input: inputs[i], error: s.reason });
+    errors.push({ input: inputs[i], error: toRobloxError(s.reason) });
     return null;
   });
   return { values, errors };
 }
 function finish(results, errors) {
-  if (errors.length) throw new RobloxPartialError(results, [...errors]);
+  if (errors.length) throw new RobloxError("PARTIAL", { results, errors: [...errors] }, { cause: errors[0].error });
   return results;
 }
 async function partial(promise) {
   try {
     return { results: await promise, errors: [] };
   } catch (error) {
-    if (error instanceof RobloxPartialError) return { results: error.results, errors: error.errors };
+    if (error instanceof RobloxError && error.code === "PARTIAL") {
+      const { results, errors } = error.data;
+      return { results, errors };
+    }
     throw error;
   }
 }
@@ -714,14 +807,14 @@ async function extra(promise, fallback = []) {
   try {
     return await promise;
   } catch (error) {
-    return error instanceof RobloxPartialError ? error.results : fallback;
+    return error instanceof RobloxError && error.code === "PARTIAL" ? error.data.results : fallback;
   }
 }
 
 // src/types/common.ts
-var import_zod = __toESM(require("zod"), 1);
-var RobloxCursorSchema = import_zod.default.string().brand("RobloxCursor");
-var id = (brand) => import_zod.default.number().int().min(1).brand(brand);
+var import_zod2 = __toESM(require("zod"), 1);
+var RobloxCursorSchema = import_zod2.default.string().brand("RobloxCursor");
+var id = (brand) => import_zod2.default.number().int().min(1).brand(brand);
 var RobloxAssetIdSchema = id("RobloxAssetId");
 var RobloxPlaceIdSchema = id("RobloxPlaceId");
 var RobloxUniverseIdSchema = id("RobloxUniverseId");
@@ -733,127 +826,127 @@ var RobloxOutfitIdSchema = id("RobloxOutfitId");
 var RobloxDeveloperProductIdSchema = id("RobloxDeveloperProductId");
 var RobloxGameThumbnailIdSchema = id("RobloxGameThumbnailId");
 var RobloxPrivateServerIdSchema = id("RobloxPrivateServerId");
-var RobloxJobIdSchema = import_zod.default.uuid().brand("RobloxJobId");
-var RobloxConversationIdSchema = import_zod.default.string().min(1).brand("RobloxConversationId");
-var RobloxChatMessageIdSchema = import_zod.default.string().min(1).brand("RobloxChatMessageId");
-var RobloxPageLimitSchema = import_zod.default.literal([10, 25, 50, 100]);
-var RobloxSortOrderSchema = import_zod.default.enum(["Asc", "Desc"]);
-var RobloxEmptyResponseSchema = import_zod.default.object({});
-var RobloxArrayResponseSchema = (item) => import_zod.default.object({
-  data: import_zod.default.array(item)
+var RobloxJobIdSchema = import_zod2.default.uuid().brand("RobloxJobId");
+var RobloxConversationIdSchema = import_zod2.default.string().min(1).brand("RobloxConversationId");
+var RobloxChatMessageIdSchema = import_zod2.default.string().min(1).brand("RobloxChatMessageId");
+var RobloxPageLimitSchema = import_zod2.default.literal([10, 25, 50, 100]);
+var RobloxSortOrderSchema = import_zod2.default.enum(["Asc", "Desc"]);
+var RobloxEmptyResponseSchema = import_zod2.default.object({});
+var RobloxArrayResponseSchema = (item) => import_zod2.default.object({
+  data: import_zod2.default.array(item)
 });
-var RobloxPageResponseSchema = (item) => import_zod.default.object({
+var RobloxPageResponseSchema = (item) => import_zod2.default.object({
   previousPageCursor: RobloxCursorSchema.nullable(),
   nextPageCursor: RobloxCursorSchema.nullable(),
-  data: import_zod.default.array(item)
+  data: import_zod2.default.array(item)
 });
-var RobloxErrorResponseSchema = import_zod.default.object({
-  errors: import_zod.default.array(import_zod.default.object({
-    code: import_zod.default.number(),
-    subcode: import_zod.default.number().optional(),
-    message: import_zod.default.string(),
-    userFacingMessage: import_zod.default.string().optional(),
-    field: import_zod.default.string().optional()
+var RobloxErrorResponseSchema = import_zod2.default.object({
+  errors: import_zod2.default.array(import_zod2.default.object({
+    code: import_zod2.default.number(),
+    subcode: import_zod2.default.number().optional(),
+    message: import_zod2.default.string(),
+    userFacingMessage: import_zod2.default.string().optional(),
+    field: import_zod2.default.string().optional()
   }))
 });
 
 // src/types/users.ts
-var import_zod2 = __toESM(require("zod"), 1);
-var RobloxBirthYearSchema = import_zod2.default.number().int().max((/* @__PURE__ */ new Date()).getFullYear()).brand("RobloxBirthYear");
-var RobloxBirthMonthSchema = import_zod2.default.number().int().min(1).max(12).brand("RobloxBirthMonth");
-var RobloxBirthDaySchema = import_zod2.default.number().int().min(1).max(31).brand("RobloxBirthDay");
-var RobloxUserIdSchema = import_zod2.default.number().int().min(1).brand("RobloxUserId");
-var RobloxUserNameSchema = import_zod2.default.string().brand("RobloxUserName");
-var RobloxUserDisplaynameSchema = import_zod2.default.string().brand("RobloxUserDisplayname");
+var import_zod3 = __toESM(require("zod"), 1);
+var RobloxBirthYearSchema = import_zod3.default.number().int().max((/* @__PURE__ */ new Date()).getFullYear()).brand("RobloxBirthYear");
+var RobloxBirthMonthSchema = import_zod3.default.number().int().min(1).max(12).brand("RobloxBirthMonth");
+var RobloxBirthDaySchema = import_zod3.default.number().int().min(1).max(31).brand("RobloxBirthDay");
+var RobloxUserIdSchema = import_zod3.default.number().int().min(1).brand("RobloxUserId");
+var RobloxUserNameSchema = import_zod3.default.string().brand("RobloxUserName");
+var RobloxUserDisplaynameSchema = import_zod3.default.string().brand("RobloxUserDisplayname");
 var RobloxGender = { Unknown: 1, Male: 2, Female: 3 };
-var RobloxGenderSchema = import_zod2.default.literal([1, 2, 3]);
+var RobloxGenderSchema = import_zod3.default.literal([1, 2, 3]);
 var RobloxAgeBracket = { Over13: 0, Under13: 1 };
-var RobloxAgeBracketSchema = import_zod2.default.number().int();
-var RobloxAuthenticatedUserSchema = import_zod2.default.object({
+var RobloxAgeBracketSchema = import_zod3.default.number().int();
+var RobloxAuthenticatedUserSchema = import_zod3.default.object({
   id: RobloxUserIdSchema,
   name: RobloxUserNameSchema,
   displayName: RobloxUserDisplaynameSchema
 });
 var RobloxUserSchema = RobloxAuthenticatedUserSchema.extend({
-  hasVerifiedBadge: import_zod2.default.boolean()
+  hasVerifiedBadge: import_zod3.default.boolean()
 });
 var RobloxUserDetailSchema = RobloxUserSchema.extend({
-  description: import_zod2.default.string(),
-  created: import_zod2.default.string(),
-  isBanned: import_zod2.default.boolean(),
+  description: import_zod3.default.string(),
+  created: import_zod3.default.string(),
+  isBanned: import_zod3.default.boolean(),
   /** 사용되지 않는 legacy 필드. 항상 null */
-  externalAppDisplayName: import_zod2.default.string().nullable()
+  externalAppDisplayName: import_zod3.default.string().nullable()
 });
 var RobloxUserByNameSchema = RobloxUserSchema.extend({
-  requestedUsername: import_zod2.default.string()
+  requestedUsername: import_zod3.default.string()
 });
 var RobloxUserSearchResultSchema = RobloxUserSchema.extend({
-  previousUsernames: import_zod2.default.array(import_zod2.default.string())
+  previousUsernames: import_zod3.default.array(import_zod3.default.string())
 });
-var RobloxUsernameHistoryEntrySchema = import_zod2.default.object({
+var RobloxUsernameHistoryEntrySchema = import_zod3.default.object({
   name: RobloxUserNameSchema
 });
-var RobloxBirthdateSchema = import_zod2.default.object({
+var RobloxBirthdateSchema = import_zod3.default.object({
   birthMonth: RobloxBirthMonthSchema,
   birthDay: RobloxBirthDaySchema,
   birthYear: RobloxBirthYearSchema
 });
-var RobloxUserDescriptionSchema = import_zod2.default.object({
-  description: import_zod2.default.string()
+var RobloxUserDescriptionSchema = import_zod3.default.object({
+  description: import_zod3.default.string()
 });
-var RobloxUserGenderSchema = import_zod2.default.object({
+var RobloxUserGenderSchema = import_zod3.default.object({
   gender: RobloxGenderSchema
 });
-var RobloxUserAgeBracketSchema = import_zod2.default.object({
+var RobloxUserAgeBracketSchema = import_zod3.default.object({
   ageBracket: RobloxAgeBracketSchema
 });
-var RobloxUserCountryCodeSchema = import_zod2.default.object({
-  countryCode: import_zod2.default.string()
+var RobloxUserCountryCodeSchema = import_zod3.default.object({
+  countryCode: import_zod3.default.string()
 });
-var RobloxUserRolesSchema = import_zod2.default.object({
-  roles: import_zod2.default.array(import_zod2.default.string())
+var RobloxUserRolesSchema = import_zod3.default.object({
+  roles: import_zod3.default.array(import_zod3.default.string())
 });
 var RobloxUsersResponseSchema = RobloxArrayResponseSchema(RobloxUserSchema);
 var RobloxUsersByNameResponseSchema = RobloxArrayResponseSchema(RobloxUserByNameSchema);
 var RobloxUserSearchResponseSchema = RobloxPageResponseSchema(RobloxUserSearchResultSchema);
 var RobloxUsernameHistoryResponseSchema = RobloxPageResponseSchema(RobloxUsernameHistoryEntrySchema);
 var RobloxSetBirthdateRequestSchema = RobloxBirthdateSchema.extend({
-  password: import_zod2.default.string()
+  password: import_zod3.default.string()
 });
-var RobloxSetDescriptionRequestSchema = import_zod2.default.object({
-  description: import_zod2.default.string()
+var RobloxSetDescriptionRequestSchema = import_zod3.default.object({
+  description: import_zod3.default.string()
 });
-var RobloxSetGenderRequestSchema = import_zod2.default.object({
+var RobloxSetGenderRequestSchema = import_zod3.default.object({
   gender: RobloxGenderSchema
 });
-var RobloxUsersRequestSchema = import_zod2.default.object({
-  userIds: import_zod2.default.array(RobloxUserIdSchema),
-  excludeBannedUsers: import_zod2.default.boolean().optional()
+var RobloxUsersRequestSchema = import_zod3.default.object({
+  userIds: import_zod3.default.array(RobloxUserIdSchema),
+  excludeBannedUsers: import_zod3.default.boolean().optional()
 });
-var RobloxUsersByNameRequestSchema = import_zod2.default.object({
-  usernames: import_zod2.default.array(import_zod2.default.string()),
-  excludeBannedUsers: import_zod2.default.boolean().optional()
+var RobloxUsersByNameRequestSchema = import_zod3.default.object({
+  usernames: import_zod3.default.array(import_zod3.default.string()),
+  excludeBannedUsers: import_zod3.default.boolean().optional()
 });
-var RobloxSetDisplayNameRequestSchema = import_zod2.default.object({
-  newDisplayName: import_zod2.default.string()
+var RobloxSetDisplayNameRequestSchema = import_zod3.default.object({
+  newDisplayName: import_zod3.default.string()
 });
-var RobloxUsernameHistoryQuerySchema = import_zod2.default.object({
+var RobloxUsernameHistoryQuerySchema = import_zod3.default.object({
   limit: RobloxPageLimitSchema.optional(),
   cursor: RobloxCursorSchema.optional(),
   sortOrder: RobloxSortOrderSchema.optional()
 });
-var RobloxUserSearchQuerySchema = import_zod2.default.object({
-  keyword: import_zod2.default.string(),
-  sessionId: import_zod2.default.string().optional(),
+var RobloxUserSearchQuerySchema = import_zod3.default.object({
+  keyword: import_zod3.default.string(),
+  sessionId: import_zod3.default.string().optional(),
   limit: RobloxPageLimitSchema.optional(),
   cursor: RobloxCursorSchema.optional()
 });
-var RobloxValidateDisplayNameQuerySchema = import_zod2.default.object({
-  displayName: import_zod2.default.string(),
-  birthdate: import_zod2.default.string()
+var RobloxValidateDisplayNameQuerySchema = import_zod3.default.object({
+  displayName: import_zod3.default.string(),
+  birthdate: import_zod3.default.string()
 });
-var RobloxValidateUserDisplayNameQuerySchema = import_zod2.default.object({
-  displayName: import_zod2.default.string()
+var RobloxValidateUserDisplayNameQuerySchema = import_zod3.default.object({
+  displayName: import_zod3.default.string()
 });
 
 // src/apis/users.ts
@@ -878,12 +971,12 @@ var byIdRoute = {
     return targets.map((t) => byId.get(t.userId) ?? null);
   }
 };
-var ProfilesSchema = import_zod3.default.object({
-  profileDetails: import_zod3.default.array(import_zod3.default.object({
-    userId: import_zod3.default.number(),
-    names: import_zod3.default.object({ username: import_zod3.default.string().nullable(), displayName: import_zod3.default.string().nullable() }),
-    isVerified: import_zod3.default.boolean(),
-    isDeleted: import_zod3.default.boolean().nullish()
+var ProfilesSchema = import_zod4.default.object({
+  profileDetails: import_zod4.default.array(import_zod4.default.object({
+    userId: import_zod4.default.number(),
+    names: import_zod4.default.object({ username: import_zod4.default.string().nullable(), displayName: import_zod4.default.string().nullable() }),
+    isVerified: import_zod4.default.boolean(),
+    isDeleted: import_zod4.default.boolean().nullish()
   }))
 });
 var profilesRoute = {
@@ -932,10 +1025,10 @@ var RobloxUsersApi = class {
   }
   // ── 공개 조회 ──────────────────────────────────────
   // 배열을 받는 메서드는 결과를 입력 순서로 돌려주고, 없는 유저는 뺀다.
-  // 일부 항목이 실패하면 받은 결과를 담아 RobloxPartialError를 던진다.
+  // 일부 항목이 실패하면 받은 결과를 담아 RobloxError(PARTIAL)를 던진다.
   // 같은 틱에 들어온 호출은 모아서 보내므로 따로따로 불러도 된다.
   /**
-   * 유저들을 받아 실패가 있으면 RobloxPartialError로 던진다. `thumbnail`이 있으면 아바타 썸네일을 붙인다 —
+   * 유저들을 받아 실패가 있으면 RobloxError(PARTIAL)로 던진다. `thumbnail`이 있으면 아바타 썸네일을 붙인다 —
    * id를 아는 경우 users 조회와 동시에 보내고, 썸네일을 받지 못한 유저는 `thumbnail: null`이다.
    */
   async attach(users, ids, option) {
@@ -1047,10 +1140,10 @@ var RobloxUsersApi = class {
 };
 
 // src/types/thumbnails.ts
-var import_zod4 = __toESM(require("zod"), 1);
-var RobloxThumbnailStateSchema = import_zod4.default.enum(["Error", "Completed", "InReview", "Pending", "Blocked", "TemporarilyUnavailable"]);
-var RobloxThumbnailReturnPolicySchema = import_zod4.default.enum(["PlaceHolder", "ForcePlaceHolder", "AutoGenerated", "ForceAutoGenerated"]);
-var sizes = (...values) => import_zod4.default.enum(values);
+var import_zod5 = __toESM(require("zod"), 1);
+var RobloxThumbnailStateSchema = import_zod5.default.enum(["Error", "Completed", "InReview", "Pending", "Blocked", "TemporarilyUnavailable"]);
+var RobloxThumbnailReturnPolicySchema = import_zod5.default.enum(["PlaceHolder", "ForcePlaceHolder", "AutoGenerated", "ForceAutoGenerated"]);
+var sizes = (...values) => import_zod5.default.enum(values);
 var RobloxThumbnailSizes = {
   Avatar: sizes("30x30", "48x48", "60x60", "75x75", "100x100", "110x110", "140x140", "150x150", "150x200", "180x180", "250x250", "352x352", "420x420", "720x720"),
   AvatarHeadShot: sizes("48x48", "50x50", "60x60", "75x75", "100x100", "110x110", "150x150", "180x180", "352x352", "420x420", "720x720"),
@@ -1066,25 +1159,25 @@ var RobloxThumbnailSizes = {
   GroupIcon: sizes("150x150", "420x420"),
   DeveloperProduct: sizes("150x150", "420x420")
 };
-var RobloxThumbnailSchema = import_zod4.default.object({
-  targetId: import_zod4.default.number(),
+var RobloxThumbnailSchema = import_zod5.default.object({
+  targetId: import_zod5.default.number(),
   state: RobloxThumbnailStateSchema,
-  imageUrl: import_zod4.default.string().nullable(),
-  version: import_zod4.default.string().nullable()
+  imageUrl: import_zod5.default.string().nullable(),
+  version: import_zod5.default.string().nullable()
 });
 var RobloxThumbnailBatchItemSchema = RobloxThumbnailSchema.extend({
-  requestId: import_zod4.default.string().nullable(),
-  errorCode: import_zod4.default.number(),
-  errorMessage: import_zod4.default.string()
+  requestId: import_zod5.default.string().nullable(),
+  errorCode: import_zod5.default.number(),
+  errorMessage: import_zod5.default.string()
 });
-var RobloxUniverseThumbnailsSchema = import_zod4.default.object({
+var RobloxUniverseThumbnailsSchema = import_zod5.default.object({
   universeId: RobloxUniverseIdSchema,
-  error: import_zod4.default.object({ code: import_zod4.default.number(), message: import_zod4.default.string() }).nullable(),
-  thumbnails: import_zod4.default.array(RobloxThumbnailSchema)
+  error: import_zod5.default.object({ code: import_zod5.default.number(), message: import_zod5.default.string() }).nullable(),
+  thumbnails: import_zod5.default.array(RobloxThumbnailSchema)
 });
-var RobloxThumbnailsResponseSchema = import_zod4.default.object({ data: import_zod4.default.array(RobloxThumbnailSchema) });
-var RobloxThumbnailBatchResponseSchema = import_zod4.default.object({ data: import_zod4.default.array(RobloxThumbnailBatchItemSchema) });
-var RobloxUniverseThumbnailsResponseSchema = import_zod4.default.object({ data: import_zod4.default.array(RobloxUniverseThumbnailsSchema) });
+var RobloxThumbnailsResponseSchema = import_zod5.default.object({ data: import_zod5.default.array(RobloxThumbnailSchema) });
+var RobloxThumbnailBatchResponseSchema = import_zod5.default.object({ data: import_zod5.default.array(RobloxThumbnailBatchItemSchema) });
+var RobloxUniverseThumbnailsResponseSchema = import_zod5.default.object({ data: import_zod5.default.array(RobloxUniverseThumbnailsSchema) });
 
 // src/apis/thumbnails.ts
 var ORIGIN2 = "https://thumbnails.roblox.com";
@@ -1246,7 +1339,7 @@ var RobloxThumbnailsApi = class {
    * 썸네일들. 결과는 입력과 같은 순서이고, 타입이 섞여도 된다. 하나만 필요하면 원소 하나짜리 배열을 넣는다.
    * 엔드포인트는 대상과 남은 한도를 보고 라이브러리가 고른다. 같은 틱에 들어온 호출은 모아서 보내고,
    * Pending이면 잠시 기다렸다 다시 묻는다. 없는 id는 `state: "Error"`로 돌아온다.
-   * 요청이 실패한 대상이 있으면 `RobloxPartialError`를 던진다 (`results`에는 받은 것만 있어 순서가 입력과 어긋난다).
+   * 요청이 실패한 대상이 있으면 `RobloxError`(`PARTIAL`)를 던진다 (`results`에는 받은 것만 있어 순서가 입력과 어긋난다).
    */
   async get(targets) {
     const { values, errors } = await settle(targets, (t) => this.load(t));
@@ -1299,26 +1392,26 @@ function canAuthenticate(config) {
 }
 async function requireViewer(config) {
   const viewer = await viewerKey(config);
-  if (viewer === null) throw new Error("\uC774 API\uB294 \uC694\uCCAD \uACC4\uC815\uC744 \uAE30\uC900\uC73C\uB85C \uB2F5\uD55C\uB2E4. \uCFE0\uD0A4 \uB85C\uD14C\uC774\uC158 \uB300\uC2E0 .as(cookie)\uB85C \uACC4\uC815\uC744 \uC815\uD574\uC57C \uD55C\uB2E4.");
+  if (viewer === null) throw new RobloxError("VIEWER_REQUIRED", {});
   return viewer;
 }
 
 // src/types/presence.ts
-var import_zod5 = __toESM(require("zod"), 1);
+var import_zod6 = __toESM(require("zod"), 1);
 var RobloxPresenceType = { Offline: 0, Online: 1, InGame: 2, InStudio: 3 };
-var RobloxPresenceTypeSchema = import_zod5.default.number().int();
-var RobloxUserPresenceSchema = import_zod5.default.object({
+var RobloxPresenceTypeSchema = import_zod6.default.number().int();
+var RobloxUserPresenceSchema = import_zod6.default.object({
   userId: RobloxUserIdSchema,
   userPresenceType: RobloxPresenceTypeSchema,
-  lastLocation: import_zod5.default.string().nullable(),
+  lastLocation: import_zod6.default.string().nullable(),
   placeId: RobloxPlaceIdSchema.nullable(),
   rootPlaceId: RobloxPlaceIdSchema.nullable(),
   /** 접속한 서버 */
   gameId: RobloxJobIdSchema.nullable(),
   universeId: RobloxUniverseIdSchema.nullable()
 });
-var RobloxUserPresencesResponseSchema = import_zod5.default.object({
-  userPresences: import_zod5.default.array(RobloxUserPresenceSchema)
+var RobloxUserPresencesResponseSchema = import_zod6.default.object({
+  userPresences: import_zod6.default.array(RobloxUserPresenceSchema)
 });
 
 // src/apis/presence.ts
@@ -1371,10 +1464,10 @@ var RobloxPresenceApi = class {
 };
 
 // src/types/games.ts
-var import_zod7 = __toESM(require("zod"), 1);
+var import_zod8 = __toESM(require("zod"), 1);
 
 // src/types/creator.ts
-var import_zod6 = __toESM(require("zod"), 1);
+var import_zod7 = __toESM(require("zod"), 1);
 var TYPES = { User: "User", Group: "Group", "1": "User", "2": "Group" };
 function toRobloxCreator(id2, type) {
   const kind = TYPES[String(type)];
@@ -1389,7 +1482,7 @@ function toRobloxCreator(id2, type) {
   return { type: "Unknown", id: id2, rawType: type };
 }
 function RobloxCreatorSchema(extra2 = {}) {
-  return import_zod6.default.object({ id: import_zod6.default.number(), type: import_zod6.default.union([import_zod6.default.string(), import_zod6.default.number()]), ...extra2 }).transform((value) => {
+  return import_zod7.default.object({ id: import_zod7.default.number(), type: import_zod7.default.union([import_zod7.default.string(), import_zod7.default.number()]), ...extra2 }).transform((value) => {
     const { id: id2, type, ...rest } = value;
     return { ...rest, ...toRobloxCreator(id2, type) };
   });
@@ -1397,267 +1490,274 @@ function RobloxCreatorSchema(extra2 = {}) {
 
 // src/types/games.ts
 var RobloxGameCreatorSchema = RobloxCreatorSchema({
-  name: import_zod7.default.string(),
-  isRNVAccount: import_zod7.default.boolean().nullish(),
-  hasVerifiedBadge: import_zod7.default.boolean()
+  name: import_zod8.default.string(),
+  isRNVAccount: import_zod8.default.boolean().nullish(),
+  hasVerifiedBadge: import_zod8.default.boolean()
 });
-var RobloxGameSchema = import_zod7.default.object({
+var RobloxGameSchema = import_zod8.default.object({
   id: RobloxUniverseIdSchema,
   rootPlaceId: RobloxPlaceIdSchema,
-  name: import_zod7.default.string(),
-  description: import_zod7.default.string().nullable(),
-  sourceName: import_zod7.default.string().nullable(),
-  sourceDescription: import_zod7.default.string().nullable(),
+  name: import_zod8.default.string(),
+  description: import_zod8.default.string().nullable(),
+  sourceName: import_zod8.default.string().nullable(),
+  sourceDescription: import_zod8.default.string().nullable(),
   creator: RobloxGameCreatorSchema,
-  price: import_zod7.default.number().nullable(),
-  allowedGearGenres: import_zod7.default.array(import_zod7.default.string()),
-  allowedGearCategories: import_zod7.default.array(import_zod7.default.string()),
-  isGenreEnforced: import_zod7.default.boolean(),
-  copyingAllowed: import_zod7.default.boolean(),
-  playing: import_zod7.default.number(),
-  visits: import_zod7.default.number(),
-  maxPlayers: import_zod7.default.number(),
-  created: import_zod7.default.string(),
-  updated: import_zod7.default.string(),
-  studioAccessToApisAllowed: import_zod7.default.boolean(),
-  createVipServersAllowed: import_zod7.default.boolean(),
+  price: import_zod8.default.number().nullable(),
+  allowedGearGenres: import_zod8.default.array(import_zod8.default.string()),
+  allowedGearCategories: import_zod8.default.array(import_zod8.default.string()),
+  isGenreEnforced: import_zod8.default.boolean(),
+  copyingAllowed: import_zod8.default.boolean(),
+  playing: import_zod8.default.number(),
+  visits: import_zod8.default.number(),
+  maxPlayers: import_zod8.default.number(),
+  created: import_zod8.default.string(),
+  updated: import_zod8.default.string(),
+  studioAccessToApisAllowed: import_zod8.default.boolean(),
+  createVipServersAllowed: import_zod8.default.boolean(),
   /** "MorphToR6" | "MorphToR15" | "PlayerChoice" */
-  universeAvatarType: import_zod7.default.string(),
-  genre: import_zod7.default.string(),
-  genre_l1: import_zod7.default.string().nullish(),
-  genre_l2: import_zod7.default.string().nullish(),
-  untranslated_genre_l1: import_zod7.default.string().nullish(),
-  isAllGenre: import_zod7.default.boolean(),
-  isFavoritedByUser: import_zod7.default.boolean(),
-  favoritedCount: import_zod7.default.number(),
-  canonicalUrlPath: import_zod7.default.string().nullish(),
-  isContentRestricted: import_zod7.default.boolean().nullish(),
-  licenseDescription: import_zod7.default.string().nullish(),
-  refundLink: import_zod7.default.string().nullish(),
-  localizedFiatPrice: import_zod7.default.string().nullish()
+  universeAvatarType: import_zod8.default.string(),
+  genre: import_zod8.default.string(),
+  genre_l1: import_zod8.default.string().nullish(),
+  genre_l2: import_zod8.default.string().nullish(),
+  untranslated_genre_l1: import_zod8.default.string().nullish(),
+  isAllGenre: import_zod8.default.boolean(),
+  isFavoritedByUser: import_zod8.default.boolean(),
+  favoritedCount: import_zod8.default.number(),
+  canonicalUrlPath: import_zod8.default.string().nullish(),
+  isContentRestricted: import_zod8.default.boolean().nullish(),
+  licenseDescription: import_zod8.default.string().nullish(),
+  refundLink: import_zod8.default.string().nullish(),
+  localizedFiatPrice: import_zod8.default.string().nullish()
 });
-var RobloxFiatPurchaseDataSchema = import_zod7.default.object({
-  localizedFiatPrice: import_zod7.default.string().nullish(),
-  basePriceId: import_zod7.default.string().nullish()
+var RobloxFiatPurchaseDataSchema = import_zod8.default.object({
+  localizedFiatPrice: import_zod8.default.string().nullish(),
+  basePriceId: import_zod8.default.string().nullish()
 });
-var RobloxPlaceDetailsSchema = import_zod7.default.object({
+var RobloxPlaceDetailsSchema = import_zod8.default.object({
   placeId: RobloxPlaceIdSchema,
-  name: import_zod7.default.string(),
-  description: import_zod7.default.string().nullish(),
-  sourceName: import_zod7.default.string().nullish(),
-  sourceDescription: import_zod7.default.string().nullish(),
-  url: import_zod7.default.string(),
-  builder: import_zod7.default.string(),
+  name: import_zod8.default.string(),
+  description: import_zod8.default.string().nullish(),
+  sourceName: import_zod8.default.string().nullish(),
+  sourceDescription: import_zod8.default.string().nullish(),
+  url: import_zod8.default.string(),
+  builder: import_zod8.default.string(),
   /** 유저 id인지 그룹 id인지 응답이 알려 주지 않는다. 필요하면 `getGames([universeId])`의 `creator`를 쓴다 */
-  builderId: import_zod7.default.number(),
-  hasVerifiedBadge: import_zod7.default.boolean(),
-  isPlayable: import_zod7.default.boolean().nullish(),
-  reasonProhibited: import_zod7.default.string().nullish(),
+  builderId: import_zod8.default.number(),
+  hasVerifiedBadge: import_zod8.default.boolean(),
+  isPlayable: import_zod8.default.boolean().nullish(),
+  reasonProhibited: import_zod8.default.string().nullish(),
   universeId: RobloxUniverseIdSchema,
   universeRootPlaceId: RobloxPlaceIdSchema,
-  price: import_zod7.default.number().nullish(),
-  imageToken: import_zod7.default.string().nullish(),
+  price: import_zod8.default.number().nullish(),
+  imageToken: import_zod8.default.string().nullish(),
   fiatPurchaseData: RobloxFiatPurchaseDataSchema.nullish()
 });
-var RobloxGameProductSchema = import_zod7.default.object({
+var RobloxGameProductSchema = import_zod8.default.object({
   universeId: RobloxUniverseIdSchema,
-  isForSale: import_zod7.default.boolean(),
-  productId: import_zod7.default.number().nullable(),
-  price: import_zod7.default.number().nullable(),
+  isForSale: import_zod8.default.boolean(),
+  productId: import_zod8.default.number().nullable(),
+  price: import_zod8.default.number().nullable(),
   /** 유저 id인지 그룹 id인지 응답이 알려 주지 않는다. 필요하면 `getGames([universeId])`의 `creator`를 쓴다 */
-  sellerId: import_zod7.default.number().nullable(),
+  sellerId: import_zod8.default.number().nullable(),
   fiatPurchaseData: RobloxFiatPurchaseDataSchema.nullish()
 });
-var RobloxGamePlayabilitySchema = import_zod7.default.object({
+var RobloxGamePlayabilitySchema = import_zod8.default.object({
   universeId: RobloxUniverseIdSchema,
   /** "Playable", "GuestProhibited", "PurchaseRequired" 등 (스펙은 숫자 enum이라 적지만 문자열로 온다) */
-  playabilityStatus: import_zod7.default.string(),
-  isPlayable: import_zod7.default.boolean(),
-  unplayableDisplayText: import_zod7.default.string().nullable(),
-  playableUxTreatment: import_zod7.default.unknown().nullish(),
-  upsellUxTreatment: import_zod7.default.unknown().nullish(),
-  privatePlaytestInfo: import_zod7.default.unknown().nullish(),
-  demoModeAvailable: import_zod7.default.boolean().nullish()
+  playabilityStatus: import_zod8.default.string(),
+  isPlayable: import_zod8.default.boolean(),
+  unplayableDisplayText: import_zod8.default.string().nullable(),
+  playableUxTreatment: import_zod8.default.unknown().nullish(),
+  upsellUxTreatment: import_zod8.default.unknown().nullish(),
+  privatePlaytestInfo: import_zod8.default.unknown().nullish(),
+  demoModeAvailable: import_zod8.default.boolean().nullish()
 });
-var RobloxGameVotesSchema = import_zod7.default.object({
+var RobloxGameSocialLinkSchema = import_zod8.default.object({
+  id: import_zod8.default.number(),
+  title: import_zod8.default.string(),
+  url: import_zod8.default.string(),
+  /** "YouTube", "Discord", "RobloxGroup" 등 */
+  type: import_zod8.default.string()
+});
+var RobloxGameSocialLinksResponseSchema = import_zod8.default.object({ data: import_zod8.default.array(RobloxGameSocialLinkSchema) });
+var RobloxGameVotesSchema = import_zod8.default.object({
   id: RobloxUniverseIdSchema,
-  upVotes: import_zod7.default.number(),
-  downVotes: import_zod7.default.number()
+  upVotes: import_zod8.default.number(),
+  downVotes: import_zod8.default.number()
 });
-var RobloxUserGameVoteSchema = import_zod7.default.object({
-  canVote: import_zod7.default.boolean(),
+var RobloxUserGameVoteSchema = import_zod8.default.object({
+  canVote: import_zod8.default.boolean(),
   /** true = 좋아요, false = 싫어요, null = 안 함 */
-  userVote: import_zod7.default.boolean().nullable(),
-  reasonForNotVoteable: import_zod7.default.string().nullable()
+  userVote: import_zod8.default.boolean().nullable(),
+  reasonForNotVoteable: import_zod8.default.string().nullable()
 });
-var RobloxGameMediaSchema = import_zod7.default.object({
-  assetTypeId: import_zod7.default.number(),
+var RobloxGameMediaSchema = import_zod8.default.object({
+  assetTypeId: import_zod8.default.number(),
   /** "Image" | "YouTubeVideo" | "GamePreviewVideo" ... */
-  assetType: import_zod7.default.string(),
+  assetType: import_zod8.default.string(),
   /** 동영상 항목은 비어 올 수 있다 (0 등은 null로 바꾼다) */
   imageId: RobloxAssetIdSchema.nullable().catch(null),
-  videoHash: import_zod7.default.string().nullable(),
-  videoTitle: import_zod7.default.string().nullable(),
-  approved: import_zod7.default.boolean(),
-  altText: import_zod7.default.string().nullable(),
-  videoId: import_zod7.default.string().nullish()
+  videoHash: import_zod8.default.string().nullable(),
+  videoTitle: import_zod8.default.string().nullable(),
+  approved: import_zod8.default.boolean(),
+  altText: import_zod8.default.string().nullable(),
+  videoId: import_zod8.default.string().nullish()
 });
-var RobloxRecommendedGameSchema = import_zod7.default.object({
-  creatorId: import_zod7.default.number(),
-  creatorName: import_zod7.default.string(),
-  creatorType: import_zod7.default.string(),
-  creatorHasVerifiedBadge: import_zod7.default.boolean(),
-  totalUpVotes: import_zod7.default.number(),
-  totalDownVotes: import_zod7.default.number(),
+var RobloxRecommendedGameSchema = import_zod8.default.object({
+  creatorId: import_zod8.default.number(),
+  creatorName: import_zod8.default.string(),
+  creatorType: import_zod8.default.string(),
+  creatorHasVerifiedBadge: import_zod8.default.boolean(),
+  totalUpVotes: import_zod8.default.number(),
+  totalDownVotes: import_zod8.default.number(),
   universeId: RobloxUniverseIdSchema,
-  name: import_zod7.default.string(),
+  name: import_zod8.default.string(),
   placeId: RobloxPlaceIdSchema,
-  playerCount: import_zod7.default.number(),
-  imageToken: import_zod7.default.string().nullable(),
-  isSponsored: import_zod7.default.boolean(),
-  nativeAdData: import_zod7.default.string().nullable(),
-  isShowSponsoredLabel: import_zod7.default.boolean(),
-  price: import_zod7.default.number().nullable(),
-  analyticsIdentifier: import_zod7.default.string().nullable(),
-  gameDescription: import_zod7.default.string().nullable(),
-  genre: import_zod7.default.string().nullable(),
-  minimumAge: import_zod7.default.number().nullish(),
-  ageRecommendationDisplayName: import_zod7.default.string().nullish(),
-  canonicalUrlPath: import_zod7.default.string().nullish()
+  playerCount: import_zod8.default.number(),
+  imageToken: import_zod8.default.string().nullable(),
+  isSponsored: import_zod8.default.boolean(),
+  nativeAdData: import_zod8.default.string().nullable(),
+  isShowSponsoredLabel: import_zod8.default.boolean(),
+  price: import_zod8.default.number().nullable(),
+  analyticsIdentifier: import_zod8.default.string().nullable(),
+  gameDescription: import_zod8.default.string().nullable(),
+  genre: import_zod8.default.string().nullable(),
+  minimumAge: import_zod8.default.number().nullish(),
+  ageRecommendationDisplayName: import_zod8.default.string().nullish(),
+  canonicalUrlPath: import_zod8.default.string().nullish()
 }).transform(({ creatorId, creatorName, creatorType, creatorHasVerifiedBadge, ...rest }) => ({
   ...rest,
   creator: { ...toRobloxCreator(creatorId, creatorType), name: creatorName, hasVerifiedBadge: creatorHasVerifiedBadge }
 }));
-var RobloxGameRecommendationsSchema = import_zod7.default.object({
-  games: import_zod7.default.array(RobloxRecommendedGameSchema),
+var RobloxGameRecommendationsSchema = import_zod8.default.object({
+  games: import_zod8.default.array(RobloxRecommendedGameSchema),
   /** 마지막 페이지면 null */
-  nextPaginationKey: import_zod7.default.string().nullable()
+  nextPaginationKey: import_zod8.default.string().nullable()
 });
-var RelatedPlaceSchema = import_zod7.default.object({
+var RelatedPlaceSchema = import_zod8.default.object({
   id: RobloxPlaceIdSchema,
-  name: import_zod7.default.string().nullish()
+  name: import_zod8.default.string().nullish()
 });
-var RobloxGameSummarySchema = import_zod7.default.object({
+var RobloxGameSummarySchema = import_zod8.default.object({
   id: RobloxUniverseIdSchema,
-  name: import_zod7.default.string(),
-  description: import_zod7.default.string().nullable(),
-  creator: RobloxCreatorSchema({ name: import_zod7.default.string().nullish() }),
+  name: import_zod8.default.string(),
+  description: import_zod8.default.string().nullable(),
+  creator: RobloxCreatorSchema({ name: import_zod8.default.string().nullish() }),
   rootPlace: RelatedPlaceSchema,
-  created: import_zod7.default.string(),
-  updated: import_zod7.default.string(),
-  placeVisits: import_zod7.default.number()
+  created: import_zod8.default.string(),
+  updated: import_zod8.default.string(),
+  placeVisits: import_zod8.default.number()
 });
 var RobloxFavoriteGameSchema = RobloxGameSummarySchema.extend({
-  price: import_zod7.default.number().nullable()
+  price: import_zod8.default.number().nullable()
 });
-var RobloxServerTypeSchema = import_zod7.default.enum(["Public", "Friend"]);
-var RobloxServerPlayerRawSchema = import_zod7.default.object({
-  playerToken: import_zod7.default.string(),
+var RobloxServerTypeSchema = import_zod8.default.enum(["Public", "Friend"]);
+var RobloxServerPlayerRawSchema = import_zod8.default.object({
+  playerToken: import_zod8.default.string(),
   id: RobloxUserIdSchema,
-  name: import_zod7.default.string(),
-  displayName: import_zod7.default.string()
+  name: import_zod8.default.string(),
+  displayName: import_zod8.default.string()
 });
-var RobloxServerRawSchema = import_zod7.default.object({
+var RobloxServerRawSchema = import_zod8.default.object({
   id: RobloxJobIdSchema,
-  maxPlayers: import_zod7.default.number(),
-  playing: import_zod7.default.number().nullish(),
+  maxPlayers: import_zod8.default.number(),
+  playing: import_zod8.default.number().nullish(),
   /** 인증된 요청에서만 채워진다 (아바타 헤드샷의 token 대상) */
-  playerTokens: import_zod7.default.array(import_zod7.default.string()).nullish(),
-  players: import_zod7.default.array(RobloxServerPlayerRawSchema).nullish(),
-  fps: import_zod7.default.number().nullish(),
-  ping: import_zod7.default.number().nullish()
+  playerTokens: import_zod8.default.array(import_zod8.default.string()).nullish(),
+  players: import_zod8.default.array(RobloxServerPlayerRawSchema).nullish(),
+  fps: import_zod8.default.number().nullish(),
+  ping: import_zod8.default.number().nullish()
 });
 var RobloxServerPageRawSchema = RobloxPageResponseSchema(RobloxServerRawSchema);
-var RobloxPrivateServerRawSchema = import_zod7.default.object({
+var RobloxPrivateServerRawSchema = import_zod8.default.object({
   id: RobloxJobIdSchema.nullish(),
-  maxPlayers: import_zod7.default.number(),
-  playing: import_zod7.default.number().nullish(),
-  playerTokens: import_zod7.default.array(import_zod7.default.string()).nullish(),
-  players: import_zod7.default.array(RobloxServerPlayerRawSchema).nullish(),
-  fps: import_zod7.default.number().nullish(),
-  ping: import_zod7.default.number().nullish(),
-  name: import_zod7.default.string(),
+  maxPlayers: import_zod8.default.number(),
+  playing: import_zod8.default.number().nullish(),
+  playerTokens: import_zod8.default.array(import_zod8.default.string()).nullish(),
+  players: import_zod8.default.array(RobloxServerPlayerRawSchema).nullish(),
+  fps: import_zod8.default.number().nullish(),
+  ping: import_zod8.default.number().nullish(),
+  name: import_zod8.default.string(),
   vipServerId: RobloxPrivateServerIdSchema,
-  accessCode: import_zod7.default.string().nullish(),
-  owner: import_zod7.default.object({
+  accessCode: import_zod8.default.string().nullish(),
+  owner: import_zod8.default.object({
     id: RobloxUserIdSchema,
-    name: import_zod7.default.string(),
-    displayName: import_zod7.default.string(),
-    hasVerifiedBadge: import_zod7.default.boolean().nullish()
+    name: import_zod8.default.string(),
+    displayName: import_zod8.default.string(),
+    hasVerifiedBadge: import_zod8.default.boolean().nullish()
   }).nullish()
 });
-var RobloxPrivateServerPageRawSchema = import_zod7.default.object({
-  gameJoinRestricted: import_zod7.default.boolean().nullish(),
+var RobloxPrivateServerPageRawSchema = import_zod8.default.object({
+  gameJoinRestricted: import_zod8.default.boolean().nullish(),
   previousPageCursor: RobloxCursorSchema.nullable(),
   nextPageCursor: RobloxCursorSchema.nullable(),
-  data: import_zod7.default.array(RobloxPrivateServerRawSchema)
+  data: import_zod8.default.array(RobloxPrivateServerRawSchema)
 });
-var RobloxMyPrivateServerPageSchema = import_zod7.default.object({
+var RobloxMyPrivateServerPageSchema = import_zod8.default.object({
   previousPageCursor: RobloxCursorSchema.nullable(),
   nextPageCursor: RobloxCursorSchema.nullable(),
-  data: import_zod7.default.array(import_zod7.default.record(import_zod7.default.string(), import_zod7.default.unknown()))
+  data: import_zod8.default.array(import_zod8.default.record(import_zod8.default.string(), import_zod8.default.unknown()))
 });
-var RobloxPrivateServerSubscriptionSchema = import_zod7.default.object({
-  active: import_zod7.default.boolean(),
-  expired: import_zod7.default.boolean().nullish(),
-  expirationDate: import_zod7.default.string().nullish(),
-  price: import_zod7.default.number().nullish(),
-  canRenew: import_zod7.default.boolean().nullish(),
-  hasInsufficientFunds: import_zod7.default.boolean().nullish(),
-  hasRecurringProfile: import_zod7.default.boolean().nullish(),
-  hasPriceChanged: import_zod7.default.boolean().nullish(),
-  purchaseScheduleId: import_zod7.default.number().nullish(),
-  totalDiscountAmountInRobux: import_zod7.default.number().nullish(),
-  metadata: import_zod7.default.unknown().nullish()
+var RobloxPrivateServerSubscriptionSchema = import_zod8.default.object({
+  active: import_zod8.default.boolean(),
+  expired: import_zod8.default.boolean().nullish(),
+  expirationDate: import_zod8.default.string().nullish(),
+  price: import_zod8.default.number().nullish(),
+  canRenew: import_zod8.default.boolean().nullish(),
+  hasInsufficientFunds: import_zod8.default.boolean().nullish(),
+  hasRecurringProfile: import_zod8.default.boolean().nullish(),
+  hasPriceChanged: import_zod8.default.boolean().nullish(),
+  purchaseScheduleId: import_zod8.default.number().nullish(),
+  totalDiscountAmountInRobux: import_zod8.default.number().nullish(),
+  metadata: import_zod8.default.unknown().nullish()
 });
-var RobloxPrivateServerPermissionsSchema = import_zod7.default.object({
-  clanAllowed: import_zod7.default.boolean(),
+var RobloxPrivateServerPermissionsSchema = import_zod8.default.object({
+  clanAllowed: import_zod8.default.boolean(),
   enemyClanId: RobloxGroupIdSchema.nullish(),
-  friendsAllowed: import_zod7.default.boolean(),
-  users: import_zod7.default.array(import_zod7.default.object({ id: RobloxUserIdSchema, name: import_zod7.default.string(), displayName: import_zod7.default.string() }))
+  friendsAllowed: import_zod8.default.boolean(),
+  users: import_zod8.default.array(import_zod8.default.object({ id: RobloxUserIdSchema, name: import_zod8.default.string(), displayName: import_zod8.default.string() }))
 });
-var RobloxPrivateServerDetailSchema = import_zod7.default.object({
+var RobloxPrivateServerDetailSchema = import_zod8.default.object({
   id: RobloxPrivateServerIdSchema,
-  name: import_zod7.default.string(),
-  game: import_zod7.default.unknown().nullish(),
-  joinCode: import_zod7.default.string().nullish(),
-  active: import_zod7.default.boolean(),
+  name: import_zod8.default.string(),
+  game: import_zod8.default.unknown().nullish(),
+  joinCode: import_zod8.default.string().nullish(),
+  active: import_zod8.default.boolean(),
   subscription: RobloxPrivateServerSubscriptionSchema.nullish(),
   permissions: RobloxPrivateServerPermissionsSchema.nullish(),
-  link: import_zod7.default.string().nullish()
+  link: import_zod8.default.string().nullish()
 });
-var RobloxPrivateServerInviteSchema = import_zod7.default.object({
-  canInvite: import_zod7.default.boolean(),
-  doesOwnerPrivacyRestrictJoins: import_zod7.default.boolean(),
-  inviteResponseType: import_zod7.default.number()
+var RobloxPrivateServerInviteSchema = import_zod8.default.object({
+  canInvite: import_zod8.default.boolean(),
+  doesOwnerPrivacyRestrictJoins: import_zod8.default.boolean(),
+  inviteResponseType: import_zod8.default.number()
 });
 var RobloxJoinStatus = { Ready: 2, NotFound: 5, Rejected: 12, Queued: 22 };
-var RobloxJoinResponseSchema = import_zod7.default.object({
+var RobloxJoinResponseSchema = import_zod8.default.object({
   /** 서버가 없거나 거절되면 비어 올 수 있다 */
   jobId: RobloxJobIdSchema.nullish().catch(null),
-  status: import_zod7.default.number(),
-  message: import_zod7.default.string().nullable(),
-  queuePosition: import_zod7.default.number().nullish(),
-  joinScript: import_zod7.default.object({
-    MachineAddress: import_zod7.default.string().nullish(),
-    DataCenterId: import_zod7.default.number().nullish(),
-    UdmuxEndpoints: import_zod7.default.array(import_zod7.default.object({ Address: import_zod7.default.string(), Port: import_zod7.default.number() })).nullish()
+  status: import_zod8.default.number(),
+  message: import_zod8.default.string().nullable(),
+  queuePosition: import_zod8.default.number().nullish(),
+  joinScript: import_zod8.default.object({
+    MachineAddress: import_zod8.default.string().nullish(),
+    DataCenterId: import_zod8.default.number().nullish(),
+    UdmuxEndpoints: import_zod8.default.array(import_zod8.default.object({ Address: import_zod8.default.string(), Port: import_zod8.default.number() })).nullish()
   }).nullable()
 });
-var RobloxIpAddressSchema = import_zod7.default.string().min(1).brand("RobloxIpAddress");
-var RobloxGamesResponseSchema = import_zod7.default.object({ data: import_zod7.default.array(RobloxGameSchema) });
-var RobloxGameProductsResponseSchema = import_zod7.default.object({ data: import_zod7.default.array(RobloxGameProductSchema) });
-var RobloxGameVotesResponseSchema = import_zod7.default.object({ data: import_zod7.default.array(RobloxGameVotesSchema) });
-var RobloxGameMediaResponseSchema = import_zod7.default.object({ data: import_zod7.default.array(RobloxGameMediaSchema) });
+var RobloxIpAddressSchema = import_zod8.default.string().min(1).brand("RobloxIpAddress");
+var RobloxGamesResponseSchema = import_zod8.default.object({ data: import_zod8.default.array(RobloxGameSchema) });
+var RobloxGameProductsResponseSchema = import_zod8.default.object({ data: import_zod8.default.array(RobloxGameProductSchema) });
+var RobloxGameVotesResponseSchema = import_zod8.default.object({ data: import_zod8.default.array(RobloxGameVotesSchema) });
+var RobloxGameMediaResponseSchema = import_zod8.default.object({ data: import_zod8.default.array(RobloxGameMediaSchema) });
 var RobloxGameSummaryPageSchema = RobloxPageResponseSchema(RobloxGameSummarySchema);
 var RobloxFavoriteGamePageSchema = RobloxPageResponseSchema(RobloxFavoriteGameSchema);
 
 // src/apis/games.ts
-var import_zod8 = __toESM(require("zod"), 1);
+var import_zod9 = __toESM(require("zod"), 1);
 var GAMES = "https://games.roblox.com";
 var APIS = "https://apis.roblox.com";
 var GAMEJOIN = "https://gamejoin.roblox.com";
-var GEOLOCATE_MISSING = "\uC11C\uBC84 \uC704\uCE58\uB97C \uC870\uD68C\uD558\uB824\uBA74 .geolocation(fn)\uC73C\uB85C IP \u2192 \uC704\uCE58 \uCF5C\uBC31\uC744 \uB123\uC5B4\uC57C \uD55C\uB2E4.";
 var CLIENT_USER_AGENT = "Roblox/WinInet";
 var SERVER_PAGE_LIMIT = 100;
 var V2_CURSOR = "v2:";
@@ -1714,6 +1814,7 @@ function serverRoute(bucket, path, v2) {
     bucket,
     limit: 1,
     group(t) {
+      if (t.query.orderBy !== void 0 && !v2) return null;
       const cursor = t.query.cursor;
       if (!cursor) return "";
       return cursor.startsWith(V2_CURSOR) === v2 ? "" : null;
@@ -1724,6 +1825,7 @@ function serverRoute(bucket, path, v2) {
       if (rest.limit !== void 0) query.limit = rest.limit;
       if (rest.excludeFullGames !== void 0) query.excludeFullGames = rest.excludeFullGames;
       if (rest.sortOrder !== void 0) query.sortOrder = rest.sortOrder;
+      if (rest.orderBy !== void 0) query.orderBy = rest.orderBy;
       if (cursor) query.cursor = v2 ? cursor.slice(V2_CURSOR.length) : cursor;
       const res = await http().path(...path(t.placeId, serverType)).query(query).middlewares(captureHeaders(onHeaders)).middlewares(validate(RobloxServerPageRawSchema)).request();
       const tag = (c) => c && v2 ? RobloxCursorSchema.parse(V2_CURSOR + c) : c;
@@ -1786,7 +1888,7 @@ var RobloxGamesApi = class {
       param: "placeIds",
       repeat: true,
       auth: this.auth,
-      schema: import_zod8.default.array(RobloxPlaceDetailsSchema),
+      schema: import_zod9.default.array(RobloxPlaceDetailsSchema),
       fetch: (res) => res,
       idOf: (p) => p.placeId
     });
@@ -1796,7 +1898,7 @@ var RobloxGamesApi = class {
       singleRoute2({
         bucket: "games GET /v1/games/{id}/favorites/count",
         path: (id2) => ["v1", "games", id2, "favorites", "count"],
-        schema: import_zod8.default.object({ favoritesCount: import_zod8.default.number() }),
+        schema: import_zod9.default.object({ favoritesCount: import_zod9.default.number() }),
         pick: (res) => res.favoritesCount
       })
     ]);
@@ -1831,7 +1933,7 @@ var RobloxGamesApi = class {
       limit: 50,
       path: ["v1", "games", "multiget-playability-status"],
       param: "universeIds",
-      schema: import_zod8.default.array(RobloxGamePlayabilitySchema),
+      schema: import_zod9.default.array(RobloxGamePlayabilitySchema),
       fetch: (res) => res,
       idOf: (p) => p.universeId
     })]);
@@ -1842,7 +1944,7 @@ var RobloxGamesApi = class {
         bucket: "apis GET /universes/v1/places/{id}/universe",
         origin: APIS,
         path: (id2) => ["universes", "v1", "places", id2, "universe"],
-        schema: import_zod8.default.object({ universeId: RobloxUniverseIdSchema.nullable() }),
+        schema: import_zod9.default.object({ universeId: RobloxUniverseIdSchema.nullable() }),
         pick: (res) => res.universeId
       })
     ]);
@@ -1855,11 +1957,18 @@ var RobloxGamesApi = class {
         return [res?.data ?? null];
       }
     }]);
+    this.socialLinks = new RobloxBatcher(config, GAMES, [singleRoute2({
+      bucket: "games GET /v1/games/{id}/social-links/list",
+      path: (id2) => ["v1", "games", id2, "social-links", "list"],
+      schema: RobloxGameSocialLinksResponseSchema,
+      pick: (res) => res.data,
+      missing: [400, 404]
+    })]);
     this.favorited = new RobloxBatcher(config, GAMES, [singleRoute2({
       bucket: "games GET /v1/games/{id}/favorites",
       path: (id2) => ["v1", "games", id2, "favorites"],
       auth: this.auth,
-      schema: import_zod8.default.object({ isFavorited: import_zod8.default.boolean() }),
+      schema: import_zod9.default.object({ isFavorited: import_zod9.default.boolean() }),
       pick: (res) => res.isFavorited
     })]);
     this.userVotes = new RobloxBatcher(config, GAMES, [singleRoute2({
@@ -1872,7 +1981,7 @@ var RobloxGamesApi = class {
     this.privateServersEnabled = new RobloxBatcher(config, GAMES, [singleRoute2({
       bucket: "games GET /v1/private-servers/enabled-in-universe/{id}",
       path: (id2) => ["v1", "private-servers", "enabled-in-universe", id2],
-      schema: import_zod8.default.object({ privateServersEnabled: import_zod8.default.boolean() }),
+      schema: import_zod9.default.object({ privateServersEnabled: import_zod9.default.boolean() }),
       pick: (res) => res.privateServersEnabled,
       missing: [400, 404]
     })]);
@@ -1935,6 +2044,7 @@ var RobloxGamesApi = class {
   placeDetails;
   universeIds;
   media;
+  socialLinks;
   favorited;
   userVotes;
   privateServersEnabled;
@@ -1958,7 +2068,7 @@ var RobloxGamesApi = class {
   }
   // ── 게임 조회 ──────────────────────────────────────
   // 배열을 받는 메서드는 입력 순서로 돌려주고, 없는 대상은 뺀다.
-  // 일부 항목이 실패하면 받은 결과를 담아 RobloxPartialError를 던진다.
+  // 일부 항목이 실패하면 받은 결과를 담아 RobloxError(PARTIAL)를 던진다.
   // 같은 틱에 들어온 호출은 모아서 보내므로 따로따로 불러도 된다.
   /** GET /v1/games — 게임(universe) 상세 */
   async getGames(universeIds) {
@@ -2006,6 +2116,11 @@ var RobloxGamesApi = class {
     );
     return finish(found(universeIds.map((universeId, i) => values[i] ? { universeId, media: values[i] } : null)), errors);
   }
+  /** GET /v1/games/{universeId}/social-links/list — 게임 페이지의 소셜 링크. 인증 필요, 13세 미만 계정은 403 */
+  async getSocialLinks(universeIds) {
+    const { values, errors } = await this.each("getSocialLinks", universeIds, (id2) => this.socialLinks.load(String(id2), id2), (universeId) => ({ service: "games", method: "getSocialLinks", universeId }));
+    return finish(found(universeIds.map((universeId, i) => values[i] ? { universeId, socialLinks: values[i] } : null)), errors);
+  }
   /** GET /v1/games/recommendations/game/{universeId} — 비슷한 게임 */
   getRecommendations(universeId, query = {}) {
     const params = { MaxRows: query.maxRows ?? 20 };
@@ -2050,7 +2165,7 @@ var RobloxGamesApi = class {
   }
   // ── 서버 ───────────────────────────────────────────
   /**
-   * 서버 목록 한 페이지. 엔드포인트마다 3회/분이라 세 엔드포인트를 나눠 쓴다.
+   * 서버 목록 한 페이지. 엔드포인트마다 3회/분이라 세 엔드포인트를 나눠 쓴다 (`orderBy`를 넣으면 v2만 쓴다).
    * 받은 커서는 같은 옵션으로 다시 넘긴다 (어느 엔드포인트의 커서인지는 라이브러리가 기억한다).
    * `Friend`와 플레이어 헤드샷은 인증이 필요하다. 헤드샷은 서버 목록의 플레이어 토큰으로 이어서 받는다 (`headshots: false`면 받지 않는다).
    */
@@ -2092,7 +2207,7 @@ var RobloxGamesApi = class {
    */
   async getServerLocations(ips) {
     const geolocate = this.config.geolocate;
-    if (!geolocate) throw new Error(GEOLOCATE_MISSING);
+    if (!geolocate) throw new RobloxError("GEOLOCATION_REQUIRED", {});
     const id2 = (ip) => JSON.stringify(canonicalInfo({ service: "games", method: "getServerLocations", ip }));
     const unique = [...new Set(ips)];
     const fresh = unique.filter((ip) => !this.config.inflight.has(id2(ip)));
@@ -2185,7 +2300,7 @@ var RobloxGamesApi = class {
   }
   /** POST /v1/games/vip-servers/{universeId} — 비공개 서버를 산다 */
   createPrivateServer(universeId, request) {
-    return this.http().path("v1", "games", "vip-servers", universeId).body("overwrite", request).middlewares(validate(import_zod8.default.record(import_zod8.default.string(), import_zod8.default.unknown()))).request();
+    return this.http().path("v1", "games", "vip-servers", universeId).body("overwrite", request).middlewares(validate(import_zod9.default.record(import_zod9.default.string(), import_zod9.default.unknown()))).request();
   }
   /** PATCH /v1/vip-servers/{id} — 이름, 참가 코드 재발급, 켜기/끄기 */
   updatePrivateServer(id2, request) {
@@ -2239,7 +2354,7 @@ var RobloxGamesApi = class {
    */
   async getServers(placeId, opts = {}) {
     const { count = 100, headshots: shotOptions = {}, address = false, location = false, ...query } = opts;
-    if (location && !this.config.geolocate) throw new Error(GEOLOCATE_MISSING);
+    if (location && !this.config.geolocate) throw new RobloxError("GEOLOCATION_REQUIRED", {});
     const servers = [];
     let cursor = query.cursor ?? null;
     do {
@@ -2278,8 +2393,8 @@ var RobloxGamesApi = class {
    */
   async findUsers(placeId, userIds, opts = {}) {
     const { maxServers = 1e3, presence = true, address = false, location = false, ...query } = opts;
-    if (location && !this.config.geolocate) throw new Error(GEOLOCATE_MISSING);
-    if (!this.auth()) throw new Error("\uC11C\uBC84 \uBAA9\uB85D\uC5D0\uC11C \uC720\uC800\uB97C \uCC3E\uC73C\uB824\uBA74 \uD50C\uB808\uC774\uC5B4 \uD1A0\uD070\uC774 \uD544\uC694\uD574 \uC778\uC99D\uD574\uC57C \uD55C\uB2E4.");
+    if (location && !this.config.geolocate) throw new RobloxError("GEOLOCATION_REQUIRED", {});
+    if (!this.auth()) throw new RobloxError("AUTH_REQUIRED", { reason: "finding users in servers needs player tokens" });
     const targets = [...new Set(userIds)];
     const hits = /* @__PURE__ */ new Map();
     const elsewhere = /* @__PURE__ */ new Set();
@@ -2357,103 +2472,105 @@ var RobloxGamesApi = class {
 };
 
 // src/types/friends.ts
-var import_zod9 = __toESM(require("zod"), 1);
-var realUsers = (item) => import_zod9.default.preprocess(
+var import_zod10 = __toESM(require("zod"), 1);
+var realUsers = (item) => import_zod10.default.preprocess(
   (list) => Array.isArray(list) ? list.filter((e) => typeof e?.id === "number" && e.id > 0) : list,
-  import_zod9.default.array(item)
+  import_zod10.default.array(item)
 );
-var IdOnlySchema = import_zod9.default.object({ id: RobloxUserIdSchema });
-var RobloxFriendListResponseSchema = import_zod9.default.object({ data: realUsers(IdOnlySchema) });
-var RobloxFriendPageRawSchema = import_zod9.default.object({
+var IdOnlySchema = import_zod10.default.object({ id: RobloxUserIdSchema });
+var RobloxFriendListResponseSchema = import_zod10.default.object({ data: realUsers(IdOnlySchema) });
+var RobloxFriendPageRawSchema = import_zod10.default.object({
   PreviousCursor: RobloxCursorSchema.nullable(),
-  PageItems: realUsers(IdOnlySchema.extend({ hasVerifiedBadge: import_zod9.default.boolean().nullish() })),
+  PageItems: realUsers(IdOnlySchema.extend({ hasVerifiedBadge: import_zod10.default.boolean().nullish() })),
   NextCursor: RobloxCursorSchema.nullable(),
-  HasMore: import_zod9.default.boolean().nullable()
+  HasMore: import_zod10.default.boolean().nullable()
 });
-var RobloxFollowPageSchema = import_zod9.default.object({
+var RobloxFollowPageSchema = import_zod10.default.object({
   previousPageCursor: RobloxCursorSchema.nullable(),
   nextPageCursor: RobloxCursorSchema.nullable(),
   data: realUsers(IdOnlySchema)
 });
-var RobloxCountResponseSchema = import_zod9.default.object({ count: import_zod9.default.number() });
-var RobloxFriendStatusSchema = import_zod9.default.object({
+var RobloxCountResponseSchema = import_zod10.default.object({ count: import_zod10.default.number() });
+var RobloxFriendStatusSchema = import_zod10.default.object({
   id: RobloxUserIdSchema,
   /** "NotFriends" | "Friends" | "RequestSent" | "RequestReceived" */
-  status: import_zod9.default.string()
+  status: import_zod10.default.string()
 });
-var RobloxFriendStatusesResponseSchema = import_zod9.default.object({ data: import_zod9.default.array(RobloxFriendStatusSchema) });
-var RobloxFriendPresenceSchema = import_zod9.default.object({
-  UserPresenceType: import_zod9.default.string().nullish(),
-  UserLocationType: import_zod9.default.string().nullish(),
-  lastLocation: import_zod9.default.string().nullish(),
+var RobloxFriendStatusesResponseSchema = import_zod10.default.object({ data: import_zod10.default.array(RobloxFriendStatusSchema) });
+var RobloxFriendPresenceSchema = import_zod10.default.object({
+  UserPresenceType: import_zod10.default.string().nullish(),
+  UserLocationType: import_zod10.default.string().nullish(),
+  lastLocation: import_zod10.default.string().nullish(),
   placeId: RobloxPlaceIdSchema.nullish(),
   rootPlaceId: RobloxPlaceIdSchema.nullish(),
   gameInstanceId: RobloxJobIdSchema.nullish(),
   universeId: RobloxUniverseIdSchema.nullish(),
-  lastOnline: import_zod9.default.string().nullish()
+  lastOnline: import_zod10.default.string().nullish()
 });
-var RobloxOnlineFriendSchema = import_zod9.default.object({
+var RobloxOnlineFriendSchema = import_zod10.default.object({
   id: RobloxUserIdSchema,
-  name: import_zod9.default.string().nullish(),
-  displayName: import_zod9.default.string().nullish(),
-  sortScore: import_zod9.default.number().nullish(),
+  name: import_zod10.default.string().nullish(),
+  displayName: import_zod10.default.string().nullish(),
+  sortScore: import_zod10.default.number().nullish(),
   userPresence: RobloxFriendPresenceSchema.nullish()
 });
-var RobloxOnlineFriendsResponseSchema = import_zod9.default.object({ data: realUsers(RobloxOnlineFriendSchema) });
-var RobloxFriendRequestSchema = import_zod9.default.object({
+var RobloxOnlineFriendsResponseSchema = import_zod10.default.object({ data: realUsers(RobloxOnlineFriendSchema) });
+var RobloxFriendRequestSchema = import_zod10.default.object({
   id: RobloxUserIdSchema,
-  name: import_zod9.default.string(),
-  displayName: import_zod9.default.string(),
-  hasVerifiedBadge: import_zod9.default.boolean().nullish(),
-  description: import_zod9.default.string().nullish(),
-  created: import_zod9.default.string().nullish(),
-  isBanned: import_zod9.default.boolean().nullish(),
-  isUnseen: import_zod9.default.boolean().nullish(),
-  mutualFriendsList: import_zod9.default.array(import_zod9.default.string()).nullish(),
-  friendRequest: import_zod9.default.object({
-    sentAt: import_zod9.default.string(),
+  name: import_zod10.default.string(),
+  displayName: import_zod10.default.string(),
+  hasVerifiedBadge: import_zod10.default.boolean().nullish(),
+  description: import_zod10.default.string().nullish(),
+  created: import_zod10.default.string().nullish(),
+  isBanned: import_zod10.default.boolean().nullish(),
+  isUnseen: import_zod10.default.boolean().nullish(),
+  mutualFriendsList: import_zod10.default.array(import_zod10.default.string()).nullish(),
+  friendRequest: import_zod10.default.object({
+    sentAt: import_zod10.default.string(),
     senderId: RobloxUserIdSchema,
     sourceUniverseId: RobloxUniverseIdSchema.nullish(),
-    originSourceType: import_zod9.default.union([import_zod9.default.string(), import_zod9.default.number()]).nullish(),
-    contactName: import_zod9.default.string().nullish(),
-    senderNickname: import_zod9.default.string().nullish()
+    originSourceType: import_zod10.default.union([import_zod10.default.string(), import_zod10.default.number()]).nullish(),
+    contactName: import_zod10.default.string().nullish(),
+    senderNickname: import_zod10.default.string().nullish()
   }).nullish()
 });
-var RobloxFriendRequestPageSchema = import_zod9.default.object({
+var RobloxFriendRequestPageSchema = import_zod10.default.object({
   previousPageCursor: RobloxCursorSchema.nullable(),
   nextPageCursor: RobloxCursorSchema.nullable(),
-  data: import_zod9.default.array(RobloxFriendRequestSchema)
+  data: import_zod10.default.array(RobloxFriendRequestSchema)
 });
-var RobloxTrustedFriendRequestPageSchema = import_zod9.default.object({
+var RobloxTrustedFriendRequestPageSchema = import_zod10.default.object({
   previousPageCursor: RobloxCursorSchema.nullable(),
   nextPageCursor: RobloxCursorSchema.nullable(),
-  data: import_zod9.default.array(import_zod9.default.object({ sentAt: import_zod9.default.string(), senderId: RobloxUserIdSchema }))
+  data: import_zod10.default.array(import_zod10.default.object({ sentAt: import_zod10.default.string(), senderId: RobloxUserIdSchema }))
 });
-var RobloxFollowingStatusSchema = import_zod9.default.object({
+var RobloxFollowingStatusSchema = import_zod10.default.object({
   userId: RobloxUserIdSchema,
   /** 내가 이 유저를 팔로우하는지 */
-  isFollowing: import_zod9.default.boolean(),
+  isFollowing: import_zod10.default.boolean(),
   /** 이 유저가 나를 팔로우하는지 */
-  isFollowed: import_zod9.default.boolean()
+  isFollowed: import_zod10.default.boolean()
 });
-var RobloxFollowingExistsResponseSchema = import_zod9.default.object({ followings: import_zod9.default.array(RobloxFollowingStatusSchema) });
-var RobloxFriendsMetadataSchema = import_zod9.default.object({
-  isFriendsFilterBarEnabled: import_zod9.default.boolean().nullish(),
-  isFriendsPageSortExperimentEnabled: import_zod9.default.boolean().nullish(),
-  isFriendsUserDataStoreCacheEnabled: import_zod9.default.boolean().nullish(),
-  frequentFriendSortRollout: import_zod9.default.number().nullish(),
-  userName: import_zod9.default.string().nullish(),
-  displayName: import_zod9.default.string().nullish()
+var RobloxFollowingExistsResponseSchema = import_zod10.default.object({ followings: import_zod10.default.array(RobloxFollowingStatusSchema) });
+var RobloxFriendsMetadataSchema = import_zod10.default.object({
+  isFriendsFilterBarEnabled: import_zod10.default.boolean().nullish(),
+  isFriendsPageSortExperimentEnabled: import_zod10.default.boolean().nullish(),
+  isFriendsUserDataStoreCacheEnabled: import_zod10.default.boolean().nullish(),
+  frequentFriendSortRollout: import_zod10.default.number().nullish(),
+  userName: import_zod10.default.string().nullish(),
+  displayName: import_zod10.default.string().nullish()
 });
-var RobloxCaptchaStatusSchema = import_zod9.default.object({
-  success: import_zod9.default.boolean(),
-  isCaptchaRequired: import_zod9.default.boolean().nullish(),
-  notificationMuted: import_zod9.default.boolean().nullish()
+var RobloxCaptchaStatusSchema = import_zod10.default.object({
+  success: import_zod10.default.boolean(),
+  isCaptchaRequired: import_zod10.default.boolean().nullish(),
+  notificationMuted: import_zod10.default.boolean().nullish()
 });
 
 // src/apis/friends.ts
-var import_zod10 = __toESM(require("zod"), 1);
+var import_zod11 = __toESM(require("zod"), 1);
 var ORIGIN4 = "https://friends.roblox.com";
+var CONTACTS = "https://contacts.roblox.com";
+var APIS2 = "https://apis.roblox.com";
 var FIND_PAGE_LIMIT = 50;
 var MULTI_LIMIT = 100;
 function countRoute(bucket, last) {
@@ -2499,6 +2616,8 @@ var RobloxFriendsApi = class {
     this.config = config;
     this.users = users;
     this.http = createHttp(config, ORIGIN4);
+    this.contactsHttp = createHttp(config, CONTACTS);
+    this.apisHttp = createHttp(config, APIS2, { browserTracker: true });
     this.friendIds = new RobloxBatcher(config, ORIGIN4, friendIdRoutes);
     this.friendCounts = new RobloxBatcher(config, ORIGIN4, [countRoute("friends GET /v1/users/{id}/friends/count", ["friends", "count"])]);
     this.followerCounts = new RobloxBatcher(config, ORIGIN4, [countRoute("friends GET /v1/users/{id}/followers/count", ["followers", "count"])]);
@@ -2520,7 +2639,7 @@ var RobloxFriendsApi = class {
         limit: MULTI_LIMIT,
         group: (t) => String(t.me),
         async send(http, targets, onHeaders) {
-          const res = await http().path("v1", "user", targets[0].me, "multiget-are-friends").body("overwrite", { targetUserIds: targets.map((t) => t.userId) }).middlewares(captureHeaders(onHeaders)).middlewares(validate(import_zod10.default.object({ friendsId: import_zod10.default.array(import_zod10.default.number()) }))).request();
+          const res = await http().path("v1", "user", targets[0].me, "multiget-are-friends").body("overwrite", { targetUserIds: targets.map((t) => t.userId) }).middlewares(captureHeaders(onHeaders)).middlewares(validate(import_zod11.default.object({ friendsId: import_zod11.default.array(import_zod11.default.number()) }))).request();
           const friends = new Set(res.friendsId);
           return targets.map((t) => friends.has(t.userId));
         }
@@ -2541,6 +2660,8 @@ var RobloxFriendsApi = class {
   config;
   users;
   http;
+  contactsHttp;
+  apisHttp;
   friendIds;
   friendCounts;
   followerCounts;
@@ -2662,7 +2783,7 @@ var RobloxFriendsApi = class {
   // 문서에 없는 엔드포인트(request-friendship 등)는 실측으로 확인했다.
   /** POST /v1/users/{userId}/request-friendship — 계정에 따라 챌린지(캡차)를 요구하며 403이 난다 */
   async sendFriendRequest(userId) {
-    await this.http().path("v1", "users", userId, "request-friendship").body("overwrite", {}).middlewares(validate(import_zod10.default.unknown())).request();
+    await this.http().path("v1", "users", userId, "request-friendship").body("overwrite", {}).middlewares(validate(import_zod11.default.unknown())).request();
   }
   /** POST /v1/users/{userId}/accept-friend-request */
   async acceptFriendRequest(userId) {
@@ -2674,7 +2795,7 @@ var RobloxFriendsApi = class {
   }
   /** POST /v1/user/friend-requests/decline-all */
   async declineAllFriendRequests() {
-    await this.http().path("v1", "user", "friend-requests", "decline-all").body("overwrite", {}).middlewares(validate(import_zod10.default.unknown())).request();
+    await this.http().path("v1", "user", "friend-requests", "decline-all").body("overwrite", {}).middlewares(validate(import_zod11.default.unknown())).request();
   }
   /** POST /v1/users/{userId}/unfriend */
   async unfriend(userId) {
@@ -2688,98 +2809,119 @@ var RobloxFriendsApi = class {
   async unfollow(userId) {
     await this.http().path("v1", "users", userId, "unfollow").body("overwrite", {}).middlewares(validate(RobloxEmptyResponseSchema)).request();
   }
+  /** POST friends /v1/users/{userId}/create-trusted-friend-link — 신뢰하는 친구 초대 링크를 만든다 */
+  async createTrustedFriendLink(userId) {
+    const res = await this.http().path("v1", "users", userId, "create-trusted-friend-link").body("overwrite", {}).middlewares(validate(import_zod11.default.object({ link: import_zod11.default.string() }))).request();
+    return res.link;
+  }
+  /** POST contacts /v1/user/tag — 친구 목록에서 그 유저 옆에 보이는 나만의 별명 */
+  async setUserTag(userId, tag) {
+    await this.contactsHttp().path("v1", "user", "tag").body("overwrite", { targetUserId: userId, userTag: tag }).middlewares(validate(import_zod11.default.object({ status: import_zod11.default.string() }))).request();
+  }
+  /** POST apis /user-blocking-api/v1/users/{userId}/block-user — 응답은 안내 문자열이다 */
+  async block(userId) {
+    await this.apisHttp().path("user-blocking-api", "v1", "users", userId, "block-user").body("overwrite", {}).middlewares(validate(import_zod11.default.unknown())).request();
+  }
+  /** POST apis /user-blocking-api/v1/users/{userId}/unblock-user */
+  async unblock(userId) {
+    await this.apisHttp().path("user-blocking-api", "v1", "users", userId, "unblock-user").body("overwrite", {}).middlewares(validate(import_zod11.default.unknown())).request();
+  }
   /** POST /v1/my/friends/refresh-qr-session — QR 친구 추가 세션 갱신 */
   async refreshQrSession() {
-    const res = await this.http().path("v1", "my", "friends", "refresh-qr-session").body("overwrite", {}).middlewares(validate(import_zod10.default.object({ Success: import_zod10.default.boolean() }))).request();
+    const res = await this.http().path("v1", "my", "friends", "refresh-qr-session").body("overwrite", {}).middlewares(validate(import_zod11.default.object({ Success: import_zod11.default.boolean() }))).request();
     return res.Success;
   }
   /** GET /v1/my/friends/{userId}/check-qr-session — QR로 친구가 됐는지 */
   checkQrSession(userId) {
-    return this.http().path("v1", "my", "friends", userId, "check-qr-session").middlewares(validate(import_zod10.default.boolean())).request();
+    return this.http().path("v1", "my", "friends", userId, "check-qr-session").middlewares(validate(import_zod11.default.boolean())).request();
   }
 };
 
 // src/types/chat.ts
-var import_zod11 = __toESM(require("zod"), 1);
-var RobloxChatMessageSchema = import_zod11.default.object({
+var import_zod12 = __toESM(require("zod"), 1);
+var RobloxChatMessageSchema = import_zod12.default.object({
   id: RobloxChatMessageIdSchema,
-  content: import_zod11.default.string(),
+  content: import_zod12.default.string(),
   /** 시스템 메시지는 보낸 유저가 없다 */
   sender_user_id: RobloxUserIdSchema.nullable(),
-  created_at: import_zod11.default.string(),
-  type: import_zod11.default.string().nullish(),
-  moderation_type: import_zod11.default.string().nullish(),
+  created_at: import_zod12.default.string(),
+  type: import_zod12.default.string().nullish(),
+  moderation_type: import_zod12.default.string().nullish(),
   replies_to: RobloxChatMessageIdSchema.nullish(),
-  is_deleted: import_zod11.default.boolean().nullish(),
-  is_previewable: import_zod11.default.boolean().nullish(),
-  is_badgeable: import_zod11.default.boolean().nullish(),
-  visibility: import_zod11.default.string().nullish(),
+  is_deleted: import_zod12.default.boolean().nullish(),
+  is_previewable: import_zod12.default.boolean().nullish(),
+  is_badgeable: import_zod12.default.boolean().nullish(),
+  visibility: import_zod12.default.string().nullish(),
   /** send-messages 응답에만 있다 ("success" 등) */
-  status: import_zod11.default.string().nullish()
+  status: import_zod12.default.string().nullish()
 });
-var RobloxChatUserDataSchema = import_zod11.default.object({
+var RobloxChatUserDataSchema = import_zod12.default.object({
   id: RobloxUserIdSchema,
-  name: import_zod11.default.string().nullish(),
-  display_name: import_zod11.default.string().nullish(),
-  combined_name: import_zod11.default.string().nullish(),
-  is_verified: import_zod11.default.boolean().nullish()
+  name: import_zod12.default.string().nullish(),
+  display_name: import_zod12.default.string().nullish(),
+  combined_name: import_zod12.default.string().nullish(),
+  is_verified: import_zod12.default.boolean().nullish()
 });
-var RobloxChatConversationSchema = import_zod11.default.object({
-  id: RobloxConversationIdSchema,
+var RobloxChatConversationSchema = import_zod12.default.object({
+  /** 아직 만들어지지 않은 친구 대화면 null */
+  id: RobloxConversationIdSchema.nullable(),
   /** "one_to_one" | "group" ... */
-  type: import_zod11.default.string().nullish(),
-  source: import_zod11.default.string().nullish(),
-  name: import_zod11.default.string().nullish(),
-  is_default_name: import_zod11.default.boolean().nullish(),
+  type: import_zod12.default.string().nullish(),
+  source: import_zod12.default.string().nullish(),
+  name: import_zod12.default.string().nullish(),
+  is_default_name: import_zod12.default.boolean().nullish(),
   created_by: RobloxUserIdSchema.nullish(),
-  participant_user_ids: import_zod11.default.array(RobloxUserIdSchema),
-  user_data: import_zod11.default.record(import_zod11.default.string(), RobloxChatUserDataSchema).nullish(),
-  messages: import_zod11.default.array(RobloxChatMessageSchema).nullish(),
-  unread_message_count: import_zod11.default.number().nullish(),
-  updated_at: import_zod11.default.string().nullish(),
-  created_at: import_zod11.default.string().nullish(),
-  moderation_type: import_zod11.default.string().nullish(),
+  participant_user_ids: import_zod12.default.array(RobloxUserIdSchema),
+  user_data: import_zod12.default.record(import_zod12.default.string(), RobloxChatUserDataSchema).nullish(),
+  messages: import_zod12.default.array(RobloxChatMessageSchema).nullish(),
+  unread_message_count: import_zod12.default.number().nullish(),
+  updated_at: import_zod12.default.string().nullish(),
+  created_at: import_zod12.default.string().nullish(),
+  moderation_type: import_zod12.default.string().nullish(),
   preview_message: RobloxChatMessageSchema.nullish(),
-  sort_index: import_zod11.default.number().nullish(),
-  universe_id: RobloxUniverseIdSchema.nullish()
+  sort_index: import_zod12.default.number().nullish(),
+  universe_id: RobloxUniverseIdSchema.nullish(),
+  participant_pending_status: import_zod12.default.string().nullish(),
+  osa_acknowledgement_status: import_zod12.default.string().nullish(),
+  user_opted_into_chat_messages: import_zod12.default.string().nullish()
 });
 var RobloxChatConversationResultSchema = RobloxChatConversationSchema.partial().extend({
   id: RobloxConversationIdSchema.nullish(),
-  participant_user_ids: import_zod11.default.array(RobloxUserIdSchema).nullish(),
-  status: import_zod11.default.string().nullish()
+  participant_user_ids: import_zod12.default.array(RobloxUserIdSchema).nullish(),
+  status: import_zod12.default.string().nullish()
 });
-var ChatCursorSchema = import_zod11.default.string().nullish().transform((c) => c ? c : null);
-var RobloxChatConversationPageRawSchema = import_zod11.default.object({
-  conversations: import_zod11.default.array(RobloxChatConversationSchema),
+var ChatCursorSchema = import_zod12.default.string().nullish().transform((c) => c ? c : null);
+var RobloxChatConversationPageRawSchema = import_zod12.default.object({
+  conversations: import_zod12.default.array(RobloxChatConversationSchema),
   next_cursor: ChatCursorSchema
 });
-var RobloxChatMessagePageRawSchema = import_zod11.default.object({
-  messages: import_zod11.default.array(RobloxChatMessageSchema),
+var RobloxChatMessagePageRawSchema = import_zod12.default.object({
+  messages: import_zod12.default.array(RobloxChatMessageSchema),
   next_cursor: ChatCursorSchema,
   previous_cursor: ChatCursorSchema
 });
-var RobloxChatConversationsResponseSchema = import_zod11.default.object({ conversations: import_zod11.default.array(RobloxChatConversationSchema) });
-var RobloxChatConversationResultsResponseSchema = import_zod11.default.object({ conversations: import_zod11.default.array(RobloxChatConversationResultSchema) });
-var RobloxChatSendResponseSchema = import_zod11.default.object({ messages: import_zod11.default.array(RobloxChatMessageSchema) });
-var RobloxChatUnreadCountsSchema = import_zod11.default.object({
-  global_unread_message_count: import_zod11.default.number(),
-  global_unread_count: import_zod11.default.number()
+var RobloxChatConversationsResponseSchema = import_zod12.default.object({ conversations: import_zod12.default.array(RobloxChatConversationSchema) });
+var RobloxChatConversationResultsResponseSchema = import_zod12.default.object({ conversations: import_zod12.default.array(RobloxChatConversationResultSchema) });
+var RobloxChatSendResponseSchema = import_zod12.default.object({ messages: import_zod12.default.array(RobloxChatMessageSchema) });
+var RobloxChatUnreadCountsSchema = import_zod12.default.object({
+  global_unread_message_count: import_zod12.default.number(),
+  global_unread_count: import_zod12.default.number()
 });
-var RobloxChatMetadataSchema = import_zod11.default.looseObject({
-  isChatEnabled: import_zod11.default.boolean().nullish(),
-  isChatEnabledByPrivacySetting: import_zod11.default.string().nullish(),
-  isGroupChatEnabledByPrivacySetting: import_zod11.default.string().nullish(),
-  isChatEnabledByGlobalRules: import_zod11.default.string().nullish(),
-  isChatVisible: import_zod11.default.boolean().nullish(),
-  isChatUserMessagesEnabled: import_zod11.default.boolean().nullish(),
-  maxConversationTitleLength: import_zod11.default.number().nullish(),
-  typingInChatFromSenderThrottleMs: import_zod11.default.number().nullish(),
-  typingInChatForReceiverExpirationMs: import_zod11.default.number().nullish(),
-  validMessageTypesWhiteList: import_zod11.default.array(import_zod11.default.string()).nullish()
+var RobloxChatMetadataSchema = import_zod12.default.looseObject({
+  isChatEnabled: import_zod12.default.boolean().nullish(),
+  isChatEnabledByPrivacySetting: import_zod12.default.string().nullish(),
+  isGroupChatEnabledByPrivacySetting: import_zod12.default.string().nullish(),
+  isChatEnabledByGlobalRules: import_zod12.default.string().nullish(),
+  isChatVisible: import_zod12.default.boolean().nullish(),
+  isChatUserMessagesEnabled: import_zod12.default.boolean().nullish(),
+  maxConversationTitleLength: import_zod12.default.number().nullish(),
+  typingInChatFromSenderThrottleMs: import_zod12.default.number().nullish(),
+  typingInChatForReceiverExpirationMs: import_zod12.default.number().nullish(),
+  validMessageTypesWhiteList: import_zod12.default.array(import_zod12.default.string()).nullish()
 });
 
 // src/apis/chat.ts
-var import_zod12 = __toESM(require("zod"), 1);
+var import_zod13 = __toESM(require("zod"), 1);
 var ORIGIN5 = "https://apis.roblox.com";
 var BASE = ["platform-chat-api", "v1"];
 var CONVERSATION_BATCH_LIMIT = 25;
@@ -2872,12 +3014,12 @@ var RobloxChatApi = class {
   async markRead(conversationIds) {
     await this.viewer();
     if (!conversationIds.length) return;
-    await this.http().path(...BASE, "mark-conversations").body("overwrite", { conversation_ids: conversationIds }).middlewares(validate(import_zod12.default.unknown())).request();
+    await this.http().path(...BASE, "mark-conversations").body("overwrite", { conversation_ids: conversationIds }).middlewares(validate(import_zod13.default.unknown())).request();
   }
   /** POST update-typing-status — 입력 중 표시 (30회/분, 보내는 쪽 throttle은 metadata 참고) */
   async setTyping(conversationId) {
     await this.viewer();
-    await this.http().path(...BASE, "update-typing-status").body("overwrite", { conversation_id: conversationId }).middlewares(validate(import_zod12.default.unknown())).request();
+    await this.http().path(...BASE, "update-typing-status").body("overwrite", { conversation_id: conversationId }).middlewares(validate(import_zod13.default.unknown())).request();
   }
   /** POST create-conversations — 1:1 또는 그룹 대화 (15회/분). 참가자는 모두 친구여야 한다 */
   async createConversations(requests) {
@@ -2899,162 +3041,162 @@ var RobloxChatApi = class {
   /** POST add-users — 그룹 대화에 친구 추가 (15회/분) */
   async addUsers(conversationId, userIds) {
     await this.viewer();
-    await this.http().path(...BASE, "add-users").body("overwrite", { conversation_id: conversationId, user_ids: userIds }).middlewares(validate(import_zod12.default.unknown())).request();
+    await this.http().path(...BASE, "add-users").body("overwrite", { conversation_id: conversationId, user_ids: userIds }).middlewares(validate(import_zod13.default.unknown())).request();
   }
   /** POST remove-users — 그룹 대화에서 내보내기. 자기 자신이면 나가기 (15회/분) */
   async removeUsers(conversationId, userIds) {
     await this.viewer();
-    await this.http().path(...BASE, "remove-users").body("overwrite", { conversation_id: conversationId, user_ids: userIds }).middlewares(validate(import_zod12.default.unknown())).request();
+    await this.http().path(...BASE, "remove-users").body("overwrite", { conversation_id: conversationId, user_ids: userIds }).middlewares(validate(import_zod13.default.unknown())).request();
   }
 };
 
 // src/apis/groups.ts
-var import_zod14 = __toESM(require("zod"), 1);
+var import_zod15 = __toESM(require("zod"), 1);
 
 // src/types/groups.ts
-var import_zod13 = __toESM(require("zod"), 1);
-var RobloxGroupRoleIdSchema = import_zod13.default.number().int().min(1).brand("RobloxGroupRoleId");
-var RobloxGroupSocialLinkIdSchema = import_zod13.default.number().int().min(1).brand("RobloxGroupSocialLinkId");
-var RobloxGroupKeywordIdSchema = import_zod13.default.string().min(1).brand("RobloxGroupKeywordId");
-var RobloxGroupEventIdSchema = import_zod13.default.string().min(1).brand("RobloxGroupEventId");
-var RobloxGroupUserSchema = import_zod13.default.object({
+var import_zod14 = __toESM(require("zod"), 1);
+var RobloxGroupRoleIdSchema = import_zod14.default.number().int().min(1).brand("RobloxGroupRoleId");
+var RobloxGroupSocialLinkIdSchema = import_zod14.default.number().int().min(1).brand("RobloxGroupSocialLinkId");
+var RobloxGroupKeywordIdSchema = import_zod14.default.string().min(1).brand("RobloxGroupKeywordId");
+var RobloxGroupEventIdSchema = import_zod14.default.string().min(1).brand("RobloxGroupEventId");
+var RobloxGroupUserSchema = import_zod14.default.object({
   userId: RobloxUserIdSchema,
-  username: import_zod13.default.string(),
-  displayName: import_zod13.default.string(),
-  hasVerifiedBadge: import_zod13.default.boolean()
+  username: import_zod14.default.string(),
+  displayName: import_zod14.default.string(),
+  hasVerifiedBadge: import_zod14.default.boolean()
 });
-var RobloxGroupRoleSchema = import_zod13.default.object({
+var RobloxGroupRoleSchema = import_zod14.default.object({
   id: RobloxGroupRoleIdSchema,
-  name: import_zod13.default.string(),
-  rank: import_zod13.default.number(),
-  description: import_zod13.default.string().nullish(),
+  name: import_zod14.default.string(),
+  rank: import_zod14.default.number(),
+  description: import_zod14.default.string().nullish(),
   /** 역할 목록(/groups/{id}/roles)에만 있다 */
-  memberCount: import_zod13.default.number().nullish(),
+  memberCount: import_zod14.default.number().nullish(),
   /** 기본(가입하면 받는) 역할이면 true. 아니면 빠진다 */
-  isBase: import_zod13.default.boolean().nullish(),
-  color: import_zod13.default.number().nullish(),
-  isPrivate: import_zod13.default.boolean().nullish()
+  isBase: import_zod14.default.boolean().nullish(),
+  color: import_zod14.default.number().nullish(),
+  isPrivate: import_zod14.default.boolean().nullish()
 });
-var RobloxGroupMemberSchema = import_zod13.default.object({
+var RobloxGroupMemberSchema = import_zod14.default.object({
   user: RobloxGroupUserSchema,
   role: RobloxGroupRoleSchema
 });
-var RobloxGroupShoutSchema = import_zod13.default.object({
-  body: import_zod13.default.string(),
+var RobloxGroupShoutSchema = import_zod14.default.object({
+  body: import_zod14.default.string(),
   poster: RobloxGroupUserSchema.nullable(),
-  created: import_zod13.default.string(),
-  updated: import_zod13.default.string()
+  created: import_zod14.default.string(),
+  updated: import_zod14.default.string()
 });
-var RobloxCommunityTierSchema = import_zod13.default.object({
+var RobloxCommunityTierSchema = import_zod14.default.object({
   groupId: RobloxGroupIdSchema,
-  currentTier: import_zod13.default.number().nullable(),
-  previousTier: import_zod13.default.number().nullable(),
-  tierUpdatedTime: import_zod13.default.string().nullable(),
-  lastEvaluatedTime: import_zod13.default.string().nullable(),
-  requirements: import_zod13.default.array(import_zod13.default.object({ key: import_zod13.default.number(), satisfied: import_zod13.default.boolean() })).nullish(),
-  capabilities: import_zod13.default.object({ isEligibleForUnrestrictedMessages: import_zod13.default.boolean() }).nullish()
+  currentTier: import_zod14.default.number().nullable(),
+  previousTier: import_zod14.default.number().nullable(),
+  tierUpdatedTime: import_zod14.default.string().nullable(),
+  lastEvaluatedTime: import_zod14.default.string().nullable(),
+  requirements: import_zod14.default.array(import_zod14.default.object({ key: import_zod14.default.number(), satisfied: import_zod14.default.boolean() })).nullish(),
+  capabilities: import_zod14.default.object({ isEligibleForUnrestrictedMessages: import_zod14.default.boolean() }).nullish()
 });
-var GroupDetailBaseSchema = import_zod13.default.object({
+var GroupDetailBaseSchema = import_zod14.default.object({
   id: RobloxGroupIdSchema,
-  name: import_zod13.default.string(),
-  description: import_zod13.default.string(),
+  name: import_zod14.default.string(),
+  description: import_zod14.default.string(),
   /** 주인이 없는 그룹은 null */
   owner: RobloxGroupUserSchema.nullable(),
   shout: RobloxGroupShoutSchema.nullable(),
-  isBuildersClubOnly: import_zod13.default.boolean(),
-  publicEntryAllowed: import_zod13.default.boolean(),
-  isLocked: import_zod13.default.boolean().nullish(),
-  isDeactivated: import_zod13.default.boolean().nullish(),
-  hasVerifiedBadge: import_zod13.default.boolean(),
-  hasSocialModules: import_zod13.default.boolean().nullish(),
+  isBuildersClubOnly: import_zod14.default.boolean(),
+  publicEntryAllowed: import_zod14.default.boolean(),
+  isLocked: import_zod14.default.boolean().nullish(),
+  isDeactivated: import_zod14.default.boolean().nullish(),
+  hasVerifiedBadge: import_zod14.default.boolean(),
+  hasSocialModules: import_zod14.default.boolean().nullish(),
   communityTier: RobloxCommunityTierSchema.nullish()
 });
 var RobloxGroupDetailSchema = GroupDetailBaseSchema.extend({
-  memberCount: import_zod13.default.number()
+  memberCount: import_zod14.default.number()
 });
 var RobloxGroupDetailPartialSchema = GroupDetailBaseSchema.extend({
-  memberCount: import_zod13.default.number().nullish()
+  memberCount: import_zod14.default.number().nullish()
 });
-var RobloxGroupSchema = import_zod13.default.object({
+var RobloxGroupSchema = import_zod14.default.object({
   id: RobloxGroupIdSchema,
-  name: import_zod13.default.string(),
-  description: import_zod13.default.string(),
+  name: import_zod14.default.string(),
+  description: import_zod14.default.string(),
   /** 소유자가 없으면 null. 지금은 늘 유저지만 응답이 type을 주므로 다른 제작자 참조와 같은 모양으로 받는다 */
   owner: RobloxCreatorSchema().nullable(),
-  created: import_zod13.default.string(),
-  hasVerifiedBadge: import_zod13.default.boolean()
+  created: import_zod14.default.string(),
+  hasVerifiedBadge: import_zod14.default.boolean()
 });
 var RobloxGroupsResponseSchema = RobloxArrayResponseSchema(RobloxGroupSchema);
-var RobloxGroupBasicSchema = import_zod13.default.object({
+var RobloxGroupBasicSchema = import_zod14.default.object({
   id: RobloxGroupIdSchema,
-  name: import_zod13.default.string(),
-  memberCount: import_zod13.default.number(),
-  hasVerifiedBadge: import_zod13.default.boolean()
+  name: import_zod14.default.string(),
+  memberCount: import_zod14.default.number(),
+  hasVerifiedBadge: import_zod14.default.boolean()
 });
-var RobloxGroupRolesResponseSchema = import_zod13.default.object({
+var RobloxGroupRolesResponseSchema = import_zod14.default.object({
   groupId: RobloxGroupIdSchema,
-  roles: import_zod13.default.array(RobloxGroupRoleSchema)
+  roles: import_zod14.default.array(RobloxGroupRoleSchema)
 });
 var RobloxGroupRoleDetailSchema = RobloxGroupRoleSchema.extend({
   groupId: RobloxGroupIdSchema
 });
 var RobloxGroupRoleDetailsResponseSchema = RobloxArrayResponseSchema(RobloxGroupRoleDetailSchema);
-var RobloxUserGroupRoleV1Schema = import_zod13.default.object({
+var RobloxUserGroupRoleV1Schema = import_zod14.default.object({
   group: RobloxGroupDetailSchema,
   role: RobloxGroupRoleSchema
 });
-var RobloxUserGroupRoleV2Schema = import_zod13.default.object({
+var RobloxUserGroupRoleV2Schema = import_zod14.default.object({
   group: RobloxGroupBasicSchema,
-  role: import_zod13.default.object({ id: RobloxGroupRoleIdSchema, name: import_zod13.default.string(), rank: import_zod13.default.number() })
+  role: import_zod14.default.object({ id: RobloxGroupRoleIdSchema, name: import_zod14.default.string(), rank: import_zod14.default.number() })
 });
 var RobloxUserGroupRolesV1ResponseSchema = RobloxArrayResponseSchema(RobloxUserGroupRoleV1Schema);
 var RobloxUserGroupRolesV2ResponseSchema = RobloxArrayResponseSchema(RobloxUserGroupRoleV2Schema);
-var RobloxPrimaryGroupResponseSchema = import_zod13.default.object({
+var RobloxPrimaryGroupResponseSchema = import_zod14.default.object({
   group: RobloxGroupDetailPartialSchema,
   role: RobloxGroupRoleSchema
 }).nullable();
-var RobloxGroupMembershipDetailSchema = import_zod13.default.object({
+var RobloxGroupMembershipDetailSchema = import_zod14.default.object({
   group: RobloxGroupDetailPartialSchema,
   role: RobloxGroupRoleSchema,
-  isPrimaryGroup: import_zod13.default.boolean().nullish()
+  isPrimaryGroup: import_zod14.default.boolean().nullish()
 });
-var RobloxFriendsGroupsResponseSchema = RobloxArrayResponseSchema(import_zod13.default.object({
+var RobloxFriendsGroupsResponseSchema = RobloxArrayResponseSchema(import_zod14.default.object({
   user: RobloxGroupUserSchema,
-  groups: import_zod13.default.array(RobloxGroupMembershipDetailSchema)
+  groups: import_zod14.default.array(RobloxGroupMembershipDetailSchema)
 }));
 var RobloxGroupMemberPageSchema = RobloxPageResponseSchema(RobloxGroupMemberSchema);
 var RobloxGroupUserPageSchema = RobloxPageResponseSchema(RobloxGroupUserSchema);
-var RobloxGroupSearchItemSchema = import_zod13.default.object({
+var RobloxGroupSearchItemSchema = import_zod14.default.object({
   id: RobloxGroupIdSchema,
-  name: import_zod13.default.string(),
-  description: import_zod13.default.string(),
-  memberCount: import_zod13.default.number(),
-  previousName: import_zod13.default.string().nullish(),
-  publicEntryAllowed: import_zod13.default.boolean(),
-  created: import_zod13.default.string(),
-  updated: import_zod13.default.string(),
-  hasVerifiedBadge: import_zod13.default.boolean()
+  name: import_zod14.default.string(),
+  description: import_zod14.default.string(),
+  memberCount: import_zod14.default.number(),
+  previousName: import_zod14.default.string().nullish(),
+  publicEntryAllowed: import_zod14.default.boolean(),
+  created: import_zod14.default.string(),
+  updated: import_zod14.default.string(),
+  hasVerifiedBadge: import_zod14.default.boolean()
 });
 var RobloxGroupSearchPageSchema = RobloxPageResponseSchema(RobloxGroupSearchItemSchema).extend({
-  keyword: import_zod13.default.string(),
-  totalResults: import_zod13.default.number()
+  keyword: import_zod14.default.string(),
+  totalResults: import_zod14.default.number()
 });
 var RobloxGroupLookupResponseSchema = RobloxArrayResponseSchema(RobloxGroupBasicSchema);
-var RobloxGroupNameHistoryPageSchema = RobloxPageResponseSchema(import_zod13.default.object({
-  name: import_zod13.default.string(),
-  created: import_zod13.default.string()
+var RobloxGroupNameHistoryPageSchema = RobloxPageResponseSchema(import_zod14.default.object({
+  name: import_zod14.default.string(),
+  created: import_zod14.default.string()
 }));
-var RobloxGroupRelationshipsSchema = import_zod13.default.object({
+var RobloxGroupRelationshipsSchema = import_zod14.default.object({
   groupId: RobloxGroupIdSchema,
   /** "Allies" | "Enemies" */
-  relationshipType: import_zod13.default.string(),
-  totalGroupCount: import_zod13.default.number(),
-  relatedGroups: import_zod13.default.array(RobloxGroupDetailPartialSchema),
+  relationshipType: import_zod14.default.string(),
+  totalGroupCount: import_zod14.default.number(),
+  relatedGroups: import_zod14.default.array(RobloxGroupDetailPartialSchema),
   /** 마지막 페이지면 null */
-  nextRowIndex: import_zod13.default.number().nullable()
+  nextRowIndex: import_zod14.default.number().nullable()
 });
-var flags = (...keys) => import_zod13.default.object(Object.fromEntries(keys.map((k) => [k, import_zod13.default.boolean().nullish()])));
-var RobloxGroupPermissionsSchema = import_zod13.default.object({
+var flags = (...keys) => import_zod14.default.object(Object.fromEntries(keys.map((k) => [k, import_zod14.default.boolean().nullish()])));
+var RobloxGroupPermissionsSchema = import_zod14.default.object({
   groupPostsPermissions: flags("viewStatus", "postToStatus").nullish(),
   groupForumsPermissions: flags("viewForums", "manageCategories", "createPosts", "removePosts", "lockPosts", "pinPosts", "createComments", "removeComments", "createBugReports").nullish(),
   groupContentModerationPermissions: flags("manageKeywordBlockList", "viewKeywordBlockList").nullish(),
@@ -3063,176 +3205,176 @@ var RobloxGroupPermissionsSchema = import_zod13.default.object({
   groupEconomyPermissions: flags("spendGroupFunds", "advertiseGroup", "createItems", "manageItems", "addGroupPlaces", "manageGroupGames", "viewGroupPayouts", "viewAnalytics").nullish(),
   groupOpenCloudPermissions: flags("useCloudAuthentication", "administerCloudAuthentication").nullish()
 });
-var RobloxGroupRolePermissionsSchema = import_zod13.default.object({
+var RobloxGroupRolePermissionsSchema = import_zod14.default.object({
   groupId: RobloxGroupIdSchema,
   role: RobloxGroupRoleSchema,
   permissions: RobloxGroupPermissionsSchema
 });
 var RobloxGroupRolePermissionsResponseSchema = RobloxArrayResponseSchema(RobloxGroupRolePermissionsSchema);
-var RobloxGroupNotificationPreferenceSchema = import_zod13.default.object({
-  type: import_zod13.default.union([import_zod13.default.string(), import_zod13.default.number()]),
-  enabled: import_zod13.default.boolean(),
-  name: import_zod13.default.string(),
-  description: import_zod13.default.string()
+var RobloxGroupNotificationPreferenceSchema = import_zod14.default.object({
+  type: import_zod14.default.union([import_zod14.default.string(), import_zod14.default.number()]),
+  enabled: import_zod14.default.boolean(),
+  name: import_zod14.default.string(),
+  description: import_zod14.default.string()
 });
-var RobloxGroupMembershipSchema = import_zod13.default.object({
+var RobloxGroupMembershipSchema = import_zod14.default.object({
   groupId: RobloxGroupIdSchema,
-  isPrimary: import_zod13.default.boolean(),
-  isPendingJoin: import_zod13.default.boolean(),
+  isPrimary: import_zod14.default.boolean(),
+  isPendingJoin: import_zod14.default.boolean(),
   userRole: RobloxGroupMemberSchema.nullable(),
   permissions: RobloxGroupPermissionsSchema,
-  channelPermissions: import_zod13.default.array(import_zod13.default.object({ channelId: import_zod13.default.string() }).loose()).nullish(),
-  areGroupGamesVisible: import_zod13.default.boolean(),
-  areGroupFundsVisible: import_zod13.default.boolean(),
-  areEnemiesAllowed: import_zod13.default.boolean(),
-  canConfigure: import_zod13.default.boolean(),
-  isNotificationsEnabled: import_zod13.default.boolean().nullish(),
-  notificationPreferences: import_zod13.default.array(RobloxGroupNotificationPreferenceSchema).nullish(),
-  isBannedFromGroup: import_zod13.default.boolean().nullish(),
-  canViewMemberList: import_zod13.default.boolean().nullish(),
-  isOwner: import_zod13.default.boolean().nullish()
+  channelPermissions: import_zod14.default.array(import_zod14.default.object({ channelId: import_zod14.default.string() }).loose()).nullish(),
+  areGroupGamesVisible: import_zod14.default.boolean(),
+  areGroupFundsVisible: import_zod14.default.boolean(),
+  areEnemiesAllowed: import_zod14.default.boolean(),
+  canConfigure: import_zod14.default.boolean(),
+  isNotificationsEnabled: import_zod14.default.boolean().nullish(),
+  notificationPreferences: import_zod14.default.array(RobloxGroupNotificationPreferenceSchema).nullish(),
+  isBannedFromGroup: import_zod14.default.boolean().nullish(),
+  canViewMemberList: import_zod14.default.boolean().nullish(),
+  isOwner: import_zod14.default.boolean().nullish()
 });
-var RobloxGroupPoliciesResponseSchema = import_zod13.default.object({
-  groups: import_zod13.default.array(import_zod13.default.object({ groupId: RobloxGroupIdSchema, canViewGroup: import_zod13.default.boolean() }))
+var RobloxGroupPoliciesResponseSchema = import_zod14.default.object({
+  groups: import_zod14.default.array(import_zod14.default.object({ groupId: RobloxGroupIdSchema, canViewGroup: import_zod14.default.boolean() }))
 });
-var RobloxGroupSocialLinkSchema = import_zod13.default.object({
+var RobloxGroupSocialLinkSchema = import_zod14.default.object({
   id: RobloxGroupSocialLinkIdSchema,
   /** "Discord" 같은 문자열 (스펙은 0~8) */
-  type: import_zod13.default.union([import_zod13.default.string(), import_zod13.default.number()]),
-  url: import_zod13.default.string(),
-  title: import_zod13.default.string()
+  type: import_zod14.default.union([import_zod14.default.string(), import_zod14.default.number()]),
+  url: import_zod14.default.string(),
+  title: import_zod14.default.string()
 });
-var RobloxGroupSocialLinksResponseSchema = import_zod13.default.object({
-  data: import_zod13.default.array(RobloxGroupSocialLinkSchema),
-  socialLinksVerificationStatus: import_zod13.default.union([import_zod13.default.string(), import_zod13.default.number()]).nullish()
+var RobloxGroupSocialLinksResponseSchema = import_zod14.default.object({
+  data: import_zod14.default.array(RobloxGroupSocialLinkSchema),
+  socialLinksVerificationStatus: import_zod14.default.union([import_zod14.default.string(), import_zod14.default.number()]).nullish()
 });
-var RobloxGroupEmoteSetsResponseSchema = import_zod13.default.object({
-  emoteSets: import_zod13.default.array(import_zod13.default.object({
-    id: import_zod13.default.string(),
-    name: import_zod13.default.string(),
-    emotes: import_zod13.default.array(import_zod13.default.object({ id: import_zod13.default.string(), name: import_zod13.default.string() }))
+var RobloxGroupEmoteSetsResponseSchema = import_zod14.default.object({
+  emoteSets: import_zod14.default.array(import_zod14.default.object({
+    id: import_zod14.default.string(),
+    name: import_zod14.default.string(),
+    emotes: import_zod14.default.array(import_zod14.default.object({ id: import_zod14.default.string(), name: import_zod14.default.string() }))
   }))
 });
-var RobloxGroupFeatureFreezesResponseSchema = import_zod13.default.object({
-  features: import_zod13.default.array(import_zod13.default.object({ feature: import_zod13.default.string(), isDisabled: import_zod13.default.boolean() }))
+var RobloxGroupFeatureFreezesResponseSchema = import_zod14.default.object({
+  features: import_zod14.default.array(import_zod14.default.object({ feature: import_zod14.default.string(), isDisabled: import_zod14.default.boolean() }))
 });
-var RobloxGroupFeaturedEventSchema = import_zod13.default.object({
+var RobloxGroupFeaturedEventSchema = import_zod14.default.object({
   groupId: RobloxGroupIdSchema,
-  contentType: import_zod13.default.string(),
+  contentType: import_zod14.default.string(),
   contentId: RobloxGroupEventIdSchema
 });
-var RobloxGroupsMetadataSchema = import_zod13.default.object({
-  groupLimit: import_zod13.default.number(),
-  currentGroupCount: import_zod13.default.number(),
-  groupStatusMaxLength: import_zod13.default.number(),
-  areProfileGroupsHidden: import_zod13.default.boolean().nullish(),
-  isGroupDetailsPolicyEnabled: import_zod13.default.boolean().nullish(),
-  showPreviousGroupNames: import_zod13.default.boolean().nullish(),
-  areGroupBansEnabled: import_zod13.default.boolean().nullish(),
-  canEnableGroupNotifications: import_zod13.default.boolean().nullish()
+var RobloxGroupsMetadataSchema = import_zod14.default.object({
+  groupLimit: import_zod14.default.number(),
+  currentGroupCount: import_zod14.default.number(),
+  groupStatusMaxLength: import_zod14.default.number(),
+  areProfileGroupsHidden: import_zod14.default.boolean().nullish(),
+  isGroupDetailsPolicyEnabled: import_zod14.default.boolean().nullish(),
+  showPreviousGroupNames: import_zod14.default.boolean().nullish(),
+  areGroupBansEnabled: import_zod14.default.boolean().nullish(),
+  canEnableGroupNotifications: import_zod14.default.boolean().nullish()
 });
-var RobloxGroupConfigurationMetadataSchema = import_zod13.default.object({
-  groupConfiguration: import_zod13.default.object({
-    nameMaxLength: import_zod13.default.number(),
-    descriptionMaxLength: import_zod13.default.number(),
-    iconMaxFileSizeMb: import_zod13.default.number(),
-    coverPhotoMaxFileSizeMb: import_zod13.default.number().nullish(),
-    validCoverPhotoDimensions: import_zod13.default.string().nullish(),
+var RobloxGroupConfigurationMetadataSchema = import_zod14.default.object({
+  groupConfiguration: import_zod14.default.object({
+    nameMaxLength: import_zod14.default.number(),
+    descriptionMaxLength: import_zod14.default.number(),
+    iconMaxFileSizeMb: import_zod14.default.number(),
+    coverPhotoMaxFileSizeMb: import_zod14.default.number().nullish(),
+    validCoverPhotoDimensions: import_zod14.default.string().nullish(),
     /** 그룹 생성 비용(Robux) */
-    cost: import_zod13.default.number()
+    cost: import_zod14.default.number()
   }).loose(),
-  recurringPayoutsConfiguration: import_zod13.default.object({ maxPayoutPartners: import_zod13.default.number() }).nullish(),
-  roleConfiguration: import_zod13.default.object({
-    nameMaxLength: import_zod13.default.number(),
-    descriptionMaxLength: import_zod13.default.number(),
-    limit: import_zod13.default.number(),
-    cost: import_zod13.default.number(),
-    minRank: import_zod13.default.number(),
-    maxRank: import_zod13.default.number()
+  recurringPayoutsConfiguration: import_zod14.default.object({ maxPayoutPartners: import_zod14.default.number() }).nullish(),
+  roleConfiguration: import_zod14.default.object({
+    nameMaxLength: import_zod14.default.number(),
+    descriptionMaxLength: import_zod14.default.number(),
+    limit: import_zod14.default.number(),
+    cost: import_zod14.default.number(),
+    minRank: import_zod14.default.number(),
+    maxRank: import_zod14.default.number()
   }).nullish(),
-  groupNameChangeConfiguration: import_zod13.default.object({ cost: import_zod13.default.number(), cooldownInDays: import_zod13.default.number(), ownershipCooldownInDays: import_zod13.default.number() }).nullish(),
-  isPremiumPayoutsEnabled: import_zod13.default.boolean().nullish(),
-  isDefaultEmblemPolicyEnabled: import_zod13.default.boolean().nullish()
+  groupNameChangeConfiguration: import_zod14.default.object({ cost: import_zod14.default.number(), cooldownInDays: import_zod14.default.number(), ownershipCooldownInDays: import_zod14.default.number() }).nullish(),
+  isPremiumPayoutsEnabled: import_zod14.default.boolean().nullish(),
+  isDefaultEmblemPolicyEnabled: import_zod14.default.boolean().nullish()
 });
-var RobloxGroupSearchMetadataSchema = import_zod13.default.object({
-  SuggestedGroupKeywords: import_zod13.default.array(import_zod13.default.string()),
-  ShowFriendsGroupsSort: import_zod13.default.boolean()
+var RobloxGroupSearchMetadataSchema = import_zod14.default.object({
+  SuggestedGroupKeywords: import_zod14.default.array(import_zod14.default.string()),
+  ShowFriendsGroupsSort: import_zod14.default.boolean()
 });
-var RobloxGroupJoinRequestSchema = import_zod13.default.object({
+var RobloxGroupJoinRequestSchema = import_zod14.default.object({
   requester: RobloxGroupUserSchema,
-  created: import_zod13.default.string()
+  created: import_zod14.default.string()
 });
 var RobloxGroupJoinRequestPageSchema = RobloxPageResponseSchema(RobloxGroupJoinRequestSchema);
-var RobloxGroupBanSchema = import_zod13.default.object({
+var RobloxGroupBanSchema = import_zod14.default.object({
   user: RobloxGroupUserSchema,
   actingUser: RobloxGroupMemberSchema.nullish(),
-  created: import_zod13.default.string()
+  created: import_zod14.default.string()
 });
 var RobloxGroupBanPageSchema = RobloxPageResponseSchema(RobloxGroupBanSchema);
-var RobloxGroupAuditLogItemSchema = import_zod13.default.object({
+var RobloxGroupAuditLogItemSchema = import_zod14.default.object({
   actor: RobloxGroupMemberSchema,
-  actionType: import_zod13.default.string(),
-  description: import_zod13.default.unknown(),
-  created: import_zod13.default.string()
+  actionType: import_zod14.default.string(),
+  description: import_zod14.default.unknown(),
+  created: import_zod14.default.string()
 });
 var RobloxGroupAuditLogPageSchema = RobloxPageResponseSchema(RobloxGroupAuditLogItemSchema);
-var RobloxGroupSettingsSchema = import_zod13.default.object({
-  isApprovalRequired: import_zod13.default.boolean(),
-  isBuildersClubRequired: import_zod13.default.boolean().nullish(),
-  areEnemiesAllowed: import_zod13.default.boolean(),
-  areGroupFundsVisible: import_zod13.default.boolean(),
-  areGroupGamesVisible: import_zod13.default.boolean(),
-  isGroupNameChangeEnabled: import_zod13.default.boolean().nullish(),
-  verificationLevel: import_zod13.default.union([import_zod13.default.string(), import_zod13.default.number()]).nullish(),
-  accountTenureRequirement: import_zod13.default.union([import_zod13.default.string(), import_zod13.default.number()]).nullish(),
-  slowmode: import_zod13.default.union([import_zod13.default.string(), import_zod13.default.number()]).nullish(),
-  isMemberListVisibleToPublic: import_zod13.default.boolean().nullish(),
-  isAutoAssignRoleDisabled: import_zod13.default.boolean().nullish(),
-  hasLegacyAutoAssignRole: import_zod13.default.boolean().nullish(),
+var RobloxGroupSettingsSchema = import_zod14.default.object({
+  isApprovalRequired: import_zod14.default.boolean(),
+  isBuildersClubRequired: import_zod14.default.boolean().nullish(),
+  areEnemiesAllowed: import_zod14.default.boolean(),
+  areGroupFundsVisible: import_zod14.default.boolean(),
+  areGroupGamesVisible: import_zod14.default.boolean(),
+  isGroupNameChangeEnabled: import_zod14.default.boolean().nullish(),
+  verificationLevel: import_zod14.default.union([import_zod14.default.string(), import_zod14.default.number()]).nullish(),
+  accountTenureRequirement: import_zod14.default.union([import_zod14.default.string(), import_zod14.default.number()]).nullish(),
+  slowmode: import_zod14.default.union([import_zod14.default.string(), import_zod14.default.number()]).nullish(),
+  isMemberListVisibleToPublic: import_zod14.default.boolean().nullish(),
+  isAutoAssignRoleDisabled: import_zod14.default.boolean().nullish(),
+  hasLegacyAutoAssignRole: import_zod14.default.boolean().nullish(),
   communityTier: RobloxCommunityTierSchema.nullish()
 });
-var RobloxGroupConfigurationSchema = import_zod13.default.object({
+var RobloxGroupConfigurationSchema = import_zod14.default.object({
   groupId: RobloxGroupIdSchema,
   emblemId: RobloxAssetIdSchema.nullish().catch(null),
   coverPhotoId: RobloxAssetIdSchema.nullish().catch(null)
 });
-var RobloxGroupFeaturesSchema = import_zod13.default.object({
-  isLocked: import_zod13.default.boolean(),
-  features: import_zod13.default.array(import_zod13.default.object({
+var RobloxGroupFeaturesSchema = import_zod14.default.object({
+  isLocked: import_zod14.default.boolean(),
+  features: import_zod14.default.array(import_zod14.default.object({
     /** "Payouts" | "ContentUpload" | "GroupOwnershipTransfer" | "GameOwnershipTransfer" | "ForumRead" | "ForumWrite" */
-    feature: import_zod13.default.string(),
-    isFeatureBlocked: import_zod13.default.boolean(),
-    expiration: import_zod13.default.string().nullish()
+    feature: import_zod14.default.string(),
+    isFeatureBlocked: import_zod14.default.boolean(),
+    expiration: import_zod14.default.string().nullish()
   }))
 });
-var RobloxGroupPayoutsResponseSchema = RobloxArrayResponseSchema(import_zod13.default.object({
+var RobloxGroupPayoutsResponseSchema = RobloxArrayResponseSchema(import_zod14.default.object({
   user: RobloxGroupUserSchema,
-  percentage: import_zod13.default.number()
+  percentage: import_zod14.default.number()
 }));
-var RobloxGroupPayoutRestrictionSchema = import_zod13.default.object({
-  canUseRecurringPayout: import_zod13.default.boolean(),
-  canUseOneTimePayout: import_zod13.default.boolean()
+var RobloxGroupPayoutRestrictionSchema = import_zod14.default.object({
+  canUseRecurringPayout: import_zod14.default.boolean(),
+  canUseOneTimePayout: import_zod14.default.boolean()
 });
-var RobloxGroupKeywordSchema = import_zod13.default.object({
+var RobloxGroupKeywordSchema = import_zod14.default.object({
   id: RobloxGroupKeywordIdSchema,
-  keyword: import_zod13.default.string(),
-  createdBy: import_zod13.default.number(),
-  isPrivate: import_zod13.default.boolean(),
-  createdAt: import_zod13.default.string(),
-  updatedAt: import_zod13.default.string()
+  keyword: import_zod14.default.string(),
+  createdBy: import_zod14.default.number(),
+  isPrivate: import_zod14.default.boolean(),
+  createdAt: import_zod14.default.string(),
+  updatedAt: import_zod14.default.string()
 });
 var RobloxGroupKeywordPageSchema = RobloxPageResponseSchema(RobloxGroupKeywordSchema).extend({
-  totalActiveKeywordsCount: import_zod13.default.number()
+  totalActiveKeywordsCount: import_zod14.default.number()
 });
-var RobloxCreateGroupKeywordsResponseSchema = import_zod13.default.object({
-  createdKeywords: import_zod13.default.array(RobloxGroupKeywordSchema),
-  hadModeratedKeywords: import_zod13.default.boolean(),
-  hadDuplicateKeywords: import_zod13.default.boolean()
+var RobloxCreateGroupKeywordsResponseSchema = import_zod14.default.object({
+  createdKeywords: import_zod14.default.array(RobloxGroupKeywordSchema),
+  hadModeratedKeywords: import_zod14.default.boolean(),
+  hadDuplicateKeywords: import_zod14.default.boolean()
 });
-var RobloxGroupTierEvaluationSchema = import_zod13.default.object({
+var RobloxGroupTierEvaluationSchema = import_zod14.default.object({
   tierInfo: RobloxCommunityTierSchema,
-  passedSignals: import_zod13.default.array(import_zod13.default.string()).nullish(),
-  requirements: import_zod13.default.array(import_zod13.default.object({ key: import_zod13.default.number(), satisfied: import_zod13.default.boolean() })).nullish()
+  passedSignals: import_zod14.default.array(import_zod14.default.string()).nullish(),
+  requirements: import_zod14.default.array(import_zod14.default.object({ key: import_zod14.default.number(), satisfied: import_zod14.default.boolean() })).nullish()
 });
 var RobloxGroupAuditActionTypes = [
   "DeletePost",
@@ -3452,7 +3594,7 @@ var RobloxGroupsApi = class {
     this.settings = perGroup(["settings"], RobloxGroupSettingsSchema, (res) => res);
     this.configurations = perGroup(["configuration"], RobloxGroupConfigurationSchema, (res) => res);
     this.features = perGroup(["features"], RobloxGroupFeaturesSchema, (res) => res);
-    this.featuresBlocked = perGroup(["features", "status"], import_zod14.default.object({ hasFeaturesBlocked: import_zod14.default.boolean() }), (res) => res.hasFeaturesBlocked);
+    this.featuresBlocked = perGroup(["features", "status"], import_zod15.default.object({ hasFeaturesBlocked: import_zod15.default.boolean() }), (res) => res.hasFeaturesBlocked);
     this.payouts = perGroup(["payouts"], RobloxGroupPayoutsResponseSchema, (res) => res.data);
     this.payoutRestrictions = perGroup(["payout-restriction"], RobloxGroupPayoutRestrictionSchema, (res) => res);
     this.joinRequests = batcher(singleRoute3({
@@ -3517,12 +3659,12 @@ var RobloxGroupsApi = class {
     const field = method === "getRolesByIds" ? "roleId" : method === "getUserGroups" ? "userId" : "groupId";
     return settle(ids, (id2) => cached(this.config, { service: "groups", method, [field]: id2 }, this.ttl(method), () => load(id2)));
   }
-  /** 대상마다 batcher로 보내고 없는 대상은 뺀다. 일부가 실패하면 RobloxPartialError */
+  /** 대상마다 batcher로 보내고 없는 대상은 뺀다. 일부가 실패하면 RobloxError(PARTIAL) */
   async many(batcher, targets, key) {
     const { values, errors } = await settle(targets, (t) => batcher.load(key(t), t));
     return finish(found(values), errors);
   }
-  /** 그룹들을 받아 실패가 있으면 RobloxPartialError로 던진다. `option`이 있으면 아이콘을 붙이고, 아이콘을 받지 못한 그룹은 `thumbnail: null`이다 */
+  /** 그룹들을 받아 실패가 있으면 RobloxError(PARTIAL)로 던진다. `option`이 있으면 아이콘을 붙이고, 아이콘을 받지 못한 그룹은 `thumbnail: null`이다 */
   async attach(groups, ids, option) {
     if (!option) {
       const { values: values2, errors: errors2 } = await groups;
@@ -3632,7 +3774,7 @@ var RobloxGroupsApi = class {
   }
   /** GET /v1/user/groups/pending — 가입을 요청해 둔 그룹 */
   async getPendingGroups() {
-    const res = await this.http().path("v1", "user", "groups", "pending").middlewares(validate(import_zod14.default.object({ data: import_zod14.default.array(RobloxGroupDetailPartialSchema) }))).request();
+    const res = await this.http().path("v1", "user", "groups", "pending").middlewares(validate(import_zod15.default.object({ data: import_zod15.default.array(RobloxGroupDetailPartialSchema) }))).request();
     return res.data;
   }
   /** GET /v1/users/{me}/friends/groups/roles — 내 친구들이 속한 그룹. 다른 유저로는 403이다 */
@@ -3659,7 +3801,7 @@ var RobloxGroupsApi = class {
   }
   /** PATCH /v1/groups/{groupId}/notification-preference — 알림 종류 하나를 켜고 끈다 */
   async setNotificationPreference(groupId, request) {
-    await this.http().method("PATCH").path("v1", "groups", groupId, "notification-preference").body("overwrite", request).middlewares(validate(import_zod14.default.unknown())).request();
+    await this.http().method("PATCH").path("v1", "groups", groupId, "notification-preference").body("overwrite", request).middlewares(validate(import_zod15.default.unknown())).request();
   }
   /**
    * POST /v1/groups/create — 그룹을 만든다. 비용(Robux)은 `getConfigurationMetadata()`의 `groupConfiguration.cost`.
@@ -3672,7 +3814,7 @@ var RobloxGroupsApi = class {
     if (request.publicGroup !== void 0) form.append("publicGroup", String(request.publicGroup));
     if (request.buildersClubMembersOnly !== void 0) form.append("buildersClubMembersOnly", String(request.buildersClubMembersOnly));
     form.append("Files", request.icon);
-    return this.http().path("v1", "groups", "create").body("overwrite", form).middlewares(validate(RobloxGroupSchema.extend({ memberCount: import_zod14.default.number().nullish() }))).request();
+    return this.http().path("v1", "groups", "create").body("overwrite", form).middlewares(validate(RobloxGroupSchema.extend({ memberCount: import_zod15.default.number().nullish() }))).request();
   }
   // ── 관리 (그룹 권한 필요) ──────────────────────────
   // 권한이 없으면 403 FETCH_FAILED로 실패한다.
@@ -3733,7 +3875,7 @@ var RobloxGroupsApi = class {
     );
   }
   /**
-   * 하나면 single, 여럿이면 묶음 엔드포인트로 나눠 보낸다. 실패한 묶음이 있으면 RobloxPartialError를 던진다
+   * 하나면 single, 여럿이면 묶음 엔드포인트로 나눠 보낸다. 실패한 묶음이 있으면 RobloxError(PARTIAL)를 던진다
    * (`results`는 처리된 id, `errors`는 실패한 묶음의 id마다 하나).
    */
   async batchWrite(ids, single, multi) {
@@ -3788,17 +3930,17 @@ var RobloxGroupsApi = class {
   }
   /** PATCH /v1/groups/{groupId}/features — 지금은 걸려 있는 차단을 푸는 것만 된다. 바뀌었으면 true */
   async updateFeatures(groupId, features) {
-    const res = await this.http().method("PATCH").path("v1", "groups", groupId, "features").body("overwrite", { Features: features }).middlewares(validate(import_zod14.default.object({ Updated: import_zod14.default.boolean() }))).request();
+    const res = await this.http().method("PATCH").path("v1", "groups", groupId, "features").body("overwrite", { Features: features }).middlewares(validate(import_zod15.default.object({ Updated: import_zod15.default.boolean() }))).request();
     return res.Updated;
   }
   /** PATCH /v1/groups/{groupId}/name — 비용과 대기 기간은 `getConfigurationMetadata()`의 groupNameChangeConfiguration */
   async setName(groupId, name) {
-    const res = await this.http().method("PATCH").path("v1", "groups", groupId, "name").body("overwrite", { name }).middlewares(validate(import_zod14.default.object({ newName: import_zod14.default.string() }))).request();
+    const res = await this.http().method("PATCH").path("v1", "groups", groupId, "name").body("overwrite", { name }).middlewares(validate(import_zod15.default.object({ newName: import_zod15.default.string() }))).request();
     return res.newName;
   }
   /** PATCH /v1/groups/{groupId}/description — 필터링된 뒤의 설명을 돌려준다 */
   async setDescription(groupId, description) {
-    const res = await this.http().method("PATCH").path("v1", "groups", groupId, "description").body("overwrite", { description }).middlewares(validate(import_zod14.default.object({ newDescription: import_zod14.default.string() }))).request();
+    const res = await this.http().method("PATCH").path("v1", "groups", groupId, "description").body("overwrite", { description }).middlewares(validate(import_zod15.default.object({ newDescription: import_zod15.default.string() }))).request();
     return res.newDescription;
   }
   /** PATCH /v1/groups/{groupId}/status — 샤우트. 빈 문자열이면 지운다 */
@@ -3837,7 +3979,7 @@ var RobloxGroupsApi = class {
   }
   /** DELETE /v1/groups/{groupId}/blocked-keywords/{keywordId} */
   async deleteKeyword(groupId, keywordId) {
-    await this.http().method("DELETE").path("v1", "groups", groupId, "blocked-keywords", keywordId).middlewares(validate(import_zod14.default.unknown())).request();
+    await this.http().method("DELETE").path("v1", "groups", groupId, "blocked-keywords", keywordId).middlewares(validate(import_zod15.default.unknown())).request();
   }
   /** POST /v1/featured-content/event — 그룹에 이벤트를 내건다 */
   setFeaturedEvent(groupId, eventId) {
@@ -3845,7 +3987,7 @@ var RobloxGroupsApi = class {
   }
   /** DELETE /v1/featured-content/event */
   async removeFeaturedEvent(groupId, eventId) {
-    await this.http().method("DELETE").path("v1", "featured-content", "event").query({ groupId, eventId }).middlewares(validate(import_zod14.default.unknown())).request();
+    await this.http().method("DELETE").path("v1", "featured-content", "event").query({ groupId, eventId }).middlewares(validate(import_zod15.default.unknown())).request();
   }
   /** GET /v1/groups/{groupId}/relationships/{type}/requests — 받은 동맹 요청 */
   getRelationshipRequests(groupId, type, query = {}) {
@@ -3896,7 +4038,7 @@ var RobloxGroupsApi = class {
       PayoutType: 1,
       Recipients: recipients.map((r) => ({ recipientId: r.userId, recipientType: 0, amount: r.amount })),
       IdempotencyKey: opts.idempotencyKey ?? crypto.randomUUID()
-    }).middlewares(validate(import_zod14.default.object({ status: import_zod14.default.union([import_zod14.default.number(), import_zod14.default.string()]) }))).request();
+    }).middlewares(validate(import_zod15.default.object({ status: import_zod15.default.union([import_zod15.default.number(), import_zod15.default.string()]) }))).request();
     return Number(res.status);
   }
   /** POST /v1/groups/{groupId}/payouts/recurring — 정기 지급 비율을 통째로 바꾼다 */
@@ -3925,58 +4067,58 @@ var RobloxGroupsApi = class {
 };
 
 // src/apis/badges.ts
-var import_zod16 = __toESM(require("zod"), 1);
+var import_zod17 = __toESM(require("zod"), 1);
 
 // src/types/badges.ts
-var import_zod15 = __toESM(require("zod"), 1);
-var RobloxBadgeStatisticsSchema = import_zod15.default.object({
-  pastDayAwardedCount: import_zod15.default.number(),
-  awardedCount: import_zod15.default.number(),
+var import_zod16 = __toESM(require("zod"), 1);
+var RobloxBadgeStatisticsSchema = import_zod16.default.object({
+  pastDayAwardedCount: import_zod16.default.number(),
+  awardedCount: import_zod16.default.number(),
   /** 0~1. 지난 하루 동안 게임에 들어온 사람 중 받은 비율 */
-  winRatePercentage: import_zod15.default.number()
+  winRatePercentage: import_zod16.default.number()
 });
-var BadgeBaseSchema = import_zod15.default.object({
+var BadgeBaseSchema = import_zod16.default.object({
   id: RobloxBadgeIdSchema,
-  name: import_zod15.default.string(),
-  description: import_zod15.default.string().nullable(),
-  displayName: import_zod15.default.string(),
-  displayDescription: import_zod15.default.string().nullable(),
-  enabled: import_zod15.default.boolean(),
+  name: import_zod16.default.string(),
+  description: import_zod16.default.string().nullable(),
+  displayName: import_zod16.default.string(),
+  displayDescription: import_zod16.default.string().nullable(),
+  enabled: import_zod16.default.boolean(),
   iconImageId: RobloxAssetIdSchema.nullable().catch(null),
   displayIconImageId: RobloxAssetIdSchema.nullable().catch(null),
-  created: import_zod15.default.string(),
-  updated: import_zod15.default.string(),
+  created: import_zod16.default.string(),
+  updated: import_zod16.default.string(),
   statistics: RobloxBadgeStatisticsSchema
 });
 var RobloxBadgeSchema = BadgeBaseSchema.extend({
-  awardingUniverse: import_zod15.default.object({
+  awardingUniverse: import_zod16.default.object({
     id: RobloxUniverseIdSchema,
-    name: import_zod15.default.string(),
+    name: import_zod16.default.string(),
     rootPlaceId: RobloxPlaceIdSchema
   })
 });
 var RobloxUserBadgeSchema = BadgeBaseSchema.extend({
-  creator: RobloxCreatorSchema({ name: import_zod15.default.string().nullish() }),
+  creator: RobloxCreatorSchema({ name: import_zod16.default.string().nullish() }),
   /** 응답은 `{ id, type: "Place" }`. type은 언제나 Place라 뺀다 */
-  awarder: import_zod15.default.object({ id: RobloxPlaceIdSchema, name: import_zod15.default.string().nullish() })
+  awarder: import_zod16.default.object({ id: RobloxPlaceIdSchema, name: import_zod16.default.string().nullish() })
 });
 var RobloxCreatedBadgeSchema = BadgeBaseSchema.extend({
-  awarder: import_zod15.default.object({ id: RobloxPlaceIdSchema, name: import_zod15.default.string().nullish() })
+  awarder: import_zod16.default.object({ id: RobloxPlaceIdSchema, name: import_zod16.default.string().nullish() })
 });
-var RobloxBadgeAwardSchema = import_zod15.default.object({
+var RobloxBadgeAwardSchema = import_zod16.default.object({
   badgeId: RobloxBadgeIdSchema,
-  awardedDate: import_zod15.default.string()
+  awardedDate: import_zod16.default.string()
 });
-var RobloxBadgeMetadataSchema = import_zod15.default.object({
+var RobloxBadgeMetadataSchema = import_zod16.default.object({
   /** 무료 한도를 넘었을 때 배지 하나를 만드는 비용(Robux) */
-  badgeCreationPrice: import_zod15.default.number(),
-  maxBadgeNameLength: import_zod15.default.number(),
-  maxBadgeDescriptionLength: import_zod15.default.number(),
+  badgeCreationPrice: import_zod16.default.number(),
+  maxBadgeNameLength: import_zod16.default.number(),
+  maxBadgeDescriptionLength: import_zod16.default.number(),
   defaultBadgeIconImageId: RobloxAssetIdSchema.nullable().catch(null)
 });
 var RobloxBadgePageSchema = RobloxPageResponseSchema(RobloxBadgeSchema);
 var RobloxUserBadgePageSchema = RobloxPageResponseSchema(RobloxUserBadgeSchema);
-var RobloxBadgeAwardsResponseSchema = import_zod15.default.object({ data: import_zod15.default.array(RobloxBadgeAwardSchema) });
+var RobloxBadgeAwardsResponseSchema = import_zod16.default.object({ data: import_zod16.default.array(RobloxBadgeAwardSchema) });
 
 // src/apis/badges.ts
 var ORIGIN7 = "https://badges.roblox.com";
@@ -4021,7 +4163,7 @@ var RobloxBadgesApi = class {
       limit: 1,
       group: () => "",
       async send(http, [universeId], onHeaders) {
-        return [await nullOn([404], onHeaders, () => http().path("v1", "universes", universeId, "free-badges-quota").middlewares(captureHeaders(onHeaders)).middlewares(validate(import_zod16.default.number())).request())];
+        return [await nullOn([404], onHeaders, () => http().path("v1", "universes", universeId, "free-badges-quota").middlewares(captureHeaders(onHeaders)).middlewares(validate(import_zod17.default.number())).request())];
       }
     });
   }
@@ -4100,7 +4242,7 @@ var RobloxBadgesApi = class {
   async setIcon(badgeId, icon) {
     const form = new FormData();
     form.append("Files", icon);
-    const res = await this.http().path("v1", "badges", badgeId, "icon").body("overwrite", form).middlewares(validate(import_zod16.default.object({ targetId: RobloxAssetIdSchema }))).request();
+    const res = await this.http().path("v1", "badges", badgeId, "icon").body("overwrite", form).middlewares(validate(import_zod17.default.object({ targetId: RobloxAssetIdSchema }))).request();
     return res.targetId;
   }
   /** DELETE /v1/user/badges/{badgeId} — 요청 계정에서 배지를 지운다 */
@@ -4127,35 +4269,35 @@ var RobloxClient = class _RobloxClient {
   asClients = /* @__PURE__ */ new Map();
   /** users.roblox.com */
   get users() {
-    return this._users ??= new RobloxUsersApi(this.config, this.thumbnails);
+    return this._users ??= withRobloxErrors(new RobloxUsersApi(this.config, this.thumbnails));
   }
   /** thumbnails.roblox.com */
   get thumbnails() {
-    return this._thumbnails ??= new RobloxThumbnailsApi(this.config);
+    return this._thumbnails ??= withRobloxErrors(new RobloxThumbnailsApi(this.config));
   }
   /** presence.roblox.com */
   get presence() {
-    return this._presence ??= new RobloxPresenceApi(this.config);
+    return this._presence ??= withRobloxErrors(new RobloxPresenceApi(this.config));
   }
   /** games.roblox.com + gamejoin.roblox.com */
   get games() {
-    return this._games ??= new RobloxGamesApi(this.config, this.thumbnails, this.presence);
+    return this._games ??= withRobloxErrors(new RobloxGamesApi(this.config, this.thumbnails, this.presence));
   }
   /** friends.roblox.com */
   get friends() {
-    return this._friends ??= new RobloxFriendsApi(this.config, this.users);
+    return this._friends ??= withRobloxErrors(new RobloxFriendsApi(this.config, this.users));
   }
   /** groups.roblox.com */
   get groups() {
-    return this._groups ??= new RobloxGroupsApi(this.config, this.thumbnails, this.users);
+    return this._groups ??= withRobloxErrors(new RobloxGroupsApi(this.config, this.thumbnails, this.users));
   }
   /** badges.roblox.com */
   get badges() {
-    return this._badges ??= new RobloxBadgesApi(this.config, this.thumbnails);
+    return this._badges ??= withRobloxErrors(new RobloxBadgesApi(this.config, this.thumbnails));
   }
   /** apis.roblox.com/platform-chat-api — 요청 계정의 채팅. `.as(cookie)`나 확장 모드에서 쓴다 */
   get chat() {
-    return this._chat ??= new RobloxChatApi(this.config);
+    return this._chat ??= withRobloxErrors(new RobloxChatApi(this.config));
   }
   /**
    * 지정한 쿠키로 고정한 클라이언트. 요청 계정에 따라 응답이 달라지는 API용.
@@ -4169,8 +4311,8 @@ var RobloxClient = class _RobloxClient {
 };
 
 // src/core/cookies.ts
-var import_zod17 = __toESM(require("zod"), 1);
-var RobloxCookieSchema = import_zod17.default.string().min(1).brand("RobloxCookie");
+var import_zod18 = __toESM(require("zod"), 1);
+var RobloxCookieSchema = import_zod18.default.string().min(1).brand("RobloxCookie");
 var RobloxMemoryCookies = class {
   cookies;
   index = 0;
@@ -4330,6 +4472,7 @@ var RobloxRateLimiter = class {
 };
 
 // src/builder.ts
+var import_vigor_fetch4 = require("vigor-fetch");
 var RobloxConfigurableStage = class extends RobloxClient {
   /** 모든 서비스 요청의 재시도 설정 */
   retry(options) {
@@ -4352,6 +4495,14 @@ var RobloxConfigurableStage = class extends RobloxClient {
   }
 };
 var VigorRoblox = class {
+  /**
+   * 에러 type guard. `roblox`는 이 라이브러리가 던지는 `RobloxError`, `fetch`는 vigor-fetch의 에러다.
+   * 세 번째 인자로 콜백을 넣으면 감싼 에러 안쪽까지 찾아 그 에러를 넘긴다.
+   */
+  guards = {
+    roblox: isRobloxError,
+    fetch: import_vigor_fetch4.isVigorFetchError
+  };
   mode(mode) {
     const config = {
       mode,
@@ -4473,6 +4624,8 @@ var index_default = vigorRoblox;
   RobloxDefaultTtl,
   RobloxDeveloperProductIdSchema,
   RobloxEmptyResponseSchema,
+  RobloxError,
+  RobloxErrorMessageFuncs,
   RobloxErrorResponseSchema,
   RobloxExtensionStage,
   RobloxFavoriteGamePageSchema,
@@ -4500,6 +4653,8 @@ var index_default = vigorRoblox;
   RobloxGameProductsResponseSchema,
   RobloxGameRecommendationsSchema,
   RobloxGameSchema,
+  RobloxGameSocialLinkSchema,
+  RobloxGameSocialLinksResponseSchema,
   RobloxGameSummaryPageSchema,
   RobloxGameSummarySchema,
   RobloxGameThumbnailIdSchema,
@@ -4578,7 +4733,6 @@ var index_default = vigorRoblox;
   RobloxOutfitIdSchema,
   RobloxPageLimitSchema,
   RobloxPageResponseSchema,
-  RobloxPartialError,
   RobloxPlaceDetailsSchema,
   RobloxPlaceIdSchema,
   RobloxPresenceApi,
@@ -4648,8 +4802,7 @@ var index_default = vigorRoblox;
   RobloxValidateDisplayNameQuerySchema,
   RobloxValidateUserDisplayNameQuerySchema,
   VigorRoblox,
-  findFetchFailed,
-  isRobloxPartialError,
+  isRobloxError,
   robloxCacheKey,
   robloxDnrRules,
   toRobloxCreator,

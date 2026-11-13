@@ -343,13 +343,13 @@ export class RobloxGroupsApi {
         return settle(ids, id => cached(this.config, { service: "groups", method, [field]: id } as RobloxCacheInfo, this.ttl(method), () => load(id)))
     }
 
-    /** 대상마다 batcher로 보내고 없는 대상은 뺀다. 일부가 실패하면 RobloxPartialError */
+    /** 대상마다 batcher로 보내고 없는 대상은 뺀다. 일부가 실패하면 RobloxError(PARTIAL) */
     private async many<T, R>(batcher: RobloxBatcher<T, R | null>, targets: readonly T[], key: (t: T) => string): Promise<R[]> {
         const { values, errors } = await settle(targets, t => batcher.load(key(t), t))
         return finish(found(values), errors)
     }
 
-    /** 그룹들을 받아 실패가 있으면 RobloxPartialError로 던진다. `option`이 있으면 아이콘을 붙이고, 아이콘을 받지 못한 그룹은 `thumbnail: null`이다 */
+    /** 그룹들을 받아 실패가 있으면 RobloxError(PARTIAL)로 던진다. `option`이 있으면 아이콘을 붙이고, 아이콘을 받지 못한 그룹은 `thumbnail: null`이다 */
     private async attach<G extends { id: RobloxGroupId }>(
         groups: Promise<{ values: (G | null)[], errors: RobloxItemError<number>[] }>,
         ids: readonly RobloxGroupId[],
@@ -367,7 +367,7 @@ export class RobloxGroupsApi {
 
     // ── 공개 조회 ──────────────────────────────────────
     // 배열을 받는 메서드는 입력 순서로 돌려주고, 없는 대상은 뺀다.
-    // 일부 항목이 실패하면 받은 결과를 담아 RobloxPartialError를 던진다.
+    // 일부 항목이 실패하면 받은 결과를 담아 RobloxError(PARTIAL)를 던진다.
     // 같은 틱에 들어온 호출은 모아서 보내므로 따로따로 불러도 된다.
 
     /**
@@ -713,7 +713,7 @@ export class RobloxGroupsApi {
     }
 
     /**
-     * 하나면 single, 여럿이면 묶음 엔드포인트로 나눠 보낸다. 실패한 묶음이 있으면 RobloxPartialError를 던진다
+     * 하나면 single, 여럿이면 묶음 엔드포인트로 나눠 보낸다. 실패한 묶음이 있으면 RobloxError(PARTIAL)를 던진다
      * (`results`는 처리된 id, `errors`는 실패한 묶음의 id마다 하나).
      */
     private async batchWrite<I>(ids: readonly I[], single: (id: I) => Promise<unknown>, multi: (ids: I[]) => Promise<unknown>) {

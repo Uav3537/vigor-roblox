@@ -117,6 +117,17 @@ export const RobloxGamePlayabilitySchema = z.object({
     demoModeAvailable:     z.boolean().nullish(),
 })
 
+/** GET /v1/games/{universeId}/social-links/list 항목 */
+export const RobloxGameSocialLinkSchema = z.object({
+    id:    z.number(),
+    title: z.string(),
+    url:   z.string(),
+    /** "YouTube", "Discord", "RobloxGroup" 등 */
+    type:  z.string(),
+})
+
+export const RobloxGameSocialLinksResponseSchema = z.object({ data: z.array(RobloxGameSocialLinkSchema) })
+
 /** `GameVoteResponse` */
 export const RobloxGameVotesSchema = z.object({
     id:        RobloxUniverseIdSchema,
@@ -474,6 +485,11 @@ export type RobloxServerPageQuery = {
     serverType?:       RobloxServerType
     sortOrder?:        RobloxSortOrder
     excludeFullGames?: boolean
+    /**
+     * 정렬 기준. 넣으면 v2 엔드포인트만 쓴다 (v1은 무시한다). `Recommended`는 인증이 필요하다 (2026-11 실측).
+     * 엔드포인트를 번갈아 쓰지 못해 3회/분으로 줄어든다
+     */
+    orderBy?:          "Recommended"
     limit?:            RobloxPageLimit
     cursor?:           RobloxCursor
 }
@@ -527,6 +543,7 @@ export type RobloxGame = z.infer<typeof RobloxGameSchema>
 export type RobloxPlaceDetails = z.infer<typeof RobloxPlaceDetailsSchema>
 export type RobloxGameProduct = z.infer<typeof RobloxGameProductSchema>
 export type RobloxGamePlayability = z.infer<typeof RobloxGamePlayabilitySchema>
+export type RobloxGameSocialLink = z.infer<typeof RobloxGameSocialLinkSchema>
 export type RobloxGameVotes = z.infer<typeof RobloxGameVotesSchema>
 export type RobloxUserGameVote = z.infer<typeof RobloxUserGameVoteSchema>
 export type RobloxGameMedia = z.infer<typeof RobloxGameMediaSchema>

@@ -36,6 +36,8 @@ import z from "zod"
 export type RobloxFriendsCacheable = "getFriends" | "getFriendCounts" | "getFollowerCounts" | "getFollowingCounts"
 
 const ORIGIN = "https://friends.roblox.com"
+const CONTACTS = "https://contacts.roblox.com"
+const APIS = "https://apis.roblox.com"
 
 /** /friends/find 한 페이지 최대 개수 (51부터 400 code 6) */
 const FIND_PAGE_LIMIT = 50
@@ -95,6 +97,8 @@ const friendIdRoutes: RobloxBatchRoute<RobloxUserId, RobloxUserId[] | null>[] = 
 /** friends.roblox.com */
 export class RobloxFriendsApi {
     private readonly http
+    private readonly contactsHttp
+    private readonly apisHttp
     private readonly friendIds
     private readonly friendCounts
     private readonly followerCounts
@@ -107,6 +111,9 @@ export class RobloxFriendsApi {
 
     constructor(private readonly config: RobloxConfig, private readonly users: RobloxUsersApi) {
         this.http = createHttp(config, ORIGIN)
+        this.contactsHttp = createHttp(config, CONTACTS)
+        // user-blocking-api는 브라우저 id 쿠키가 없으면 403이다
+        this.apisHttp = createHttp(config, APIS, { browserTracker: true })
         this.friendIds = new RobloxBatcher(config, ORIGIN, friendIdRoutes)
         this.friendCounts = new RobloxBatcher(config, ORIGIN, [countRoute("friends GET /v1/users/{id}/friends/count", ["friends", "count"])])
         this.followerCounts = new RobloxBatcher(config, ORIGIN, [countRoute("friends GET /v1/users/{id}/followers/count", ["followers", "count"])])
@@ -181,7 +188,7 @@ export class RobloxFriendsApi {
 
     // ── 공개 조회 ──────────────────────────────────────
     // 배열을 받는 메서드는 입력 순서로 돌려주고, 없는 유저는 뺀다.
-    // 일부 항목이 실패하면 받은 결과를 담아 RobloxPartialError를 던진다.
+    // 일부 항목이 실패하면 받은 결과를 담아 RobloxError(PARTIAL)를 던진다.
 
     /**
      * 유저들의 친구 목록. friends API는 이름을 빈 문자열로 주므로 users API로 이름을 채운다.
@@ -398,6 +405,43 @@ export class RobloxFriendsApi {
             .path("v1", "users", userId, "unfollow")
             .body("overwrite", {})
             .middlewares(validate(RobloxEmptyResponseSchema))
+            .request()
+    }
+
+    /** POST friends /v1/users/{userId}/create-trusted-friend-link — 신뢰하는 친구 초대 링크를 만든다 */
+    async createTrustedFriendLink(userId: RobloxUserId): Promise<string> {
+        const res = await this.http()
+            .path("v1", "users", userId, "create-trusted-friend-link")
+            .body("overwrite", {})
+            .middlewares(validate(z.object({ link: z.string() })))
+            .request()
+        return res.link
+    }
+
+    /** POST contacts /v1/user/tag — 친구 목록에서 그 유저 옆에 보이는 나만의 별명 */
+    async setUserTag(userId: RobloxUserId, tag: string): Promise<void> {
+        await this.contactsHttp()
+            .path("v1", "user", "tag")
+            .body("overwrite", { targetUserId: userId, userTag: tag })
+            .middlewares(validate(z.object({ status: z.string() })))
+            .request()
+    }
+
+    /** POST apis /user-blocking-api/v1/users/{userId}/block-user — 응답은 안내 문자열이다 */
+    async block(userId: RobloxUserId): Promise<void> {
+        await this.apisHttp()
+            .path("user-blocking-api", "v1", "users", userId, "block-user")
+            .body("overwrite", {})
+            .middlewares(validate(z.unknown()))
+            .request()
+    }
+
+    /** POST apis /user-blocking-api/v1/users/{userId}/unblock-user */
+    async unblock(userId: RobloxUserId): Promise<void> {
+        await this.apisHttp()
+            .path("user-blocking-api", "v1", "users", userId, "unblock-user")
+            .body("overwrite", {})
+            .middlewares(validate(z.unknown()))
             .request()
     }
 

@@ -1,4 +1,5 @@
 import type { RobloxViewerKey } from "./cache"
+import { RobloxError } from "./error"
 import type { RobloxConfig } from "./config"
 
 /** 쿠키 → 해시. 쿠키 원문은 외부 캐시 저장소에 남지 않게 한다. */
@@ -35,6 +36,6 @@ export function canAuthenticate(config: RobloxConfig): boolean {
  */
 export async function requireViewer(config: RobloxConfig): Promise<RobloxViewerKey> {
     const viewer = await viewerKey(config)
-    if (viewer === null) throw new Error("이 API는 요청 계정을 기준으로 답한다. 쿠키 로테이션 대신 .as(cookie)로 계정을 정해야 한다.")
+    if (viewer === null) throw new RobloxError("VIEWER_REQUIRED", {})
     return viewer
 }

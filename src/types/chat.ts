@@ -39,9 +39,14 @@ export const RobloxChatUserDataSchema = z.object({
     is_verified:   z.boolean().nullish(),
 })
 
-/** 대화 */
+/**
+ * 대화.
+ * 목록에는 아직 만들어지지 않은 친구 1:1 대화도 섞여 온다 (`source: "friends"`, `id: null`, 실측 2026-11).
+ * 이런 항목에 메시지를 보내려면 먼저 `createConversations({ type: "one_to_one", userId })`로 대화를 만든다.
+ */
 export const RobloxChatConversationSchema = z.object({
-    id:                   RobloxConversationIdSchema,
+    /** 아직 만들어지지 않은 친구 대화면 null */
+    id:                   RobloxConversationIdSchema.nullable(),
     /** "one_to_one" | "group" ... */
     type:                 z.string().nullish(),
     source:               z.string().nullish(),
@@ -58,6 +63,9 @@ export const RobloxChatConversationSchema = z.object({
     preview_message:      RobloxChatMessageSchema.nullish(),
     sort_index:           z.number().nullish(),
     universe_id:          RobloxUniverseIdSchema.nullish(),
+    participant_pending_status:    z.string().nullish(),
+    osa_acknowledgement_status:    z.string().nullish(),
+    user_opted_into_chat_messages: z.string().nullish(),
 })
 
 /** 만들기/바꾸기 응답의 항목. 실패한 항목은 `status: "failed"`이고 나머지가 null이다 */

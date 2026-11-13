@@ -157,11 +157,11 @@ export class RobloxUsersApi {
 
     // ── 공개 조회 ──────────────────────────────────────
     // 배열을 받는 메서드는 결과를 입력 순서로 돌려주고, 없는 유저는 뺀다.
-    // 일부 항목이 실패하면 받은 결과를 담아 RobloxPartialError를 던진다.
+    // 일부 항목이 실패하면 받은 결과를 담아 RobloxError(PARTIAL)를 던진다.
     // 같은 틱에 들어온 호출은 모아서 보내므로 따로따로 불러도 된다.
 
     /**
-     * 유저들을 받아 실패가 있으면 RobloxPartialError로 던진다. `thumbnail`이 있으면 아바타 썸네일을 붙인다 —
+     * 유저들을 받아 실패가 있으면 RobloxError(PARTIAL)로 던진다. `thumbnail`이 있으면 아바타 썸네일을 붙인다 —
      * id를 아는 경우 users 조회와 동시에 보내고, 썸네일을 받지 못한 유저는 `thumbnail: null`이다.
      */
     private async attach<U extends { id: RobloxUserId }, I>(

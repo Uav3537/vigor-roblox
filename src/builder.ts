@@ -3,6 +3,8 @@ import type { RobloxCacheStore } from "./core/cache"
 import { mergeTtl, type RobloxConfig, type RobloxRetryOptions, type RobloxTtl } from "./core/config"
 import { RobloxMemoryCookies, type RobloxCookie, type RobloxCookieRejectedHandler, type RobloxCookieStore } from "./core/cookies"
 import { RobloxRateLimiter, type RobloxRateLimitStore } from "./core/ratelimit"
+import { isRobloxError } from "./core/error"
+import { isVigorFetchError } from "vigor-fetch"
 import type { RobloxGeolocator } from "./types/games"
 
 /**
@@ -44,6 +46,15 @@ abstract class RobloxConfigurableStage<L = unknown> extends RobloxClient<L> {
 }
 
 export class VigorRoblox {
+    /**
+     * 에러 type guard. `roblox`는 이 라이브러리가 던지는 `RobloxError`, `fetch`는 vigor-fetch의 에러다.
+     * 세 번째 인자로 콜백을 넣으면 감싼 에러 안쪽까지 찾아 그 에러를 넘긴다.
+     */
+    readonly guards = {
+        roblox: isRobloxError,
+        fetch:  isVigorFetchError,
+    } as const
+
     mode(mode: "extension"): RobloxExtensionStage
     mode(mode: "node"): RobloxNodeStage
     mode(mode: "extension" | "node"): RobloxExtensionStage | RobloxNodeStage {

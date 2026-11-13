@@ -4,16 +4,11 @@ import type z from "zod"
 import { canonicalInfo, robloxCacheKey, type RobloxCacheInfo, type RobloxCacheValue } from "./cache"
 import type { RobloxConfig } from "./config"
 import type { RobloxCookie, RobloxCookieRejectReason } from "./cookies"
+import { RobloxError } from "./error"
 
 /** retry 엔진이 감싼 에러(RETRY_EXHAUSTED 등)까지 풀어서 FETCH_FAILED를 찾는다. */
 export function findFetchFailed(error: unknown) {
-    let current: unknown = error
-    for (let depth = 0; depth < 5 && current != null; depth++) {
-        if (isVigorFetchError(current, "FETCH_FAILED")) return current
-        const next = current as { data?: { error?: unknown }, cause?: unknown }
-        current = next.data?.error ?? next.cause
-    }
-    return null
+    return isVigorFetchError(error, "FETCH_FAILED", failed => failed) ?? null
 }
 
 const SAFE_METHODS = ["GET", "HEAD", "OPTIONS"]
@@ -52,6 +47,17 @@ function rejectCookie(config: RobloxConfig, cookie: RobloxCookie, reason: Roblox
 }
 
 /**
+ * 쿠키마다 고정한 브라우저 id. 일부 엔드포인트(user-blocking-api 등)는 `RBXEventTrackerV2` 쿠키의 browserid가 없으면
+ * 403 "Request Context BrowserTrackerID is missing or invalid."를 낸다. 값은 아무 숫자나 받는다 (2026-11 실측).
+ */
+const browserIds = new Map<RobloxCookie, string>()
+function browserId(cookie: RobloxCookie): string {
+    let id = browserIds.get(cookie)
+    if (!id) browserIds.set(cookie, id = String(Date.now() * 1000 + Math.floor(Math.random() * 1000)))
+    return id
+}
+
+/**
  * 인증 헤더(Cookie / User-Agent / X-CSRF-Token)를 붙이고, 실패에 따라 재시작하는 미들웨어.
  * - 403 + x-csrf-token: 토큰을 저장하고 같은 쿠키로 다시 보낸다.
  * - 401, 403 "User is moderated": 쿠키를 거부 처리하고, 풀에서 돌려 쓰는 중이면 다른 쿠키로 다시 보낸다.
@@ -59,7 +65,7 @@ function rejectCookie(config: RobloxConfig, cookie: RobloxCookie, reason: Roblox
  * 쿠키는 요청 하나에 하나로 고정한다 — restart마다 ctx.record가 초기화되므로 클로저에 둔다.
  * 요청 중에 매번 고르면 CSRF 재시작이 다른 쿠키로 나가 토큰이 맞지 않는다.
  */
-function authMiddlewares(config: RobloxConfig, opts: { userAgent?: string }) {
+function authMiddlewares(config: RobloxConfig, opts: { userAgent?: string, browserTracker?: boolean }) {
     let picked: Promise<RobloxCookie | null> | null = null
     const pick = () => picked ??= Promise.resolve(config.mode === "node" ? (config.fixedCookie ?? config.cookies?.next() ?? null) : null)
     const csrfKey = (cookie: RobloxCookie | null) => config.mode === "extension" ? "extension" : cookie
@@ -68,7 +74,10 @@ function authMiddlewares(config: RobloxConfig, opts: { userAgent?: string }) {
         .before("fluent", async ctx => {
             const options = ctx.options as VigorFetchOptions
             const cookie = await pick()
-            if (cookie) options.headers["Cookie"] = `.ROBLOSECURITY=${cookie}`
+            if (cookie) {
+                options.headers["Cookie"] = `.ROBLOSECURITY=${cookie}`
+                if (opts.browserTracker) options.headers["Cookie"] += `; RBXEventTrackerV2=browserid=${browserId(cookie)}`
+            }
             if (config.mode === "node" && opts.userAgent) options.headers["User-Agent"] = opts.userAgent
 
             const key = csrfKey(cookie)
@@ -100,7 +109,7 @@ function authMiddlewares(config: RobloxConfig, opts: { userAgent?: string }) {
 }
 
 /** 서비스 origin 하나에 대한 요청 빌더. 메서드 호출마다 새로 만든다 (요청마다 쿠키를 새로 고른다). */
-export function createHttp(config: RobloxConfig, origin: string, opts: { userAgent?: string, retryRateLimited?: boolean } = {}) {
+export function createHttp(config: RobloxConfig, origin: string, opts: { userAgent?: string, retryRateLimited?: boolean, browserTracker?: boolean } = {}) {
     // 429를 직접 처리하는 호출자(다른 엔드포인트로 돌리는 등)는 retry 엔진이 기다리지 않게 한다.
     const unretryStatus: number[] = opts.retryRateLimited === false
         ? [...VigorFetchPolicySettingsBase.unretryStatus, 429]
@@ -120,7 +129,9 @@ export function createHttp(config: RobloxConfig, origin: string, opts: { userAge
 export function validate<S extends z.ZodType>(schema: S) {
     return vigor.builders.fetch.middlewares()
         .after("intercept", (ctx, api) => {
-            const result = schema.parse(ctx.result) as z.output<S>
+            const parsed = schema.safeParse(ctx.result)
+            if (!parsed.success) throw new RobloxError("INVALID_RESPONSE", { issues: parsed.error.issues, url: ctx.response?.url || ctx.href || null }, { cause: parsed.error })
+            const result = parsed.data as z.output<S>
             api.setResult(result)
             return { ...ctx, result }
         })

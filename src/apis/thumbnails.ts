@@ -243,7 +243,7 @@ export class RobloxThumbnailsApi {
      * 썸네일들. 결과는 입력과 같은 순서이고, 타입이 섞여도 된다. 하나만 필요하면 원소 하나짜리 배열을 넣는다.
      * 엔드포인트는 대상과 남은 한도를 보고 라이브러리가 고른다. 같은 틱에 들어온 호출은 모아서 보내고,
      * Pending이면 잠시 기다렸다 다시 묻는다. 없는 id는 `state: "Error"`로 돌아온다.
-     * 요청이 실패한 대상이 있으면 `RobloxPartialError`를 던진다 (`results`에는 받은 것만 있어 순서가 입력과 어긋난다).
+     * 요청이 실패한 대상이 있으면 `RobloxError`(`PARTIAL`)를 던진다 (`results`에는 받은 것만 있어 순서가 입력과 어긋난다).
      */
     async get<T extends RobloxThumbnailTarget>(targets: readonly T[]): Promise<RobloxThumbnail<RobloxThumbnailTargetIdOf<T>>[]> {
         const { values, errors } = await settle(targets, t => this.load(t))
