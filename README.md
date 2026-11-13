@@ -245,8 +245,14 @@ gamejoin only answers requests whose `User-Agent` looks like the Roblox client. 
 | `getFriends(ids, { thumbnail? })` | Friend lists with names filled in from `users` (the friends API returns empty names). |
 | `getFriendCounts`, `getFollowerCounts`, `getFollowingCounts` | Counts. |
 | `getFollowers`, `getFollowings`, `searchFriends`, `getMetadata` | Paged lists and page metadata. |
-| `getFriendStatuses`, `getAreFriends`, `getFollowingStatuses`, `getOnlineFriends`, `getInactiveFriends`, `getFriendRequests`, `getTrustedFriendRequests`, `getFriendRequestCount` | Relative to the requesting account. |
+| `getFriendStatuses`, `getAreFriends`, `getFollowingStatuses`, `getBlockStatuses`, `getOnlineFriends`, `getInactiveFriends`, `getFriendRequests`, `getTrustedFriendRequests`, `getFriendRequestCount` | Relative to the requesting account. |
 | `sendFriendRequest`, `acceptFriendRequest`, `declineFriendRequest`, `declineAllFriendRequests`, `unfriend`, `follow`, `unfollow`, `block`, `unblock`, `setUserTag`, `createTrustedFriendLink` | Actions. Friend requests may require a captcha. |
+
+### `trades`
+
+| Method | Description |
+| --- | --- |
+| `canTradeWith(userId)` | Whether the requesting account can trade with the user, and why not (`status`). Not cached. |
 
 ### `groups`
 

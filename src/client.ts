@@ -9,6 +9,7 @@ import { RobloxFriendsApi } from "./apis/friends"
 import { RobloxChatApi } from "./apis/chat"
 import { RobloxGroupsApi } from "./apis/groups"
 import { RobloxBadgesApi } from "./apis/badges"
+import { RobloxTradesApi } from "./apis/trades"
 
 /**
  * 서비스 네임스페이스를 제공하는 공통 부모. 빌더의 모든 단계가 이걸 상속하므로
@@ -25,6 +26,7 @@ export class RobloxClient<L = unknown> {
     private _chat?: RobloxChatApi
     private _groups?: RobloxGroupsApi
     private _badges?: RobloxBadgesApi
+    private _trades?: RobloxTradesApi
     /** 쿠키 → 고정 클라이언트. 같은 쿠키면 같은 클라이언트를 돌려줘 요청 묶기·중복 제거·내 id 캐시가 이어진다 */
     private readonly asClients = new Map<RobloxCookie, RobloxClient<L>>()
 
@@ -63,6 +65,11 @@ export class RobloxClient<L = unknown> {
     /** badges.roblox.com */
     get badges(): RobloxBadgesApi {
         return this._badges ??= withRobloxErrors(new RobloxBadgesApi(this.config, this.thumbnails))
+    }
+
+    /** trades.roblox.com — 요청 계정 기준 */
+    get trades(): RobloxTradesApi {
+        return this._trades ??= withRobloxErrors(new RobloxTradesApi(this.config))
     }
 
     /** apis.roblox.com/platform-chat-api — 요청 계정의 채팅. `.as(cookie)`나 확장 모드에서 쓴다 */

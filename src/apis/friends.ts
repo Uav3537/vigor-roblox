@@ -7,6 +7,7 @@ import { requireViewer } from "@/core/viewer"
 import type { RobloxUsersApi } from "@/apis/users"
 import { RobloxEmptyResponseSchema, type RobloxCursor } from "@/types/common"
 import {
+    RobloxBlockStatusesResponseSchema,
     RobloxCaptchaStatusSchema,
     RobloxCountResponseSchema,
     RobloxFollowingExistsResponseSchema,
@@ -18,6 +19,7 @@ import {
     RobloxFriendStatusesResponseSchema,
     RobloxOnlineFriendsResponseSchema,
     RobloxTrustedFriendRequestPageSchema,
+    type RobloxBlockStatus,
     type RobloxCaptchaTokenRequest,
     type RobloxFollowingStatus,
     type RobloxFollowPageQuery,
@@ -43,6 +45,8 @@ const APIS = "https://apis.roblox.com"
 const FIND_PAGE_LIMIT = 50
 /** 한 요청에 넣는 id 개수. statuses는 200까지, following-exists는 100까지 받았다 */
 const MULTI_LIMIT = 100
+/** batch-check-reciprocal-block 한 요청에 넣는 id 개수. 웹은 한두 명씩 묻는다; 한도는 확인하지 않아 보수적으로 잡았다 */
+const BLOCK_CHECK_LIMIT = 50
 
 
 /** 한도는 2026-10 실측 (IP 단위) */
@@ -290,6 +294,24 @@ export class RobloxFriendsApi {
         const me = await this.myId()
         const { values, errors } = await settle(userIds, userId => this.followings.load(`${me}:${userId}`, { me, userId }))
         return finish(found(values), errors)
+    }
+
+    /**
+     * POST apis /user-blocking-api/v1/users/batch-check-reciprocal-block — 내가 차단했는지 / 나를 차단했는지.
+     * 결과는 입력 순서이고, 서버가 답하지 않은 유저는 뺀다. 캐시하지 않는다 (차단은 바로 바뀐다).
+     */
+    async getBlockStatuses(userIds: readonly RobloxUserId[]): Promise<RobloxBlockStatus[]> {
+        if (userIds.length === 0) return []
+        const me = await this.myId()
+        const chunks: RobloxUserId[][] = []
+        for (let i = 0; i < userIds.length; i += BLOCK_CHECK_LIMIT) chunks.push(userIds.slice(i, i + BLOCK_CHECK_LIMIT))
+        const responses = await Promise.all(chunks.map(ids => this.apisHttp()
+            .path("user-blocking-api", "v1", "users", "batch-check-reciprocal-block")
+            .body("overwrite", { userIds: ids, requesterId: me })
+            .middlewares(validate(RobloxBlockStatusesResponseSchema))
+            .request()))
+        const byId = new Map(responses.flatMap(res => res.users).map(s => [s.userId, s]))
+        return found(userIds.map(id => byId.get(id) ?? null))
     }
 
     /** GET /v1/users/{me}/friends/online — 지금 접속 중인 내 친구와 위치 */

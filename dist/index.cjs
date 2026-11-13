@@ -47,8 +47,11 @@ __export(index_exports, {
   RobloxBirthMonthSchema: () => RobloxBirthMonthSchema,
   RobloxBirthYearSchema: () => RobloxBirthYearSchema,
   RobloxBirthdateSchema: () => RobloxBirthdateSchema,
+  RobloxBlockStatusSchema: () => RobloxBlockStatusSchema,
+  RobloxBlockStatusesResponseSchema: () => RobloxBlockStatusesResponseSchema,
   RobloxBundleIdSchema: () => RobloxBundleIdSchema,
   RobloxCacheStage: () => RobloxCacheStage,
+  RobloxCanTradeSchema: () => RobloxCanTradeSchema,
   RobloxCaptchaStatusSchema: () => RobloxCaptchaStatusSchema,
   RobloxChatApi: () => RobloxChatApi,
   RobloxChatConversationPageRawSchema: () => RobloxChatConversationPageRawSchema,
@@ -215,6 +218,7 @@ __export(index_exports, {
   RobloxThumbnailStateSchema: () => RobloxThumbnailStateSchema,
   RobloxThumbnailsApi: () => RobloxThumbnailsApi,
   RobloxThumbnailsResponseSchema: () => RobloxThumbnailsResponseSchema,
+  RobloxTradesApi: () => RobloxTradesApi,
   RobloxTrustedFriendRequestPageSchema: () => RobloxTrustedFriendRequestPageSchema,
   RobloxUniverseIdSchema: () => RobloxUniverseIdSchema,
   RobloxUniverseThumbnailsResponseSchema: () => RobloxUniverseThumbnailsResponseSchema,
@@ -391,7 +395,7 @@ async function robloxCacheKey(info) {
   const { service, method, ...args } = canonicalInfo(info);
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(JSON.stringify(args)));
   const name = `${service}.${method}`;
-  const prefix = UNVERSIONED.has(name) ? "" : `${"5.3.0"}:`;
+  const prefix = UNVERSIONED.has(name) ? "" : `${"6.0.0"}:`;
   return `${prefix}${name}::${base64url(new Uint8Array(digest).slice(0, 16))}`;
 }
 var RobloxMemoryCache = class {
@@ -2552,6 +2556,14 @@ var RobloxFollowingStatusSchema = import_zod10.default.object({
   isFollowed: import_zod10.default.boolean()
 });
 var RobloxFollowingExistsResponseSchema = import_zod10.default.object({ followings: import_zod10.default.array(RobloxFollowingStatusSchema) });
+var RobloxBlockStatusSchema = import_zod10.default.object({
+  userId: RobloxUserIdSchema,
+  /** 내가 이 유저를 차단했는지 */
+  isBlocked: import_zod10.default.boolean(),
+  /** 이 유저가 나를 차단했는지 */
+  isBlockingViewer: import_zod10.default.boolean()
+});
+var RobloxBlockStatusesResponseSchema = import_zod10.default.object({ users: import_zod10.default.array(RobloxBlockStatusSchema) });
 var RobloxFriendsMetadataSchema = import_zod10.default.object({
   isFriendsFilterBarEnabled: import_zod10.default.boolean().nullish(),
   isFriendsPageSortExperimentEnabled: import_zod10.default.boolean().nullish(),
@@ -2573,6 +2585,7 @@ var CONTACTS = "https://contacts.roblox.com";
 var APIS2 = "https://apis.roblox.com";
 var FIND_PAGE_LIMIT = 50;
 var MULTI_LIMIT = 100;
+var BLOCK_CHECK_LIMIT = 50;
 function countRoute(bucket, last) {
   return {
     bucket,
@@ -2752,6 +2765,19 @@ var RobloxFriendsApi = class {
     const me = await this.myId();
     const { values, errors } = await settle(userIds, (userId) => this.followings.load(`${me}:${userId}`, { me, userId }));
     return finish(found(values), errors);
+  }
+  /**
+   * POST apis /user-blocking-api/v1/users/batch-check-reciprocal-block — 내가 차단했는지 / 나를 차단했는지.
+   * 결과는 입력 순서이고, 서버가 답하지 않은 유저는 뺀다. 캐시하지 않는다 (차단은 바로 바뀐다).
+   */
+  async getBlockStatuses(userIds) {
+    if (userIds.length === 0) return [];
+    const me = await this.myId();
+    const chunks = [];
+    for (let i = 0; i < userIds.length; i += BLOCK_CHECK_LIMIT) chunks.push(userIds.slice(i, i + BLOCK_CHECK_LIMIT));
+    const responses = await Promise.all(chunks.map((ids) => this.apisHttp().path("user-blocking-api", "v1", "users", "batch-check-reciprocal-block").body("overwrite", { userIds: ids, requesterId: me }).middlewares(validate(RobloxBlockStatusesResponseSchema)).request()));
+    const byId = new Map(responses.flatMap((res) => res.users).map((s) => [s.userId, s]));
+    return found(userIds.map((id2) => byId.get(id2) ?? null));
   }
   /** GET /v1/users/{me}/friends/online — 지금 접속 중인 내 친구와 위치 */
   async getOnlineFriends() {
@@ -4251,6 +4277,29 @@ var RobloxBadgesApi = class {
   }
 };
 
+// src/types/trades.ts
+var import_zod18 = __toESM(require("zod"), 1);
+var RobloxCanTradeSchema = import_zod18.default.object({
+  canTrade: import_zod18.default.boolean(),
+  status: import_zod18.default.string()
+});
+
+// src/apis/trades.ts
+var ORIGIN8 = "https://trades.roblox.com";
+var RobloxTradesApi = class {
+  http;
+  constructor(config) {
+    this.http = createHttp(config, ORIGIN8);
+  }
+  /**
+   * GET /v1/users/{userId}/can-trade-with — 요청 계정이 이 유저와 거래할 수 있는지와 그 이유.
+   * 캐시하지 않는다 (프라이버시 설정·차단에 따라 바로 바뀐다).
+   */
+  canTradeWith(userId) {
+    return this.http().path("v1", "users", userId, "can-trade-with").middlewares(validate(RobloxCanTradeSchema)).request();
+  }
+};
+
 // src/client.ts
 var RobloxClient = class _RobloxClient {
   constructor(config) {
@@ -4265,6 +4314,7 @@ var RobloxClient = class _RobloxClient {
   _chat;
   _groups;
   _badges;
+  _trades;
   /** 쿠키 → 고정 클라이언트. 같은 쿠키면 같은 클라이언트를 돌려줘 요청 묶기·중복 제거·내 id 캐시가 이어진다 */
   asClients = /* @__PURE__ */ new Map();
   /** users.roblox.com */
@@ -4295,6 +4345,10 @@ var RobloxClient = class _RobloxClient {
   get badges() {
     return this._badges ??= withRobloxErrors(new RobloxBadgesApi(this.config, this.thumbnails));
   }
+  /** trades.roblox.com — 요청 계정 기준 */
+  get trades() {
+    return this._trades ??= withRobloxErrors(new RobloxTradesApi(this.config));
+  }
   /** apis.roblox.com/platform-chat-api — 요청 계정의 채팅. `.as(cookie)`나 확장 모드에서 쓴다 */
   get chat() {
     return this._chat ??= withRobloxErrors(new RobloxChatApi(this.config));
@@ -4311,8 +4365,8 @@ var RobloxClient = class _RobloxClient {
 };
 
 // src/core/cookies.ts
-var import_zod18 = __toESM(require("zod"), 1);
-var RobloxCookieSchema = import_zod18.default.string().min(1).brand("RobloxCookie");
+var import_zod19 = __toESM(require("zod"), 1);
+var RobloxCookieSchema = import_zod19.default.string().min(1).brand("RobloxCookie");
 var RobloxMemoryCookies = class {
   cookies;
   index = 0;
@@ -4596,8 +4650,11 @@ var index_default = vigorRoblox;
   RobloxBirthMonthSchema,
   RobloxBirthYearSchema,
   RobloxBirthdateSchema,
+  RobloxBlockStatusSchema,
+  RobloxBlockStatusesResponseSchema,
   RobloxBundleIdSchema,
   RobloxCacheStage,
+  RobloxCanTradeSchema,
   RobloxCaptchaStatusSchema,
   RobloxChatApi,
   RobloxChatConversationPageRawSchema,
@@ -4764,6 +4821,7 @@ var index_default = vigorRoblox;
   RobloxThumbnailStateSchema,
   RobloxThumbnailsApi,
   RobloxThumbnailsResponseSchema,
+  RobloxTradesApi,
   RobloxTrustedFriendRequestPageSchema,
   RobloxUniverseIdSchema,
   RobloxUniverseThumbnailsResponseSchema,

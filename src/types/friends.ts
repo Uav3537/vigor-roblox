@@ -112,6 +112,17 @@ export const RobloxFollowingStatusSchema = z.object({
 
 export const RobloxFollowingExistsResponseSchema = z.object({ followings: z.array(RobloxFollowingStatusSchema) })
 
+/** POST apis /user-blocking-api/v1/users/batch-check-reciprocal-block 의 항목 */
+export const RobloxBlockStatusSchema = z.object({
+    userId:           RobloxUserIdSchema,
+    /** 내가 이 유저를 차단했는지 */
+    isBlocked:        z.boolean(),
+    /** 이 유저가 나를 차단했는지 */
+    isBlockingViewer: z.boolean(),
+})
+
+export const RobloxBlockStatusesResponseSchema = z.object({ users: z.array(RobloxBlockStatusSchema) })
+
 /** `FriendsPageMetadataResponse` */
 export const RobloxFriendsMetadataSchema = z.object({
     isFriendsFilterBarEnabled:          z.boolean().nullish(),
@@ -141,6 +152,7 @@ export type RobloxFriendRequestPage = z.infer<typeof RobloxFriendRequestPageSche
 export type RobloxTrustedFriendRequestPage = z.infer<typeof RobloxTrustedFriendRequestPageSchema>
 export type RobloxFollowPage = z.infer<typeof RobloxFollowPageSchema>
 export type RobloxFollowingStatus = z.infer<typeof RobloxFollowingStatusSchema>
+export type RobloxBlockStatus = z.infer<typeof RobloxBlockStatusSchema>
 export type RobloxFriendsMetadata = z.infer<typeof RobloxFriendsMetadataSchema>
 export type RobloxCaptchaStatus = z.infer<typeof RobloxCaptchaStatusSchema>
 export type RobloxFriendPage = { previousPageCursor: RobloxCursor | null, nextPageCursor: RobloxCursor | null, data: { id: RobloxUserId, hasVerifiedBadge: boolean | null }[] }
