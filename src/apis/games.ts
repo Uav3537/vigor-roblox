@@ -2,7 +2,7 @@ import { RobloxBatcher, captureHeaders, mapRoute, nullOn, type RobloxBatchRoute 
 import { RobloxError } from "@/core/error"
 import { canonicalInfo, robloxCacheKey, type RobloxCacheInfo, type RobloxCacheValue, type RobloxViewerKey } from "@/core/cache"
 import { resolveTtl, type RobloxConfig } from "@/core/config"
-import { cached, singleFlight, createHttp, validate } from "@/core/http"
+import { cached, cachedByViewer, singleFlight, createHttp, validate } from "@/core/http"
 import { extra, finish, found, partial, settle } from "@/core/partial"
 import { canAuthenticate, requireViewer, viewerKey } from "@/core/viewer"
 import type { RobloxThumbnailsApi } from "@/apis/thumbnails"
@@ -92,6 +92,8 @@ export type RobloxGamesCacheable =
     | "getGames" | "getUniverseIds" | "getPlaceDetails" | "getProductInfo" | "getPlayability" | "getVotes"
     | "getFavoriteCounts" | "getMedia" | "getSocialLinks" | "getServerAddresses" | "getServerLocations"
     | "getServerPage" | "getRecommendations" | "getUserGames" | "getUserFavoriteGames" | "getGroupGames" | "getPrivateServersEnabled"
+    // depend on the requesting account
+    | "getFavorited" | "getUserVotes" | "getFollowing" | "getPrivateServers" | "getMyPrivateServers" | "getPrivateServerDetails" | "getPrivateServerInvites"
 
 const GAMES = "https://games.roblox.com"
 const APIS = "https://apis.roblox.com"
@@ -580,7 +582,7 @@ export class RobloxGamesApi<L = unknown> {
 
     /** GET /v1/games/{universeId}/favorites — 내가 즐겨찾기했는지 */
     async getFavorited(universeIds: readonly RobloxUniverseId[]): Promise<{ universeId: RobloxUniverseId, isFavorited: boolean }[]> {
-        const { values, errors } = await settle(universeIds, id => this.favorited.load(String(id), id))
+        const { values, errors } = await this.each("getFavorited", universeIds, id => this.favorited.load(String(id), id), (universeId, viewer) => ({ service: "games", method: "getFavorited", viewer, universeId }), true)
         return finish(found(universeIds.map((universeId, i) => values[i] === null ? null : { universeId, isFavorited: values[i] })), errors)
     }
 
@@ -595,7 +597,7 @@ export class RobloxGamesApi<L = unknown> {
 
     /** GET /v1/games/{universeId}/votes/user — 내 투표와 투표 가능 여부 */
     async getUserVotes(universeIds: readonly RobloxUniverseId[]): Promise<(RobloxUserGameVote & { universeId: RobloxUniverseId })[]> {
-        const { values, errors } = await settle(universeIds, id => this.userVotes.load(String(id), id))
+        const { values, errors } = await this.each("getUserVotes", universeIds, id => this.userVotes.load(String(id), id), (universeId, viewer) => ({ service: "games", method: "getUserVotes", viewer, universeId }), true)
         return finish(found(universeIds.map((universeId, i) => values[i] && { universeId, ...values[i] })), errors)
     }
 
@@ -623,7 +625,7 @@ export class RobloxGamesApi<L = unknown> {
     /** GET followings /v1/users/{me}/universes/{universeId}/status — 내가 팔로우하는지, 더 팔로우할 수 있는지 */
     async getFollowing(universeIds: readonly RobloxUniverseId[]): Promise<RobloxGameFollowStatus[]> {
         const me = await this.myId()
-        const { values, errors } = await settle(universeIds, async universeId => {
+        const { values, errors } = await this.each("getFollowing", universeIds, async (universeId): Promise<RobloxGameFollowStatus> => {
             const res = await this.followingsHttp()
                 .path("v1", "users", me, "universes", universeId, "status")
                 .middlewares(validate(RobloxGameFollowStatusRawSchema))
@@ -635,7 +637,7 @@ export class RobloxGamesApi<L = unknown> {
                 followingCount: res.FollowingCountByType,
                 followingLimit: res.FollowingLimitByType,
             }
-        })
+        }, (universeId, viewer) => ({ service: "games", method: "getFollowing", viewer, universeId }), true)
         return finish(found(values), errors)
     }
 
@@ -715,8 +717,9 @@ export class RobloxGamesApi<L = unknown> {
 
     /** 캐시를 보고, 없는 IP만 콜백에 넘긴 뒤 저장한다. 모르는 IP는 결과에 없다 */
     private async locate(ips: RobloxIpAddress[], geolocate: RobloxGeolocator<L>): Promise<Map<RobloxIpAddress, L>> {
-        const store = this.config.cache
         const ttl = this.ttl("getServerLocations")
+        // A TTL of 0 or less means "do not cache": skip the store entirely
+        const store = ttl > 0 ? this.config.cache : undefined
         const known = new Map<RobloxIpAddress, L>()
 
         const entry = async (ip: RobloxIpAddress) => {
@@ -747,15 +750,18 @@ export class RobloxGamesApi<L = unknown> {
 
     /** GET /v1/games/{placeId}/private-servers — 내가 들어갈 수 있는 비공개 서버. 플레이어 헤드샷을 이어서 받는다 (`headshots: false`면 받지 않는다) */
     async getPrivateServers(placeId: RobloxPlaceId, query: RobloxPrivateServerPageQuery & { headshots?: RobloxServerHeadshotOptions } = {}): Promise<RobloxPrivateServerPage> {
-        const params: Record<string, string | boolean> = {}
-        if (query.cursor) params.exclusiveStartKeyCursor = query.cursor
-        if (query.excludeFriendServers !== undefined) params.excludeFriendServers = query.excludeFriendServers
-        const res = await this.http()
-            .path("v1", "games", placeId, "private-servers")
-            .query(params)
-            .middlewares(validate(RobloxPrivateServerPageRawSchema))
-            .request()
-        const players = await this.players(res.data.map(s => ({ playerTokens: s.playerTokens ?? [], players: s.players ?? [] })), query.headshots ?? {})
+        const { headshots, ...page } = query
+        const res = await cachedByViewer(this.config, viewer => ({ service: "games", method: "getPrivateServers", viewer, placeId, query: page }), this.ttl("getPrivateServers"), () => {
+            const params: Record<string, string | boolean> = {}
+            if (page.cursor) params.exclusiveStartKeyCursor = page.cursor
+            if (page.excludeFriendServers !== undefined) params.excludeFriendServers = page.excludeFriendServers
+            return this.http()
+                .path("v1", "games", placeId, "private-servers")
+                .query(params)
+                .middlewares(validate(RobloxPrivateServerPageRawSchema))
+                .request()
+        })
+        const players = await this.players(res.data.map(s => ({ playerTokens: s.playerTokens ?? [], players: s.players ?? [] })), headshots ?? {})
         return { ...res, data: res.data.map(({ playerTokens, players: _, ...server }, i) => ({ ...server, players: players[i] })) }
     }
 
@@ -791,7 +797,8 @@ export class RobloxGamesApi<L = unknown> {
 
     /** 내 비공개 서버 목록. /v1/vip-servers/…와 /v1/private-servers/…를 번갈아 쓴다. */
     getMyPrivateServers(query: RobloxMyPrivateServersQuery = {}) {
-        return this.myPrivateServers.load(JSON.stringify(query), query)
+        return cachedByViewer(this.config, viewer => ({ service: "games", method: "getMyPrivateServers", viewer, query }), this.ttl("getMyPrivateServers"),
+            () => this.myPrivateServers.load(JSON.stringify(query), query))
     }
 
     /** GET /v1/private-servers/enabled-in-universe/{universeId} */
@@ -802,13 +809,13 @@ export class RobloxGamesApi<L = unknown> {
 
     /** GET /v1/vip-servers/{id} — 내가 관리하는 비공개 서버의 설정 */
     async getPrivateServerDetails(ids: readonly RobloxPrivateServerId[]): Promise<RobloxPrivateServerDetail[]> {
-        const { values, errors } = await settle(ids, id => this.privateServerDetails.load(String(id), id))
+        const { values, errors } = await this.each("getPrivateServerDetails", ids, id => this.privateServerDetails.load(String(id), id), (privateServerId, viewer) => ({ service: "games", method: "getPrivateServerDetails", viewer, privateServerId }), true)
         return finish(found(values), errors)
     }
 
     /** GET /v1/vip-server/can-invite/{userId} — 내 비공개 서버에 초대할 수 있는지 */
     async getPrivateServerInvites(userIds: readonly RobloxUserId[]): Promise<(RobloxPrivateServerInvite & { userId: RobloxUserId })[]> {
-        const { values, errors } = await settle(userIds, id => this.invites.load(String(id), id))
+        const { values, errors } = await this.each("getPrivateServerInvites", userIds, id => this.invites.load(String(id), id), (userId, viewer) => ({ service: "games", method: "getPrivateServerInvites", viewer, userId }), true)
         return finish(found(userIds.map((userId, i) => values[i] && { userId, ...values[i] })), errors)
     }
 

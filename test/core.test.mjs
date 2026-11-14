@@ -121,15 +121,61 @@ test("getServers는 페이지를 자르지 않아 커서로 빠짐없이 이어 
     assert.equal(ids.size, 75)
 })
 
-test("TTL이 0이어도 저장소의 get/set은 불린다", async () => {
+test("TTL이 0이면 저장소의 get/set을 부르지 않는다", async () => {
     routes[PROFILES] = (_, body) => ({ body: { profileDetails: body.userIds.map(profile), errors: [] } })
     const seen = []
     const store = {
         get: (_, info) => { seen.push(["get", info.method]); return undefined },
         set: (_, __, ttl, info) => { seen.push(["set", info.method, ttl]) },
     }
-    await vigorRoblox.mode("node").cache(store).ttl({ users: { getUsers: 0 } }).users.getUsers([1])
-    assert.deepEqual(seen, [["get", "getUsers"], ["set", "getUsers", 0]])
+    const users = await vigorRoblox.mode("node").cache(store).ttl({ users: { getUsers: 0 } }).users.getUsers([1])
+    assert.equal(users.length, 1)
+    assert.deepEqual(seen, [])
+})
+
+test("계정 기준 메서드는 기본 TTL이 0이라 저장소를 쓰지 않고, TTL을 주면 계정별로 캐시한다", async () => {
+    const COUNT = "GET friends/v1/user/friend-requests/count"
+    routes[COUNT] = () => ({ body: { count: 3 } })
+    const seen = []
+    const cache = new RobloxMemoryCache()
+    const store = {
+        get: (key, info) => { seen.push(info); return cache.get(key) },
+        set: (key, value, ttl) => cache.set(key, value, ttl),
+    }
+    const [a, b] = ["cookie-a", "cookie-b"].map(c => RobloxCookieSchema.parse(c))
+
+    const plain = vigorRoblox.mode("node").cache(store)
+    assert.equal(await plain.as(a).friends.getFriendRequestCount(), 3)
+    assert.equal(await plain.as(a).friends.getFriendRequestCount(), 3)
+    assert.equal(count(COUNT), 2)
+    assert.deepEqual(seen, [])
+
+    const timed = vigorRoblox.mode("node").cache(store).ttl({ friends: { getFriendRequestCount: 60_000 } })
+    await timed.as(a).friends.getFriendRequestCount()
+    await timed.as(a).friends.getFriendRequestCount()
+    await timed.as(b).friends.getFriendRequestCount()
+    assert.equal(count(COUNT), 4)
+    assert.equal(seen.length, 3)
+    assert.ok(seen.every(info => info.viewer.startsWith("cookie:") && info.unseen === false && info.trusted === false))
+    assert.notEqual(seen[0].viewer, seen[2].viewer)
+})
+
+test("계정 기준 메서드는 쿠키를 돌려 쓰는 중이면 TTL을 줘도 캐시하지 않는다", async () => {
+    routes["GET users/v1/users/authenticated"] = () => ({ body: { id: 1, name: "u1", displayName: "d1" } })
+    const seen = []
+    const store = { get: (_, info) => { seen.push(info); return undefined }, set: () => {} }
+    const cookies = ["cookie-a", "cookie-b"].map(c => RobloxCookieSchema.parse(c))
+    await vigorRoblox.mode("node").cookies(cookies).cache(store).ttl({ users: { getAuthenticated: 60_000 } }).users.getAuthenticated()
+    assert.deepEqual(seen, [])
+})
+
+test("새로 TTL이 붙은 공개 조회도 캐시된다", async () => {
+    const SEARCH = "GET groups/v1/groups/search/lookup"
+    routes[SEARCH] = () => ({ body: { data: [{ id: 1, name: "g", memberCount: 1, hasVerifiedBadge: false }] } })
+    const groups = vigorRoblox.mode("node").cache(new RobloxMemoryCache()).groups
+    await groups.lookupGroups("g")
+    await groups.lookupGroups("g")
+    assert.equal(count(SEARCH), 1)
 })
 
 test("RobloxMemoryCache는 TTL이 0 이하인 항목을 저장하지 않는다", () => {

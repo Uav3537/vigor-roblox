@@ -1,6 +1,6 @@
 import { RobloxBatcher, captureHeaders, type RobloxBatchRoute } from "@/core/batcher"
-import type { RobloxConfig } from "@/core/config"
-import { createHttp, validate } from "@/core/http"
+import { resolveTtl, type RobloxConfig } from "@/core/config"
+import { cachedByViewer, createHttp, validate } from "@/core/http"
 import { finish, found, settle } from "@/core/partial"
 import { requireViewer } from "@/core/viewer"
 import type { RobloxConversationId } from "@/types/common"
@@ -24,6 +24,10 @@ import {
 } from "@/types/chat"
 import type { RobloxUserId } from "@/types/users"
 import z from "zod"
+
+/** `.ttl({ chat: { ... } })`로 캐시할 수 있는 메서드. 전부 요청 계정 기준이라 기본으로는 캐시하지 않는다. */
+export type RobloxChatCacheable =
+    | "getConversations" | "listConversations" | "searchConversations" | "getMessages" | "searchMessages" | "getUnreadCounts" | "getMetadata"
 
 const ORIGIN = "https://apis.roblox.com"
 const BASE = ["platform-chat-api", "v1"] as const
@@ -70,83 +74,97 @@ export class RobloxChatApi {
         return requireViewer(this.config)
     }
 
+    private ttl(method: RobloxChatCacheable) {
+        return resolveTtl(this.config, "chat", method)
+    }
+
     // ── 조회 ───────────────────────────────────────────
 
     /** 대화 상세(참가자 이름 포함). 같은 틱에 들어온 호출은 25개씩 묶는다. 내가 참가하지 않은 대화는 뺀다. */
     async getConversations(ids: readonly RobloxConversationId[]): Promise<RobloxChatConversation[]> {
         const viewer = await this.viewer()
-        const { values, errors } = await settle(ids, id => this.conversations.load(`${viewer}:${id}`, { viewer, id }))
+        const ttl = this.ttl("getConversations")
+        const { values, errors } = await settle(ids, id => cachedByViewer(this.config, key => ({ service: "chat", method: "getConversations", viewer: key, conversationId: id }), ttl,
+            () => this.conversations.load(`${viewer}:${id}`, { viewer, id })))
         return finish(found(values), errors)
     }
 
     /** GET get-user-conversations — 내 대화 목록 (120회/분) */
     async listConversations(query: RobloxChatPageQuery = {}): Promise<RobloxChatConversationPage> {
         await this.viewer()
-        const params: Record<string, string | number | boolean> = { page_size: query.pageSize ?? 20, include_user_data: true }
-        if (query.cursor) params.cursor = query.cursor
-        const res = await this.http()
-            .path(...BASE, "get-user-conversations")
-            .query(params)
-            .middlewares(validate(RobloxChatConversationPageRawSchema))
-            .request()
-        return { conversations: res.conversations, nextCursor: res.next_cursor }
+        return cachedByViewer(this.config, viewer => ({ service: "chat", method: "listConversations", viewer, query }), this.ttl("listConversations"), async (): Promise<RobloxChatConversationPage> => {
+            const params: Record<string, string | number | boolean> = { page_size: query.pageSize ?? 20, include_user_data: true }
+            if (query.cursor) params.cursor = query.cursor
+            const res = await this.http()
+                .path(...BASE, "get-user-conversations")
+                .query(params)
+                .middlewares(validate(RobloxChatConversationPageRawSchema))
+                .request()
+            return { conversations: res.conversations, nextCursor: res.next_cursor }
+        })
     }
 
     /** POST search-conversations — 대화를 이름/참가자로 찾는다 */
     async searchConversations(query: string, page: RobloxChatPageQuery = {}): Promise<RobloxChatConversationPage> {
         await this.viewer()
-        const body: Record<string, string | number> = { query, page_size: page.pageSize ?? 20 }
-        if (page.cursor) body.cursor = page.cursor
-        const res = await this.http()
-            .path(...BASE, "search-conversations")
-            .body("overwrite", body)
-            .middlewares(validate(RobloxChatConversationPageRawSchema))
-            .request()
-        return { conversations: res.conversations, nextCursor: res.next_cursor }
+        return cachedByViewer(this.config, viewer => ({ service: "chat", method: "searchConversations", viewer, query, page }), this.ttl("searchConversations"), async (): Promise<RobloxChatConversationPage> => {
+            const body: Record<string, string | number> = { query, page_size: page.pageSize ?? 20 }
+            if (page.cursor) body.cursor = page.cursor
+            const res = await this.http()
+                .path(...BASE, "search-conversations")
+                .body("overwrite", body)
+                .middlewares(validate(RobloxChatConversationPageRawSchema))
+                .request()
+            return { conversations: res.conversations, nextCursor: res.next_cursor }
+        })
     }
 
     /** GET get-conversation-messages — 최신순 (120회/분). 커서 두 개를 응답 그대로 돌려준다 */
     async getMessages(conversationId: RobloxConversationId, query: RobloxChatPageQuery = {}): Promise<RobloxChatMessagePage> {
         await this.viewer()
-        const params: Record<string, string | number> = { conversation_id: conversationId, page_size: query.pageSize ?? 30 }
-        if (query.cursor) params.cursor = query.cursor
-        const res = await this.http()
-            .path(...BASE, "get-conversation-messages")
-            .query(params)
-            .middlewares(validate(RobloxChatMessagePageRawSchema))
-            .request()
-        return { messages: res.messages, nextCursor: res.next_cursor, previousCursor: res.previous_cursor }
+        return cachedByViewer(this.config, viewer => ({ service: "chat", method: "getMessages", viewer, conversationId, query }), this.ttl("getMessages"), async (): Promise<RobloxChatMessagePage> => {
+            const params: Record<string, string | number> = { conversation_id: conversationId, page_size: query.pageSize ?? 30 }
+            if (query.cursor) params.cursor = query.cursor
+            const res = await this.http()
+                .path(...BASE, "get-conversation-messages")
+                .query(params)
+                .middlewares(validate(RobloxChatMessagePageRawSchema))
+                .request()
+            return { messages: res.messages, nextCursor: res.next_cursor, previousCursor: res.previous_cursor }
+        })
     }
 
     /** POST search-messages — 한 대화 안에서 메시지 검색 */
     async searchMessages(conversationId: RobloxConversationId, query: string, page: RobloxChatPageQuery = {}): Promise<RobloxChatMessagePage> {
         await this.viewer()
-        const body: Record<string, string | number> = { conversation_id: conversationId, query, page_size: page.pageSize ?? 30 }
-        if (page.cursor) body.cursor = page.cursor
-        const res = await this.http()
-            .path(...BASE, "search-messages")
-            .body("overwrite", body)
-            .middlewares(validate(RobloxChatMessagePageRawSchema))
-            .request()
-        return { messages: res.messages, nextCursor: res.next_cursor, previousCursor: res.previous_cursor }
+        return cachedByViewer(this.config, viewer => ({ service: "chat", method: "searchMessages", viewer, conversationId, query, page }), this.ttl("searchMessages"), async (): Promise<RobloxChatMessagePage> => {
+            const body: Record<string, string | number> = { conversation_id: conversationId, query, page_size: page.pageSize ?? 30 }
+            if (page.cursor) body.cursor = page.cursor
+            const res = await this.http()
+                .path(...BASE, "search-messages")
+                .body("overwrite", body)
+                .middlewares(validate(RobloxChatMessagePageRawSchema))
+                .request()
+            return { messages: res.messages, nextCursor: res.next_cursor, previousCursor: res.previous_cursor }
+        })
     }
 
     /** GET get-conversation-metadata — 전체 안 읽은 수 */
     async getUnreadCounts() {
         await this.viewer()
-        return this.http()
+        return cachedByViewer(this.config, viewer => ({ service: "chat", method: "getUnreadCounts", viewer }), this.ttl("getUnreadCounts"), () => this.http()
             .path(...BASE, "get-conversation-metadata")
             .middlewares(validate(RobloxChatUnreadCountsSchema))
-            .request()
+            .request())
     }
 
     /** GET metadata — 채팅 가능 여부와 설정. `isChatUserMessagesEnabled`가 false면 메시지를 보낼 수 없다 */
     async getMetadata() {
         await this.viewer()
-        return this.http()
+        return cachedByViewer(this.config, viewer => ({ service: "chat", method: "getMetadata", viewer }), this.ttl("getMetadata"), () => this.http()
             .path(...BASE, "metadata")
             .middlewares(validate(RobloxChatMetadataSchema))
-            .request()
+            .request())
     }
 
     // ── 쓰기 ───────────────────────────────────────────

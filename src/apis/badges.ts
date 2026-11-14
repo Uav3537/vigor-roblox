@@ -1,7 +1,7 @@
 import z from "zod"
 import { RobloxBatcher, captureHeaders, nullOn, type RobloxBatchRoute } from "@/core/batcher"
 import { resolveTtl, type RobloxConfig } from "@/core/config"
-import { cached, createHttp, validate } from "@/core/http"
+import { cached, cachedByViewer, createHttp, validate } from "@/core/http"
 import { finish, found, settle } from "@/core/partial"
 import type { RobloxThumbnailsApi } from "@/apis/thumbnails"
 import { RobloxAssetIdSchema, RobloxEmptyResponseSchema, type RobloxAssetId, type RobloxBadgeId, type RobloxUniverseId } from "@/types/common"
@@ -24,7 +24,10 @@ import type { RobloxBadgeIconOptions, RobloxWithThumbnail } from "@/types/thumbn
 import type { RobloxUserId } from "@/types/users"
 
 /** `.ttl({ badges: { ... } })`로 캐시할 수 있는 메서드. 배열을 받는 메서드는 항목 하나씩 캐시한다. */
-export type RobloxBadgesCacheable = "getBadges" | "getAwardedDates"
+export type RobloxBadgesCacheable =
+    | "getBadges" | "getAwardedDates" | "getUniverseBadges" | "getMetadata"
+    // depend on the requesting account
+    | "getUserBadges" | "getFreeQuotas"
 
 const ORIGIN = "https://badges.roblox.com"
 
@@ -136,20 +139,20 @@ export class RobloxBadgesApi {
 
     /** GET /v1/universes/{universeId}/badges — 게임의 배지 (100회/분). 없는 게임이면 빈 목록이다 */
     getUniverseBadges(universeId: RobloxUniverseId, query: RobloxUniverseBadgesQuery = {}) {
-        return this.http()
+        return cached(this.config, { service: "badges", method: "getUniverseBadges", universeId, query }, this.ttl("getUniverseBadges"), () => this.http()
             .path("v1", "universes", universeId, "badges")
             .query(query)
             .middlewares(validate(RobloxBadgePageSchema))
-            .request()
+            .request())
     }
 
     /** GET /v1/users/{userId}/badges — 유저가 받은 배지 (1000회/분). 인증 필요. 없는 유저면 404 */
     getUserBadges(userId: RobloxUserId, query: RobloxBadgePageQuery = {}) {
-        return this.http()
+        return cachedByViewer(this.config, viewer => ({ service: "badges", method: "getUserBadges", viewer, userId, query }), this.ttl("getUserBadges"), () => this.http()
             .path("v1", "users", userId, "badges")
             .query(query)
             .middlewares(validate(RobloxUserBadgePageSchema))
-            .request()
+            .request())
     }
 
     /**
@@ -169,16 +172,18 @@ export class RobloxBadgesApi {
 
     /** GET /v1/universes/{universeId}/free-badges-quota — 오늘(UTC) 남은 무료 배지 수. 없는 게임은 뺀다 */
     async getFreeQuotas(universeIds: readonly RobloxUniverseId[]): Promise<{ universeId: RobloxUniverseId, quota: number }[]> {
-        const { values, errors } = await settle(universeIds, id => this.freeQuotas.load(String(id), id))
+        const ttl = this.ttl("getFreeQuotas")
+        const { values, errors } = await settle(universeIds, id =>
+            cachedByViewer(this.config, viewer => ({ service: "badges", method: "getFreeQuotas", viewer, universeId: id }), ttl, () => this.freeQuotas.load(String(id), id)))
         return finish(found(universeIds.map((universeId, i) => values[i] === null ? null : { universeId, quota: values[i] })), errors)
     }
 
     /** GET /v1/badges/metadata — 배지 비용과 이름/설명 길이 제한 */
     getMetadata() {
-        return this.http()
+        return cached(this.config, { service: "badges", method: "getMetadata" }, this.ttl("getMetadata"), () => this.http()
             .path("v1", "badges", "metadata")
             .middlewares(validate(RobloxBadgeMetadataSchema))
-            .request()
+            .request())
     }
 
     // ── 관리 (인증 필요) ───────────────────────────────

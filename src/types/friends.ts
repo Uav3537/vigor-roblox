@@ -180,6 +180,12 @@ export type RobloxFriendRequestsQuery = {
     uprankUnseen?:      boolean
 }
 
+export type RobloxTrustedFriendRequestsQuery = {
+    limit?:     number
+    cursor?:    RobloxCursor
+    sortOrder?: 0 | 1
+}
+
 /** POST follow에 캡차가 걸렸을 때 같이 보낸다 */
 export type RobloxCaptchaTokenRequest = {
     captchaId?:       string

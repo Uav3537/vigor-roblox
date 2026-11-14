@@ -1761,6 +1761,644 @@ type RobloxServerHeadshotOptions = false | {
     isCircular?: boolean;
 };
 
+/** GET /v1/users/{userId}/friends — 한 번에 전부 (20회/분) */
+declare const RobloxFriendListResponseSchema: z.ZodObject<{
+    data: z.ZodPreprocess<z.ZodArray<z.ZodObject<{
+        id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+    }, z.core.$strip>>>;
+}, z.core.$strip>;
+/** GET /v1/users/{userId}/friends/find, /search — `CursoredPagedResult` (100회/분, 50개씩) */
+declare const RobloxFriendPageRawSchema: z.ZodObject<{
+    PreviousCursor: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxCursor", "out">>;
+    PageItems: z.ZodPreprocess<z.ZodArray<z.ZodObject<{
+        id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+        hasVerifiedBadge: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    }, z.core.$strip>>>;
+    NextCursor: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxCursor", "out">>;
+    HasMore: z.ZodNullable<z.ZodBoolean>;
+}, z.core.$strip>;
+/** 팔로워/팔로잉 목록 — 실제로는 id만 온다 */
+declare const RobloxFollowPageSchema: z.ZodObject<{
+    previousPageCursor: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxCursor", "out">>;
+    nextPageCursor: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxCursor", "out">>;
+    data: z.ZodPreprocess<z.ZodArray<z.ZodObject<{
+        id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+    }, z.core.$strip>>>;
+}, z.core.$strip>;
+declare const RobloxCountResponseSchema: z.ZodObject<{
+    count: z.ZodNumber;
+}, z.core.$strip>;
+/** `FriendStatusResponse` */
+declare const RobloxFriendStatusSchema: z.ZodObject<{
+    id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+    status: z.ZodString;
+}, z.core.$strip>;
+declare const RobloxFriendStatusesResponseSchema: z.ZodObject<{
+    data: z.ZodArray<z.ZodObject<{
+        id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+        status: z.ZodString;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
+/** `UserPresenceResponseModel` — 온라인 친구 목록의 presence. 필드 이름이 대문자로 시작하는 것도 있다 */
+declare const RobloxFriendPresenceSchema: z.ZodObject<{
+    UserPresenceType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    UserLocationType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    lastLocation: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    placeId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxPlaceId", "out">>>;
+    rootPlaceId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxPlaceId", "out">>>;
+    gameInstanceId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodUUID, "RobloxJobId", "out">>>;
+    universeId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUniverseId", "out">>>;
+    lastOnline: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+}, z.core.$strip>;
+/** `UserPresenceResponse` — GET /v1/users/{me}/friends/online 의 항목 */
+declare const RobloxOnlineFriendSchema: z.ZodObject<{
+    id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+    name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    sortScore: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    userPresence: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        UserPresenceType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        UserLocationType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        lastLocation: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        placeId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxPlaceId", "out">>>;
+        rootPlaceId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxPlaceId", "out">>>;
+        gameInstanceId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodUUID, "RobloxJobId", "out">>>;
+        universeId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUniverseId", "out">>>;
+        lastOnline: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strip>>>;
+}, z.core.$strip>;
+declare const RobloxOnlineFriendsResponseSchema: z.ZodObject<{
+    data: z.ZodPreprocess<z.ZodArray<z.ZodObject<{
+        id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+        name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        sortScore: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        userPresence: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            UserPresenceType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            UserLocationType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            lastLocation: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            placeId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxPlaceId", "out">>>;
+            rootPlaceId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxPlaceId", "out">>>;
+            gameInstanceId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodUUID, "RobloxJobId", "out">>>;
+            universeId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUniverseId", "out">>>;
+            lastOnline: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        }, z.core.$strip>>>;
+    }, z.core.$strip>>>;
+}, z.core.$strip>;
+/** `FriendRequestResponse` — 받은 친구 요청 */
+declare const RobloxFriendRequestSchema: z.ZodObject<{
+    id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+    name: z.ZodString;
+    displayName: z.ZodString;
+    hasVerifiedBadge: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    description: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    created: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    isBanned: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    isUnseen: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    mutualFriendsList: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+    friendRequest: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        sentAt: z.ZodString;
+        senderId: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+        sourceUniverseId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUniverseId", "out">>>;
+        originSourceType: z.ZodOptional<z.ZodNullable<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>>;
+        contactName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        senderNickname: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strip>>>;
+}, z.core.$strip>;
+declare const RobloxFriendRequestPageSchema: z.ZodObject<{
+    previousPageCursor: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxCursor", "out">>;
+    nextPageCursor: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxCursor", "out">>;
+    data: z.ZodArray<z.ZodObject<{
+        id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+        name: z.ZodString;
+        displayName: z.ZodString;
+        hasVerifiedBadge: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        description: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        created: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        isBanned: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        isUnseen: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        mutualFriendsList: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+        friendRequest: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            sentAt: z.ZodString;
+            senderId: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+            sourceUniverseId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUniverseId", "out">>>;
+            originSourceType: z.ZodOptional<z.ZodNullable<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>>;
+            contactName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            senderNickname: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        }, z.core.$strip>>>;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
+/** `TrustedFriendRequestResponse` */
+declare const RobloxTrustedFriendRequestPageSchema: z.ZodObject<{
+    previousPageCursor: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxCursor", "out">>;
+    nextPageCursor: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxCursor", "out">>;
+    data: z.ZodArray<z.ZodObject<{
+        sentAt: z.ZodString;
+        senderId: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
+/** `FollowingExistsResponse` */
+declare const RobloxFollowingStatusSchema: z.ZodObject<{
+    userId: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+    isFollowing: z.ZodBoolean;
+    isFollowed: z.ZodBoolean;
+}, z.core.$strip>;
+declare const RobloxFollowingExistsResponseSchema: z.ZodObject<{
+    followings: z.ZodArray<z.ZodObject<{
+        userId: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+        isFollowing: z.ZodBoolean;
+        isFollowed: z.ZodBoolean;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
+/** POST apis /user-blocking-api/v1/users/batch-check-reciprocal-block 의 항목 */
+declare const RobloxBlockStatusSchema: z.ZodObject<{
+    userId: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+    isBlocked: z.ZodBoolean;
+    isBlockingViewer: z.ZodBoolean;
+}, z.core.$strip>;
+declare const RobloxBlockStatusesResponseSchema: z.ZodObject<{
+    users: z.ZodArray<z.ZodObject<{
+        userId: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+        isBlocked: z.ZodBoolean;
+        isBlockingViewer: z.ZodBoolean;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
+/** `FriendsPageMetadataResponse` */
+declare const RobloxFriendsMetadataSchema: z.ZodObject<{
+    isFriendsFilterBarEnabled: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    isFriendsPageSortExperimentEnabled: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    isFriendsUserDataStoreCacheEnabled: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    frequentFriendSortRollout: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    userName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+}, z.core.$strip>;
+/** `CaptchaStatusResponseModel` — POST follow */
+declare const RobloxCaptchaStatusSchema: z.ZodObject<{
+    success: z.ZodBoolean;
+    isCaptchaRequired: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    notificationMuted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+}, z.core.$strip>;
+/** `getFriends` 결과 — 친구 목록에 users 정보를 채운 것 */
+type RobloxUserFriends<U extends RobloxUser = RobloxUser> = {
+    userId: RobloxUserId;
+    friends: U[];
+};
+type RobloxFriendStatus = z.infer<typeof RobloxFriendStatusSchema>;
+type RobloxOnlineFriend = z.infer<typeof RobloxOnlineFriendSchema>;
+type RobloxFriendPresence = z.infer<typeof RobloxFriendPresenceSchema>;
+type RobloxFriendRequest = z.infer<typeof RobloxFriendRequestSchema>;
+type RobloxFriendRequestPage = z.infer<typeof RobloxFriendRequestPageSchema>;
+type RobloxTrustedFriendRequestPage = z.infer<typeof RobloxTrustedFriendRequestPageSchema>;
+type RobloxFollowPage = z.infer<typeof RobloxFollowPageSchema>;
+type RobloxFollowingStatus = z.infer<typeof RobloxFollowingStatusSchema>;
+type RobloxBlockStatus = z.infer<typeof RobloxBlockStatusSchema>;
+type RobloxFriendsMetadata = z.infer<typeof RobloxFriendsMetadataSchema>;
+type RobloxCaptchaStatus = z.infer<typeof RobloxCaptchaStatusSchema>;
+type RobloxFriendPage = {
+    previousPageCursor: RobloxCursor | null;
+    nextPageCursor: RobloxCursor | null;
+    data: {
+        id: RobloxUserId;
+        hasVerifiedBadge: boolean | null;
+    }[];
+};
+type RobloxFollowPageQuery = {
+    limit?: 10 | 18 | 25 | 50 | 100;
+    cursor?: RobloxCursor;
+    sortOrder?: RobloxSortOrder;
+};
+type RobloxFriendSearchQuery = {
+    query: string;
+    limit?: number;
+    cursor?: RobloxCursor;
+};
+type RobloxFriendRequestsQuery = {
+    limit?: number;
+    cursor?: RobloxCursor;
+    /** 0/1/2 — 스펙에 의미가 적혀 있지 않다 */
+    friendRequestSort?: 0 | 1 | 2;
+    uprankUnseen?: boolean;
+};
+type RobloxTrustedFriendRequestsQuery = {
+    limit?: number;
+    cursor?: RobloxCursor;
+    sortOrder?: 0 | 1;
+};
+/** POST follow에 캡차가 걸렸을 때 같이 보낸다 */
+type RobloxCaptchaTokenRequest = {
+    captchaId?: string;
+    captchaToken?: string;
+    captchaProvider?: string;
+    challengeId?: string;
+};
+
+/**
+ * `CanTradeResponse` — GET /v1/users/{userId}/can-trade-with.
+ * `status`는 이유 코드다 ("CanTrade", "CannotTradeWithSelf", "SenderCannotTrade",
+ * "ReceiverCannotTrade", "SenderPrivacySettingsTooRestrictive" 등). 새 값이 와도 깨지지 않게 문자열로 받는다.
+ */
+declare const RobloxCanTradeSchema: z.ZodObject<{
+    canTrade: z.ZodBoolean;
+    status: z.ZodString;
+}, z.core.$strip>;
+type RobloxCanTrade = z.infer<typeof RobloxCanTradeSchema>;
+
+/** 메시지 */
+declare const RobloxChatMessageSchema: z.ZodObject<{
+    id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
+    content: z.ZodString;
+    sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
+    created_at: z.ZodString;
+    type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
+    is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+}, z.core.$strip>;
+/** 대화 참가자 정보 (`include_user_data`) */
+declare const RobloxChatUserDataSchema: z.ZodObject<{
+    id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+    name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    display_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    combined_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    is_verified: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+}, z.core.$strip>;
+/**
+ * 대화.
+ * 목록에는 아직 만들어지지 않은 친구 1:1 대화도 섞여 온다 (`source: "friends"`, `id: null`, 실측 2026-11).
+ * 이런 항목에 메시지를 보내려면 먼저 `createConversations({ type: "one_to_one", userId })`로 대화를 만든다.
+ */
+declare const RobloxChatConversationSchema: z.ZodObject<{
+    id: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxConversationId", "out">>;
+    type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    source: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    is_default_name: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    created_by: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>>;
+    participant_user_ids: z.ZodArray<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
+    user_data: z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodObject<{
+        id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+        name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        display_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        combined_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        is_verified: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    }, z.core.$strip>>>>;
+    messages: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
+        id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
+        content: z.ZodString;
+        sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
+        created_at: z.ZodString;
+        type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
+        is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strip>>>>;
+    unread_message_count: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    updated_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    created_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    preview_message: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
+        content: z.ZodString;
+        sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
+        created_at: z.ZodString;
+        type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
+        is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strip>>>;
+    sort_index: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    universe_id: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUniverseId", "out">>>;
+    participant_pending_status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    osa_acknowledgement_status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    user_opted_into_chat_messages: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+}, z.core.$strip>;
+/** 만들기/바꾸기 응답의 항목. 실패한 항목은 `status: "failed"`이고 나머지가 null이다 */
+declare const RobloxChatConversationResultSchema: z.ZodObject<{
+    type: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
+    source: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
+    name: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
+    is_default_name: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodBoolean>>>;
+    created_by: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>>>;
+    user_data: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodObject<{
+        id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+        name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        display_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        combined_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        is_verified: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    }, z.core.$strip>>>>>;
+    messages: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
+        id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
+        content: z.ZodString;
+        sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
+        created_at: z.ZodString;
+        type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
+        is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strip>>>>>;
+    unread_message_count: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodNumber>>>;
+    updated_at: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
+    created_at: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
+    moderation_type: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
+    preview_message: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
+        content: z.ZodString;
+        sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
+        created_at: z.ZodString;
+        type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
+        is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strip>>>>;
+    sort_index: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodNumber>>>;
+    universe_id: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUniverseId", "out">>>>;
+    participant_pending_status: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
+    osa_acknowledgement_status: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
+    user_opted_into_chat_messages: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
+    id: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxConversationId", "out">>>;
+    participant_user_ids: z.ZodOptional<z.ZodNullable<z.ZodArray<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>>>;
+    status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+}, z.core.$strip>;
+declare const RobloxChatConversationPageRawSchema: z.ZodObject<{
+    conversations: z.ZodArray<z.ZodObject<{
+        id: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxConversationId", "out">>;
+        type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        source: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        is_default_name: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        created_by: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>>;
+        participant_user_ids: z.ZodArray<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
+        user_data: z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodObject<{
+            id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+            name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            display_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            combined_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            is_verified: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        }, z.core.$strip>>>>;
+        messages: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
+            id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
+            content: z.ZodString;
+            sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
+            created_at: z.ZodString;
+            type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
+            is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        }, z.core.$strip>>>>;
+        unread_message_count: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        updated_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        created_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        preview_message: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
+            content: z.ZodString;
+            sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
+            created_at: z.ZodString;
+            type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
+            is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        }, z.core.$strip>>>;
+        sort_index: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        universe_id: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUniverseId", "out">>>;
+        participant_pending_status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        osa_acknowledgement_status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        user_opted_into_chat_messages: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strip>>;
+    next_cursor: z.ZodPipe<z.ZodOptional<z.ZodNullable<z.ZodString>>, z.ZodTransform<string | null, string | null | undefined>>;
+}, z.core.$strip>;
+declare const RobloxChatMessagePageRawSchema: z.ZodObject<{
+    messages: z.ZodArray<z.ZodObject<{
+        id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
+        content: z.ZodString;
+        sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
+        created_at: z.ZodString;
+        type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
+        is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strip>>;
+    next_cursor: z.ZodPipe<z.ZodOptional<z.ZodNullable<z.ZodString>>, z.ZodTransform<string | null, string | null | undefined>>;
+    previous_cursor: z.ZodPipe<z.ZodOptional<z.ZodNullable<z.ZodString>>, z.ZodTransform<string | null, string | null | undefined>>;
+}, z.core.$strip>;
+declare const RobloxChatConversationsResponseSchema: z.ZodObject<{
+    conversations: z.ZodArray<z.ZodObject<{
+        id: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxConversationId", "out">>;
+        type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        source: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        is_default_name: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        created_by: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>>;
+        participant_user_ids: z.ZodArray<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
+        user_data: z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodObject<{
+            id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+            name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            display_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            combined_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            is_verified: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        }, z.core.$strip>>>>;
+        messages: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
+            id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
+            content: z.ZodString;
+            sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
+            created_at: z.ZodString;
+            type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
+            is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        }, z.core.$strip>>>>;
+        unread_message_count: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        updated_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        created_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        preview_message: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
+            content: z.ZodString;
+            sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
+            created_at: z.ZodString;
+            type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
+            is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        }, z.core.$strip>>>;
+        sort_index: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+        universe_id: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUniverseId", "out">>>;
+        participant_pending_status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        osa_acknowledgement_status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        user_opted_into_chat_messages: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
+declare const RobloxChatConversationResultsResponseSchema: z.ZodObject<{
+    conversations: z.ZodArray<z.ZodObject<{
+        type: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
+        source: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
+        name: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
+        is_default_name: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodBoolean>>>;
+        created_by: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>>>;
+        user_data: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodObject<{
+            id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
+            name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            display_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            combined_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            is_verified: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        }, z.core.$strip>>>>>;
+        messages: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
+            id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
+            content: z.ZodString;
+            sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
+            created_at: z.ZodString;
+            type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
+            is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        }, z.core.$strip>>>>>;
+        unread_message_count: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodNumber>>>;
+        updated_at: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
+        created_at: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
+        moderation_type: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
+        preview_message: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
+            content: z.ZodString;
+            sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
+            created_at: z.ZodString;
+            type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
+            is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        }, z.core.$strip>>>>;
+        sort_index: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodNumber>>>;
+        universe_id: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUniverseId", "out">>>>;
+        participant_pending_status: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
+        osa_acknowledgement_status: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
+        user_opted_into_chat_messages: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
+        id: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxConversationId", "out">>>;
+        participant_user_ids: z.ZodOptional<z.ZodNullable<z.ZodArray<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>>>;
+        status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
+declare const RobloxChatSendResponseSchema: z.ZodObject<{
+    messages: z.ZodArray<z.ZodObject<{
+        id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
+        content: z.ZodString;
+        sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
+        created_at: z.ZodString;
+        type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
+        is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
+/** GET get-conversation-metadata — 안 읽은 수 */
+declare const RobloxChatUnreadCountsSchema: z.ZodObject<{
+    global_unread_message_count: z.ZodNumber;
+    global_unread_count: z.ZodNumber;
+}, z.core.$strip>;
+/**
+ * GET metadata — 계정의 채팅 설정과 서버 피처 플래그. 이것만 camelCase이고 필드가 수시로 바뀌어 모르는 키도 남긴다.
+ * `isChatVisible`/`isChatUserMessagesEnabled`가 false면 이 계정은 메시지를 보낼 수 없다 (실측: 나이 인증 안 한 봇 계정).
+ */
+declare const RobloxChatMetadataSchema: z.ZodObject<{
+    isChatEnabled: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    isChatEnabledByPrivacySetting: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    isGroupChatEnabledByPrivacySetting: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    isChatEnabledByGlobalRules: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    isChatVisible: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    isChatUserMessagesEnabled: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    maxConversationTitleLength: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    typingInChatFromSenderThrottleMs: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    typingInChatForReceiverExpirationMs: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    validMessageTypesWhiteList: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodString>>>;
+}, z.core.$loose>;
+type RobloxChatMessage = z.infer<typeof RobloxChatMessageSchema>;
+type RobloxChatUserData = z.infer<typeof RobloxChatUserDataSchema>;
+type RobloxChatConversation = z.infer<typeof RobloxChatConversationSchema>;
+type RobloxChatConversationResult = z.infer<typeof RobloxChatConversationResultSchema>;
+type RobloxChatUnreadCounts = z.infer<typeof RobloxChatUnreadCountsSchema>;
+type RobloxChatMetadata = z.infer<typeof RobloxChatMetadataSchema>;
+type RobloxChatConversationPage = {
+    conversations: RobloxChatConversation[];
+    nextCursor: string | null;
+};
+type RobloxChatMessagePage = {
+    messages: RobloxChatMessage[];
+    nextCursor: string | null;
+    previousCursor: string | null;
+};
+type RobloxChatPageQuery = {
+    pageSize?: number;
+    cursor?: string;
+};
+/** 새 대화. 참가자는 모두 친구여야 한다 (아니면 403 participants_not_friends) */
+type RobloxCreateConversationRequest = {
+    type: "one_to_one";
+    userId: RobloxUserId;
+} | {
+    type: "group";
+    userIds: RobloxUserId[];
+    name?: string;
+};
+type RobloxRenameConversationRequest = {
+    id: RobloxConversationId;
+    name: string;
+};
+/** 메시지 하나. 답장은 `repliesTo` */
+type RobloxSendMessageRequest = string | {
+    content: string;
+    repliesTo?: RobloxChatMessageId;
+};
+
 /** `BadgeAwardStatisticsResponse` */
 declare const RobloxBadgeStatisticsSchema: z.ZodObject<{
     pastDayAwardedCount: z.ZodNumber;
@@ -1989,232 +2627,6 @@ type RobloxCreateBadgeRequest = {
     isActive?: boolean;
     /** 배지 아이콘. 없으면 기본 아이콘으로 만든다 */
     icon?: Blob;
-};
-
-/** GET /v1/users/{userId}/friends — 한 번에 전부 (20회/분) */
-declare const RobloxFriendListResponseSchema: z.ZodObject<{
-    data: z.ZodPreprocess<z.ZodArray<z.ZodObject<{
-        id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-    }, z.core.$strip>>>;
-}, z.core.$strip>;
-/** GET /v1/users/{userId}/friends/find, /search — `CursoredPagedResult` (100회/분, 50개씩) */
-declare const RobloxFriendPageRawSchema: z.ZodObject<{
-    PreviousCursor: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxCursor", "out">>;
-    PageItems: z.ZodPreprocess<z.ZodArray<z.ZodObject<{
-        id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-        hasVerifiedBadge: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-    }, z.core.$strip>>>;
-    NextCursor: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxCursor", "out">>;
-    HasMore: z.ZodNullable<z.ZodBoolean>;
-}, z.core.$strip>;
-/** 팔로워/팔로잉 목록 — 실제로는 id만 온다 */
-declare const RobloxFollowPageSchema: z.ZodObject<{
-    previousPageCursor: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxCursor", "out">>;
-    nextPageCursor: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxCursor", "out">>;
-    data: z.ZodPreprocess<z.ZodArray<z.ZodObject<{
-        id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-    }, z.core.$strip>>>;
-}, z.core.$strip>;
-declare const RobloxCountResponseSchema: z.ZodObject<{
-    count: z.ZodNumber;
-}, z.core.$strip>;
-/** `FriendStatusResponse` */
-declare const RobloxFriendStatusSchema: z.ZodObject<{
-    id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-    status: z.ZodString;
-}, z.core.$strip>;
-declare const RobloxFriendStatusesResponseSchema: z.ZodObject<{
-    data: z.ZodArray<z.ZodObject<{
-        id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-        status: z.ZodString;
-    }, z.core.$strip>>;
-}, z.core.$strip>;
-/** `UserPresenceResponseModel` — 온라인 친구 목록의 presence. 필드 이름이 대문자로 시작하는 것도 있다 */
-declare const RobloxFriendPresenceSchema: z.ZodObject<{
-    UserPresenceType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    UserLocationType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    lastLocation: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    placeId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxPlaceId", "out">>>;
-    rootPlaceId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxPlaceId", "out">>>;
-    gameInstanceId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodUUID, "RobloxJobId", "out">>>;
-    universeId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUniverseId", "out">>>;
-    lastOnline: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-}, z.core.$strip>;
-/** `UserPresenceResponse` — GET /v1/users/{me}/friends/online 의 항목 */
-declare const RobloxOnlineFriendSchema: z.ZodObject<{
-    id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-    name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    sortScore: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
-    userPresence: z.ZodOptional<z.ZodNullable<z.ZodObject<{
-        UserPresenceType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        UserLocationType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        lastLocation: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        placeId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxPlaceId", "out">>>;
-        rootPlaceId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxPlaceId", "out">>>;
-        gameInstanceId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodUUID, "RobloxJobId", "out">>>;
-        universeId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUniverseId", "out">>>;
-        lastOnline: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    }, z.core.$strip>>>;
-}, z.core.$strip>;
-declare const RobloxOnlineFriendsResponseSchema: z.ZodObject<{
-    data: z.ZodPreprocess<z.ZodArray<z.ZodObject<{
-        id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-        name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        sortScore: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
-        userPresence: z.ZodOptional<z.ZodNullable<z.ZodObject<{
-            UserPresenceType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            UserLocationType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            lastLocation: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            placeId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxPlaceId", "out">>>;
-            rootPlaceId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxPlaceId", "out">>>;
-            gameInstanceId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodUUID, "RobloxJobId", "out">>>;
-            universeId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUniverseId", "out">>>;
-            lastOnline: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        }, z.core.$strip>>>;
-    }, z.core.$strip>>>;
-}, z.core.$strip>;
-/** `FriendRequestResponse` — 받은 친구 요청 */
-declare const RobloxFriendRequestSchema: z.ZodObject<{
-    id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-    name: z.ZodString;
-    displayName: z.ZodString;
-    hasVerifiedBadge: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-    description: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    created: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    isBanned: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-    isUnseen: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-    mutualFriendsList: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodString>>>;
-    friendRequest: z.ZodOptional<z.ZodNullable<z.ZodObject<{
-        sentAt: z.ZodString;
-        senderId: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-        sourceUniverseId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUniverseId", "out">>>;
-        originSourceType: z.ZodOptional<z.ZodNullable<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>>;
-        contactName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        senderNickname: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    }, z.core.$strip>>>;
-}, z.core.$strip>;
-declare const RobloxFriendRequestPageSchema: z.ZodObject<{
-    previousPageCursor: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxCursor", "out">>;
-    nextPageCursor: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxCursor", "out">>;
-    data: z.ZodArray<z.ZodObject<{
-        id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-        name: z.ZodString;
-        displayName: z.ZodString;
-        hasVerifiedBadge: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        description: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        created: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        isBanned: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        isUnseen: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        mutualFriendsList: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodString>>>;
-        friendRequest: z.ZodOptional<z.ZodNullable<z.ZodObject<{
-            sentAt: z.ZodString;
-            senderId: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-            sourceUniverseId: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUniverseId", "out">>>;
-            originSourceType: z.ZodOptional<z.ZodNullable<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>>;
-            contactName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            senderNickname: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        }, z.core.$strip>>>;
-    }, z.core.$strip>>;
-}, z.core.$strip>;
-/** `TrustedFriendRequestResponse` */
-declare const RobloxTrustedFriendRequestPageSchema: z.ZodObject<{
-    previousPageCursor: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxCursor", "out">>;
-    nextPageCursor: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxCursor", "out">>;
-    data: z.ZodArray<z.ZodObject<{
-        sentAt: z.ZodString;
-        senderId: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-    }, z.core.$strip>>;
-}, z.core.$strip>;
-/** `FollowingExistsResponse` */
-declare const RobloxFollowingStatusSchema: z.ZodObject<{
-    userId: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-    isFollowing: z.ZodBoolean;
-    isFollowed: z.ZodBoolean;
-}, z.core.$strip>;
-declare const RobloxFollowingExistsResponseSchema: z.ZodObject<{
-    followings: z.ZodArray<z.ZodObject<{
-        userId: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-        isFollowing: z.ZodBoolean;
-        isFollowed: z.ZodBoolean;
-    }, z.core.$strip>>;
-}, z.core.$strip>;
-/** POST apis /user-blocking-api/v1/users/batch-check-reciprocal-block 의 항목 */
-declare const RobloxBlockStatusSchema: z.ZodObject<{
-    userId: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-    isBlocked: z.ZodBoolean;
-    isBlockingViewer: z.ZodBoolean;
-}, z.core.$strip>;
-declare const RobloxBlockStatusesResponseSchema: z.ZodObject<{
-    users: z.ZodArray<z.ZodObject<{
-        userId: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-        isBlocked: z.ZodBoolean;
-        isBlockingViewer: z.ZodBoolean;
-    }, z.core.$strip>>;
-}, z.core.$strip>;
-/** `FriendsPageMetadataResponse` */
-declare const RobloxFriendsMetadataSchema: z.ZodObject<{
-    isFriendsFilterBarEnabled: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-    isFriendsPageSortExperimentEnabled: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-    isFriendsUserDataStoreCacheEnabled: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-    frequentFriendSortRollout: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
-    userName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-}, z.core.$strip>;
-/** `CaptchaStatusResponseModel` — POST follow */
-declare const RobloxCaptchaStatusSchema: z.ZodObject<{
-    success: z.ZodBoolean;
-    isCaptchaRequired: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-    notificationMuted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-}, z.core.$strip>;
-/** `getFriends` 결과 — 친구 목록에 users 정보를 채운 것 */
-type RobloxUserFriends<U extends RobloxUser = RobloxUser> = {
-    userId: RobloxUserId;
-    friends: U[];
-};
-type RobloxFriendStatus = z.infer<typeof RobloxFriendStatusSchema>;
-type RobloxOnlineFriend = z.infer<typeof RobloxOnlineFriendSchema>;
-type RobloxFriendPresence = z.infer<typeof RobloxFriendPresenceSchema>;
-type RobloxFriendRequest = z.infer<typeof RobloxFriendRequestSchema>;
-type RobloxFriendRequestPage = z.infer<typeof RobloxFriendRequestPageSchema>;
-type RobloxTrustedFriendRequestPage = z.infer<typeof RobloxTrustedFriendRequestPageSchema>;
-type RobloxFollowPage = z.infer<typeof RobloxFollowPageSchema>;
-type RobloxFollowingStatus = z.infer<typeof RobloxFollowingStatusSchema>;
-type RobloxBlockStatus = z.infer<typeof RobloxBlockStatusSchema>;
-type RobloxFriendsMetadata = z.infer<typeof RobloxFriendsMetadataSchema>;
-type RobloxCaptchaStatus = z.infer<typeof RobloxCaptchaStatusSchema>;
-type RobloxFriendPage = {
-    previousPageCursor: RobloxCursor | null;
-    nextPageCursor: RobloxCursor | null;
-    data: {
-        id: RobloxUserId;
-        hasVerifiedBadge: boolean | null;
-    }[];
-};
-type RobloxFollowPageQuery = {
-    limit?: 10 | 18 | 25 | 50 | 100;
-    cursor?: RobloxCursor;
-    sortOrder?: RobloxSortOrder;
-};
-type RobloxFriendSearchQuery = {
-    query: string;
-    limit?: number;
-    cursor?: RobloxCursor;
-};
-type RobloxFriendRequestsQuery = {
-    limit?: number;
-    cursor?: RobloxCursor;
-    /** 0/1/2 — 스펙에 의미가 적혀 있지 않다 */
-    friendRequestSort?: 0 | 1 | 2;
-    uprankUnseen?: boolean;
-};
-/** POST follow에 캡차가 걸렸을 때 같이 보낸다 */
-type RobloxCaptchaTokenRequest = {
-    captchaId?: string;
-    captchaToken?: string;
-    captchaProvider?: string;
-    challengeId?: string;
 };
 
 /** 그룹 역할(roleset) ID. 2^31을 넘는 값도 있다 */
@@ -3718,7 +4130,26 @@ type RobloxCacheEntry = Entry<"users", "getUserDetails", {
 }, RobloxUserByName> | Entry<"users", "getUsernameHistory", {
     userId: RobloxUserId;
     query: RobloxUsernameHistoryQuery;
-}, RobloxUsernameHistoryResponse> | Entry<"thumbnails", "get", {
+}, RobloxUsernameHistoryResponse> | Entry<"users", "searchUsers", {
+    query: RobloxUserSearchQuery;
+}, RobloxUserSearchResponse> | Entry<"users", "getProfileActions", {
+    viewer: RobloxViewerKey;
+    userId: RobloxUserId;
+}, RobloxProfileActions> | Entry<"users", "getAuthenticated", {
+    viewer: RobloxViewerKey;
+}, RobloxAuthenticatedUser> | Entry<"users", "getAgeBracket", {
+    viewer: RobloxViewerKey;
+}, RobloxAgeBracket> | Entry<"users", "getCountryCode", {
+    viewer: RobloxViewerKey;
+}, RobloxUserCountryCode["countryCode"]> | Entry<"users", "getRoles", {
+    viewer: RobloxViewerKey;
+}, RobloxUserRoles["roles"]> | Entry<"users", "getBirthdate", {
+    viewer: RobloxViewerKey;
+}, RobloxBirthdate> | Entry<"users", "getDescription", {
+    viewer: RobloxViewerKey;
+}, RobloxUserDescription["description"]> | Entry<"users", "getGender", {
+    viewer: RobloxViewerKey;
+}, RobloxUserGender["gender"]> | Entry<"thumbnails", "get", {
     target: RobloxThumbnailTarget;
 }, RobloxThumbnail> | Entry<"thumbnails", "getGameThumbnails", {
     universeId: RobloxUniverseId;
@@ -3779,7 +4210,31 @@ type RobloxCacheEntry = Entry<"users", "getUserDetails", {
     query: RobloxGameListQuery;
 }, RobloxGameSummaryPage> | Entry<"games", "getPrivateServersEnabled", {
     universeId: RobloxUniverseId;
-}, boolean> | Entry<"friends", "getFriends", {
+}, boolean> | Entry<"games", "getFavorited", {
+    viewer: RobloxViewerKey;
+    universeId: RobloxUniverseId;
+}, boolean> | Entry<"games", "getUserVotes", {
+    viewer: RobloxViewerKey;
+    universeId: RobloxUniverseId;
+}, RobloxUserGameVote> | Entry<"games", "getFollowing", {
+    viewer: RobloxViewerKey;
+    universeId: RobloxUniverseId;
+}, RobloxGameFollowStatus>
+/** 값은 플레이어 헤드샷을 붙이기 전의 응답이다 (플레이어 토큰이 들어 있다) */
+ | Entry<"games", "getPrivateServers", {
+    viewer: RobloxViewerKey;
+    placeId: RobloxPlaceId;
+    query: RobloxPrivateServerPageQuery;
+}, z.output<typeof RobloxPrivateServerPageRawSchema>> | Entry<"games", "getMyPrivateServers", {
+    viewer: RobloxViewerKey;
+    query: RobloxMyPrivateServersQuery;
+}, RobloxMyPrivateServerPage> | Entry<"games", "getPrivateServerDetails", {
+    viewer: RobloxViewerKey;
+    privateServerId: RobloxPrivateServerId;
+}, RobloxPrivateServerDetail> | Entry<"games", "getPrivateServerInvites", {
+    viewer: RobloxViewerKey;
+    userId: RobloxUserId;
+}, RobloxPrivateServerInvite> | Entry<"friends", "getFriends", {
     userId: RobloxUserId;
 }, RobloxUserId[]> | Entry<"friends", "getFriendCounts", {
     userId: RobloxUserId;
@@ -3787,6 +4242,44 @@ type RobloxCacheEntry = Entry<"users", "getUserDetails", {
     userId: RobloxUserId;
 }, number> | Entry<"friends", "getFollowingCounts", {
     userId: RobloxUserId;
+}, number> | Entry<"friends", "getFollowers", {
+    userId: RobloxUserId;
+    query: RobloxFollowPageQuery;
+}, RobloxFollowPage> | Entry<"friends", "getFollowings", {
+    userId: RobloxUserId;
+    query: RobloxFollowPageQuery;
+}, RobloxFollowPage> | Entry<"friends", "getMetadata", {
+    targetUserId: RobloxUserId;
+}, RobloxFriendsMetadata> | Entry<"friends", "searchFriends", {
+    viewer: RobloxViewerKey;
+    userId: RobloxUserId;
+    query: RobloxFriendSearchQuery;
+}, RobloxFriendPage> | Entry<"friends", "getFriendStatuses", {
+    viewer: RobloxViewerKey;
+    userId: RobloxUserId;
+}, RobloxFriendStatus> | Entry<"friends", "getAreFriends", {
+    viewer: RobloxViewerKey;
+    userId: RobloxUserId;
+}, boolean> | Entry<"friends", "getFollowingStatuses", {
+    viewer: RobloxViewerKey;
+    userId: RobloxUserId;
+}, RobloxFollowingStatus> | Entry<"friends", "getBlockStatuses", {
+    viewer: RobloxViewerKey;
+    userId: RobloxUserId;
+}, RobloxBlockStatus> | Entry<"friends", "getOnlineFriends", {
+    viewer: RobloxViewerKey;
+}, RobloxOnlineFriend[]> | Entry<"friends", "getInactiveFriends", {
+    viewer: RobloxViewerKey;
+}, RobloxUserId[]> | Entry<"friends", "getFriendRequests", {
+    viewer: RobloxViewerKey;
+    query: RobloxFriendRequestsQuery;
+}, RobloxFriendRequestPage> | Entry<"friends", "getTrustedFriendRequests", {
+    viewer: RobloxViewerKey;
+    query: RobloxTrustedFriendRequestsQuery;
+}, RobloxTrustedFriendRequestPage> | Entry<"friends", "getFriendRequestCount", {
+    viewer: RobloxViewerKey;
+    unseen: boolean;
+    trusted: boolean;
 }, number> | Entry<"groups", "getGroups", {
     groupId: RobloxGroupId;
 }, RobloxGroup> | Entry<"groups", "getGroupDetails", {
@@ -3797,12 +4290,147 @@ type RobloxCacheEntry = Entry<"users", "getUserDetails", {
     roleId: RobloxGroupRoleId;
 }, RobloxGroupRoleDetail> | Entry<"groups", "getUserGroups", {
     userId: RobloxUserId;
-}, RobloxUserGroupRole[]> | Entry<"badges", "getBadges", {
+}, RobloxUserGroupRole[]> | Entry<"groups", "getPrimaryGroups", {
+    userId: RobloxUserId;
+}, RobloxPrimaryGroup> | Entry<"groups", "getMembers", {
+    groupId: RobloxGroupId;
+    query: RobloxGroupPageQuery;
+}, RobloxGroupMemberPage> | Entry<"groups", "getRoleMembers", {
+    groupId: RobloxGroupId;
+    roleId: RobloxGroupRoleId;
+    query: RobloxGroupPageQuery;
+}, RobloxGroupUserPage> | Entry<"groups", "searchGroups", {
+    query: RobloxGroupSearchQuery;
+}, RobloxGroupSearchPage> | Entry<"groups", "lookupGroups", {
+    groupName: string;
+}, z.output<typeof RobloxGroupLookupResponseSchema>["data"]> | Entry<"groups", "getNameHistory", {
+    groupId: RobloxGroupId;
+    query: RobloxGroupPageQuery;
+}, RobloxGroupNameHistoryPage> | Entry<"groups", "getRelationships", {
+    groupId: RobloxGroupId;
+    type: RobloxGroupRelationshipType;
+    query: RobloxGroupRelationshipsQuery;
+}, RobloxGroupRelationships> | Entry<"groups", "getGuestPermissions", {
+    groupId: RobloxGroupId;
+}, RobloxGroupRolePermissions> | Entry<"groups", "getFeatureFreezes", {
+    groupId: RobloxGroupId;
+}, RobloxGroupFeatureFreeze[]> | Entry<"groups", "getFeaturedEvents", {
+    groupId: RobloxGroupId;
+}, RobloxGroupFeaturedEvent> | Entry<"groups", "getSocialLinks", {
+    groupId: RobloxGroupId;
+}, RobloxGroupSocialLink[]> | Entry<"groups", "getEmotes", {
+    groupId: RobloxGroupId;
+}, RobloxGroupEmoteSet[]> | Entry<"groups", "getConfigurationMetadata", {}, RobloxGroupConfigurationMetadata> | Entry<"groups", "getSearchMetadata", {}, RobloxGroupSearchMetadata> | Entry<"groups", "getMetadata", {
+    viewer: RobloxViewerKey;
+}, RobloxGroupsMetadata> | Entry<"groups", "getMemberships", {
+    viewer: RobloxViewerKey;
+    groupId: RobloxGroupId;
+}, RobloxGroupMembership> | Entry<"groups", "getPolicies", {
+    viewer: RobloxViewerKey;
+    groupId: RobloxGroupId;
+}, boolean> | Entry<"groups", "getPendingGroups", {
+    viewer: RobloxViewerKey;
+}, RobloxGroupDetailPartial[]> | Entry<"groups", "getFriendsGroups", {
+    viewer: RobloxViewerKey;
+}, z.output<typeof RobloxFriendsGroupsResponseSchema>["data"]> | Entry<"groups", "getRolePermissions", {
+    viewer: RobloxViewerKey;
+    groupId: RobloxGroupId;
+    roleId: RobloxGroupRoleId;
+}, RobloxGroupRolePermissions> | Entry<"groups", "getUserPermissions", {
+    viewer: RobloxViewerKey;
+    groupId: RobloxGroupId;
+    userId: RobloxUserId;
+}, RobloxGroupRolePermissions & {
+    userId: RobloxUserId;
+}> | Entry<"groups", "getJoinRequests", {
+    viewer: RobloxViewerKey;
+    groupId: RobloxGroupId;
+    query: RobloxGroupPageQuery;
+}, RobloxGroupJoinRequestPage> | Entry<"groups", "getJoinRequestsByUsers", {
+    viewer: RobloxViewerKey;
+    groupId: RobloxGroupId;
+    userId: RobloxUserId;
+}, RobloxGroupJoinRequest> | Entry<"groups", "getBans", {
+    viewer: RobloxViewerKey;
+    groupId: RobloxGroupId;
+    query: RobloxGroupPageQuery;
+}, RobloxGroupBanPage> | Entry<"groups", "getBannedUsers", {
+    viewer: RobloxViewerKey;
+    groupId: RobloxGroupId;
+    userId: RobloxUserId;
+}, RobloxGroupBan> | Entry<"groups", "getAuditLog", {
+    viewer: RobloxViewerKey;
+    groupId: RobloxGroupId;
+    query: RobloxGroupAuditLogQuery;
+}, RobloxGroupAuditLogPage> | Entry<"groups", "getSettings", {
+    viewer: RobloxViewerKey;
+    groupId: RobloxGroupId;
+}, RobloxGroupSettings> | Entry<"groups", "getConfigurations", {
+    viewer: RobloxViewerKey;
+    groupId: RobloxGroupId;
+}, RobloxGroupConfiguration> | Entry<"groups", "getFeatures", {
+    viewer: RobloxViewerKey;
+    groupId: RobloxGroupId;
+}, RobloxGroupFeatures> | Entry<"groups", "getFeaturesBlocked", {
+    viewer: RobloxViewerKey;
+    groupId: RobloxGroupId;
+}, boolean> | Entry<"groups", "getKeywords", {
+    viewer: RobloxViewerKey;
+    groupId: RobloxGroupId;
+    query: RobloxGroupPageQuery;
+}, RobloxGroupKeywordPage> | Entry<"groups", "getRelationshipRequests", {
+    viewer: RobloxViewerKey;
+    groupId: RobloxGroupId;
+    type: RobloxGroupRelationshipType;
+    query: RobloxGroupRelationshipsQuery;
+}, RobloxGroupRelationships> | Entry<"groups", "getPayouts", {
+    viewer: RobloxViewerKey;
+    groupId: RobloxGroupId;
+}, RobloxGroupPayout[]> | Entry<"groups", "getPayoutRestrictions", {
+    viewer: RobloxViewerKey;
+    groupId: RobloxGroupId;
+}, RobloxGroupPayoutRestriction> | Entry<"chat", "getConversations", {
+    viewer: RobloxViewerKey;
+    conversationId: RobloxConversationId;
+}, RobloxChatConversation> | Entry<"chat", "listConversations", {
+    viewer: RobloxViewerKey;
+    query: RobloxChatPageQuery;
+}, RobloxChatConversationPage> | Entry<"chat", "searchConversations", {
+    viewer: RobloxViewerKey;
+    query: string;
+    page: RobloxChatPageQuery;
+}, RobloxChatConversationPage> | Entry<"chat", "getMessages", {
+    viewer: RobloxViewerKey;
+    conversationId: RobloxConversationId;
+    query: RobloxChatPageQuery;
+}, RobloxChatMessagePage> | Entry<"chat", "searchMessages", {
+    viewer: RobloxViewerKey;
+    conversationId: RobloxConversationId;
+    query: string;
+    page: RobloxChatPageQuery;
+}, RobloxChatMessagePage> | Entry<"chat", "getUnreadCounts", {
+    viewer: RobloxViewerKey;
+}, RobloxChatUnreadCounts> | Entry<"chat", "getMetadata", {
+    viewer: RobloxViewerKey;
+}, RobloxChatMetadata> | Entry<"trades", "canTradeWith", {
+    viewer: RobloxViewerKey;
+    userId: RobloxUserId;
+}, RobloxCanTrade> | Entry<"badges", "getBadges", {
     badgeId: RobloxBadgeId;
 }, RobloxBadge> | Entry<"badges", "getAwardedDates", {
     userId: RobloxUserId;
     badgeId: RobloxBadgeId;
-}, string>;
+}, string> | Entry<"badges", "getUniverseBadges", {
+    universeId: RobloxUniverseId;
+    query: RobloxUniverseBadgesQuery;
+}, z.output<typeof RobloxBadgePageSchema>> | Entry<"badges", "getMetadata", {}, RobloxBadgeMetadata> | Entry<"badges", "getUserBadges", {
+    viewer: RobloxViewerKey;
+    userId: RobloxUserId;
+    query: RobloxBadgePageQuery;
+}, z.output<typeof RobloxUserBadgePageSchema>> | Entry<"badges", "getFreeQuotas", {
+    viewer: RobloxViewerKey;
+    universeId: RobloxUniverseId;
+}, number>;
 /** 저장소에 넘어가는 분류 데이터. `info.service`, `info.method`로 좁히면 나머지 필드의 타입이 정해진다. */
 type RobloxCacheInfo = RobloxCacheEntry["info"];
 /** `"서비스.메서드"` → 저장되는 값 */
@@ -3818,7 +4446,7 @@ type RobloxCacheValue<I extends RobloxCacheInfo> = I extends RobloxCacheInfo ? `
  *   같은 요청이면 항상 같은 문자열이고, 라이브러리 버전이 바뀌면 달라진다 (값 모양이 바뀌었을 수 있다).
  *   `games.getServerLocations`는 값이 사용자 콜백의 것이라 버전이 붙지 않는다.
  * - `info`는 분류용이다. 서비스/메서드마다 다른 곳에 두거나 인자를 보고 다룰 때 쓴다. 안 쓰면 무시한다.
- * - TTL이 0인 메서드도 get/set이 그대로 불린다. 0을 "저장하지 않음"으로 볼지 "만료 없음" 등으로 볼지는 저장소가 정한다.
+ * - TTL이 0 이하인 메서드는 get/set이 불리지 않는다 (캐시하지 않음). 만료 없이 두려면 `Infinity`를 쓴다.
  *
  * ```ts
  * get(key, info) {
@@ -4087,7 +4715,7 @@ declare class RobloxThumbnailsApi {
 }
 
 /** `.ttl({ users: { ... } })`로 캐시할 수 있는 메서드. 배열을 받는 메서드는 항목 하나씩 캐시한다. */
-type RobloxUsersCacheable = "getUserDetails" | "getUsers" | "getUsersByNames" | "getUsernameHistory";
+type RobloxUsersCacheable = "getUserDetails" | "getUsers" | "getUsersByNames" | "getUsernameHistory" | "searchUsers" | "getProfileActions" | "getAuthenticated" | "getAgeBracket" | "getCountryCode" | "getRoles" | "getBirthdate" | "getDescription" | "getGender";
 /** users.roblox.com */
 declare class RobloxUsersApi {
     private readonly config;
@@ -4160,9 +4788,15 @@ declare class RobloxUsersApi {
     /**
      * POST apis /profile-platform-api/v1/profiles/get — roblox.com 프로필 화면이 쓰는 비공개 엔드포인트.
      * 요청 계정이 이 유저의 프로필에서 볼 헤더 버튼과 "…" 메뉴 항목. 관계(친구, 팔로우, 차단, 신뢰하는 친구)와
-     * 계정 조건(연령, 거래 자격)에 따라 서버가 고른다. 계정마다 다르고 바로 바뀌므로 캐시하지 않는다.
+     * 계정 조건(연령, 거래 자격)에 따라 서버가 고른다. 계정마다 다르고 바로 바뀌므로 기본 TTL은 0이다.
      */
-    getProfileActions(userId: RobloxUserId): Promise<RobloxProfileActions>;
+    getProfileActions(userId: RobloxUserId): Promise<{
+        buttons: {
+            type: string;
+            disabledReason: string | null;
+        }[];
+        contextual: string[][];
+    }>;
     /** GET /v1/users/authenticated */
     getAuthenticated(): Promise<{
         id: number & z.core.$brand<"RobloxUserId">;
@@ -4215,7 +4849,7 @@ declare class RobloxPresenceApi {
 }
 
 /** `.ttl({ games: { ... } })`로 캐시할 수 있는 메서드. 배열을 받는 메서드는 항목 하나씩 캐시한다. */
-type RobloxGamesCacheable = "getGames" | "getUniverseIds" | "getPlaceDetails" | "getProductInfo" | "getPlayability" | "getVotes" | "getFavoriteCounts" | "getMedia" | "getSocialLinks" | "getServerAddresses" | "getServerLocations" | "getServerPage" | "getRecommendations" | "getUserGames" | "getUserFavoriteGames" | "getGroupGames" | "getPrivateServersEnabled";
+type RobloxGamesCacheable = "getGames" | "getUniverseIds" | "getPlaceDetails" | "getProductInfo" | "getPlayability" | "getVotes" | "getFavoriteCounts" | "getMedia" | "getSocialLinks" | "getServerAddresses" | "getServerLocations" | "getServerPage" | "getRecommendations" | "getUserGames" | "getUserFavoriteGames" | "getGroupGames" | "getPrivateServersEnabled" | "getFavorited" | "getUserVotes" | "getFollowing" | "getPrivateServers" | "getMyPrivateServers" | "getPrivateServerDetails" | "getPrivateServerInvites";
 /** `getServers` 옵션 */
 type RobloxGetServersOptions = RobloxServerPageQuery & {
     /**
@@ -4477,7 +5111,7 @@ declare class RobloxGamesApi<L = unknown> {
 }
 
 /** `.ttl({ friends: { ... } })`로 캐시할 수 있는 메서드. 배열을 받는 메서드는 항목 하나씩 캐시한다. */
-type RobloxFriendsCacheable = "getFriends" | "getFriendCounts" | "getFollowerCounts" | "getFollowingCounts";
+type RobloxFriendsCacheable = "getFriends" | "getFriendCounts" | "getFollowerCounts" | "getFollowingCounts" | "getFollowers" | "getFollowings" | "getMetadata" | "searchFriends" | "getFriendStatuses" | "getAreFriends" | "getFollowingStatuses" | "getBlockStatuses" | "getOnlineFriends" | "getInactiveFriends" | "getFriendRequests" | "getTrustedFriendRequests" | "getFriendRequestCount";
 /** friends.roblox.com */
 declare class RobloxFriendsApi {
     private readonly config;
@@ -4492,6 +5126,7 @@ declare class RobloxFriendsApi {
     private readonly statuses;
     private readonly areFriends;
     private readonly followings;
+    private readonly blocks;
     /** viewer → 인증된 내 id */
     private readonly me;
     constructor(config: RobloxConfig, users: RobloxUsersApi);
@@ -4513,16 +5148,6 @@ declare class RobloxFriendsApi {
     }): Promise<RobloxUserFriends[]>;
     /** GET /v1/users/{userId}/friends/count */
     getFriendCounts(userIds: readonly RobloxUserId[]): Promise<{
-        userId: RobloxUserId;
-        count: number;
-    }[]>;
-    /** GET /v1/users/{userId}/followers/count */
-    getFollowerCounts(userIds: readonly RobloxUserId[]): Promise<{
-        userId: RobloxUserId;
-        count: number;
-    }[]>;
-    /** GET /v1/users/{userId}/followings/count */
-    getFollowingCounts(userIds: readonly RobloxUserId[]): Promise<{
         userId: RobloxUserId;
         count: number;
     }[]>;
@@ -4553,6 +5178,8 @@ declare class RobloxFriendsApi {
         userName?: string | null | undefined;
         displayName?: string | null | undefined;
     }>;
+    /** Caches item by item per requesting account. Failed items become null and are collected in errors */
+    private mine;
     /** GET /v1/users/{me}/friends/statuses — 나와의 관계 ("Friends", "RequestSent" 등) */
     getFriendStatuses(userIds: readonly RobloxUserId[]): Promise<RobloxFriendStatus[]>;
     /** 나와 친구인지. multiget-are-friends와 statuses를 나눠 쓴다. */
@@ -4564,11 +5191,26 @@ declare class RobloxFriendsApi {
     getFollowingStatuses(userIds: readonly RobloxUserId[]): Promise<RobloxFollowingStatus[]>;
     /**
      * POST apis /user-blocking-api/v1/users/batch-check-reciprocal-block — 내가 차단했는지 / 나를 차단했는지.
-     * 결과는 입력 순서이고, 서버가 답하지 않은 유저는 뺀다. 캐시하지 않는다 (차단은 바로 바뀐다).
+     * 결과는 입력 순서이고, 서버가 답하지 않은 유저는 뺀다. 차단은 바로 바뀌므로 기본 TTL은 0이다.
      */
     getBlockStatuses(userIds: readonly RobloxUserId[]): Promise<RobloxBlockStatus[]>;
     /** GET /v1/users/{me}/friends/online — 지금 접속 중인 내 친구와 위치 */
-    getOnlineFriends(): Promise<RobloxOnlineFriend[]>;
+    getOnlineFriends(): Promise<{
+        id: number & z.core.$brand<"RobloxUserId">;
+        name?: string | null | undefined;
+        displayName?: string | null | undefined;
+        sortScore?: number | null | undefined;
+        userPresence?: {
+            UserPresenceType?: string | null | undefined;
+            UserLocationType?: string | null | undefined;
+            lastLocation?: string | null | undefined;
+            placeId?: (number & z.core.$brand<"RobloxPlaceId">) | null | undefined;
+            rootPlaceId?: (number & z.core.$brand<"RobloxPlaceId">) | null | undefined;
+            gameInstanceId?: (string & z.core.$brand<"RobloxJobId">) | null | undefined;
+            universeId?: (number & z.core.$brand<"RobloxUniverseId">) | null | undefined;
+            lastOnline?: string | null | undefined;
+        } | null | undefined;
+    }[]>;
     /** GET /v1/users/{me}/friends/inactive — 오래 접속하지 않은 내 친구 */
     getInactiveFriends(): Promise<(number & z.core.$brand<"RobloxUserId">)[]>;
     /** GET /v1/my/friends/requests — 받은 친구 요청 */
@@ -4596,11 +5238,7 @@ declare class RobloxFriendsApi {
         }[];
     }>;
     /** GET /v1/my/trusted-friends/requests — 받은 신뢰하는 친구 요청 */
-    getTrustedFriendRequests(query?: {
-        limit?: number;
-        cursor?: RobloxCursor;
-        sortOrder?: 0 | 1;
-    }): Promise<{
+    getTrustedFriendRequests(query?: RobloxTrustedFriendRequestsQuery): Promise<{
         previousPageCursor: (string & z.core.$brand<"RobloxCursor">) | null;
         nextPageCursor: (string & z.core.$brand<"RobloxCursor">) | null;
         data: {
@@ -5962,7 +6600,7 @@ declare class RobloxFriendsApi {
 }
 
 /** `.ttl({ groups: { ... } })`로 캐시할 수 있는 메서드. 배열을 받는 메서드는 항목 하나씩 캐시한다. */
-type RobloxGroupsCacheable = "getGroups" | "getGroupDetails" | "getRoles" | "getRolesByIds" | "getUserGroups";
+type RobloxGroupsCacheable = "getGroups" | "getGroupDetails" | "getRoles" | "getRolesByIds" | "getUserGroups" | "getPrimaryGroups" | "getMembers" | "getRoleMembers" | "searchGroups" | "lookupGroups" | "getNameHistory" | "getRelationships" | "getGuestPermissions" | "getFeatureFreezes" | "getFeaturedEvents" | "getSocialLinks" | "getEmotes" | "getConfigurationMetadata" | "getSearchMetadata" | "getMetadata" | "getMemberships" | "getPolicies" | "getPendingGroups" | "getFriendsGroups" | "getRolePermissions" | "getUserPermissions" | "getJoinRequests" | "getJoinRequestsByUsers" | "getBans" | "getBannedUsers" | "getAuditLog" | "getSettings" | "getConfigurations" | "getFeatures" | "getFeaturesBlocked" | "getKeywords" | "getRelationshipRequests" | "getPayouts" | "getPayoutRestrictions";
 /** groups.roblox.com */
 declare class RobloxGroupsApi {
     private readonly config;
@@ -6000,7 +6638,12 @@ declare class RobloxGroupsApi {
     private myId;
     /** 항목 하나씩 캐시하며 batcher로 보낸다. 분류 데이터의 id 필드 이름은 메서드마다 다르다 */
     private each;
-    /** 대상마다 batcher로 보내고 없는 대상은 뺀다. 일부가 실패하면 RobloxError(PARTIAL) */
+    /**
+     * Caches item by item. `info` gives the cache info fields of one item; with `byViewer` the requesting account is added
+     * (and nothing is cached while cookies rotate). Failed items become null and are collected in errors
+     */
+    private cachedEach;
+    /** 대상마다 batcher로 보내고(항목 하나씩 캐시) 없는 대상은 뺀다. 일부가 실패하면 RobloxError(PARTIAL) */
     private many;
     /** 그룹들을 받아 실패가 있으면 RobloxError(PARTIAL)로 던진다. `option`이 있으면 아이콘을 붙이고, 아이콘을 받지 못한 그룹은 `thumbnail: null`이다 */
     private attach;
@@ -6226,7 +6869,49 @@ declare class RobloxGroupsApi {
         emoteSets: RobloxGroupEmoteSet[];
     }[]>;
     /** GET /v1/user/groups/pending — 가입을 요청해 둔 그룹 */
-    getPendingGroups(): Promise<RobloxGroupDetailPartial[]>;
+    getPendingGroups(): Promise<{
+        id: number & z.core.$brand<"RobloxGroupId">;
+        name: string;
+        description: string;
+        owner: {
+            userId: number & z.core.$brand<"RobloxUserId">;
+            username: string;
+            displayName: string;
+            hasVerifiedBadge: boolean;
+        } | null;
+        shout: {
+            body: string;
+            poster: {
+                userId: number & z.core.$brand<"RobloxUserId">;
+                username: string;
+                displayName: string;
+                hasVerifiedBadge: boolean;
+            } | null;
+            created: string;
+            updated: string;
+        } | null;
+        isBuildersClubOnly: boolean;
+        publicEntryAllowed: boolean;
+        hasVerifiedBadge: boolean;
+        isLocked?: boolean | null | undefined;
+        isDeactivated?: boolean | null | undefined;
+        hasSocialModules?: boolean | null | undefined;
+        communityTier?: {
+            groupId: number & z.core.$brand<"RobloxGroupId">;
+            currentTier: number | null;
+            previousTier: number | null;
+            tierUpdatedTime: string | null;
+            lastEvaluatedTime: string | null;
+            requirements?: {
+                key: number;
+                satisfied: boolean;
+            }[] | null | undefined;
+            capabilities?: {
+                isEligibleForUnrestrictedMessages: boolean;
+            } | null | undefined;
+        } | null | undefined;
+        memberCount?: number | null | undefined;
+    }[]>;
     /** GET /v1/users/{me}/friends/groups/roles — 내 친구들이 속한 그룹. 다른 유저로는 403이다 */
     getFriendsGroups(): Promise<{
         user: {
@@ -8002,7 +8687,7 @@ declare class RobloxGroupsApi {
 }
 
 /** `.ttl({ badges: { ... } })`로 캐시할 수 있는 메서드. 배열을 받는 메서드는 항목 하나씩 캐시한다. */
-type RobloxBadgesCacheable = "getBadges" | "getAwardedDates";
+type RobloxBadgesCacheable = "getBadges" | "getAwardedDates" | "getUniverseBadges" | "getMetadata" | "getUserBadges" | "getFreeQuotas";
 /** badges.roblox.com */
 declare class RobloxBadgesApi {
     private readonly config;
@@ -8144,500 +8829,8 @@ declare class RobloxBadgesApi {
     removeBadge(badgeId: RobloxBadgeId): Promise<void>;
 }
 
-type RobloxMode = "extension" | "node";
-type RobloxRetryOptions = {
-    /** 요청당 최대 시도 횟수. 기본 5 */
-    maxAttempts?: number;
-    /** 시도당 타임아웃(ms). 기본 20000 */
-    timeout?: number;
-};
-/** 서비스 → 메서드 → TTL(ms). 적지 않은 메서드는 기본값(`RobloxDefaultTtl`)을 쓴다. 0이어도 저장소의 get/set은 불린다 (0의 처리는 저장소가 정한다). */
-type RobloxTtl = {
-    users?: Partial<Record<RobloxUsersCacheable, number>>;
-    thumbnails?: Partial<Record<RobloxThumbnailsCacheable, number>>;
-    presence?: Partial<Record<RobloxPresenceCacheable, number>>;
-    games?: Partial<Record<RobloxGamesCacheable, number>>;
-    friends?: Partial<Record<RobloxFriendsCacheable, number>>;
-    groups?: Partial<Record<RobloxGroupsCacheable, number>>;
-    badges?: Partial<Record<RobloxBadgesCacheable, number>>;
-};
-/**
- * 기본 TTL(ms). `.cache(store)`를 넣었을 때만 쓰인다. 값이 얼마나 자주 바뀌는지에 맞췄다
- * (4.1의 기본값이 있던 것은 그대로 따랐다).
- */
-declare const RobloxDefaultTtl: {
-    readonly users: {
-        readonly getUsers: number;
-        readonly getUserDetails: number;
-        readonly getUsersByNames: number;
-        readonly getUsernameHistory: number;
-    };
-    readonly thumbnails: {
-        readonly get: number;
-        readonly getGameThumbnails: number;
-    };
-    readonly presence: {
-        readonly get: number;
-    };
-    readonly games: {
-        readonly getGames: number;
-        readonly getUniverseIds: number;
-        readonly getPlaceDetails: number;
-        readonly getProductInfo: number;
-        readonly getPlayability: number;
-        readonly getVotes: number;
-        readonly getFavoriteCounts: number;
-        readonly getMedia: number;
-        readonly getSocialLinks: number;
-        readonly getServerAddresses: number;
-        readonly getServerLocations: number;
-        readonly getServerPage: number;
-        readonly getRecommendations: number;
-        readonly getUserGames: number;
-        readonly getUserFavoriteGames: number;
-        readonly getGroupGames: number;
-        readonly getPrivateServersEnabled: number;
-    };
-    readonly friends: {
-        readonly getFriends: number;
-        readonly getFriendCounts: number;
-        readonly getFollowerCounts: number;
-        readonly getFollowingCounts: number;
-    };
-    readonly groups: {
-        readonly getGroups: number;
-        readonly getGroupDetails: number;
-        readonly getRoles: number;
-        readonly getRolesByIds: number;
-        readonly getUserGroups: number;
-    };
-    readonly badges: {
-        readonly getBadges: number;
-        readonly getAwardedDates: number;
-    };
-};
-type RobloxConfig = {
-    readonly mode: RobloxMode;
-    /** 돌려 쓸 쿠키 풀. null이면 쿠키 없이(익명으로) 보낸다 */
-    readonly cookies: RobloxCookieStore | null;
-    /** 401을 받은 쿠키를 처리한다. null이면 기본 처리(`cookies.remove`) */
-    readonly onCookieRejected: RobloxCookieRejectedHandler | null;
-    /**
-     * 캐시 키 문자열 → 진행 중인 조회. 같은 프로세스에서 같은 대상을 동시에 물으면 저장소 조회와 요청을 한 번만 한다.
-     * 체인 전체(`.as(cookie)` 포함)가 공유한다. 끝나면 지운다.
-     */
-    readonly inflight: Map<string, Promise<unknown>>;
-    /** 쿠키 → 진행 중인 거부 처리. 같은 쿠키로 동시에 401을 여러 번 받아도 한 번만 부른다. 체인 전체가 공유한다. */
-    readonly rejecting: Map<RobloxCookie, Promise<void>>;
-    /** `.as(cookie)`로 고정한 쿠키. 있으면 `cookies` 로테이션 대신 이것만 쓴다. */
-    readonly fixedCookie: RobloxCookie | null;
-    readonly retry: RobloxRetryOptions;
-    readonly cache: RobloxCacheStore | null;
-    readonly ttl: RobloxTtl;
-    /** 쿠키(확장 모드는 "extension") → X-CSRF-Token. 체인 전체가 공유한다. */
-    readonly csrf: Map<string, string>;
-    /** 엔드포인트별 레이트리밋 상태. Roblox 한도는 IP 단위라 체인 전체가 공유한다. `.rateLimits(store)`로 밖과 동기화할 수 있다. */
-    readonly rateLimits: RobloxRateLimiter;
-    /** IP → 위치 콜백. 있으면 서버 위치를 조회할 수 있다. */
-    readonly geolocate: RobloxGeolocator | null;
-};
-
-/** 메시지 */
-declare const RobloxChatMessageSchema: z.ZodObject<{
-    id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
-    content: z.ZodString;
-    sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
-    created_at: z.ZodString;
-    type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
-    is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-    is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-    is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-    visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-}, z.core.$strip>;
-/** 대화 참가자 정보 (`include_user_data`) */
-declare const RobloxChatUserDataSchema: z.ZodObject<{
-    id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-    name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    display_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    combined_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    is_verified: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-}, z.core.$strip>;
-/**
- * 대화.
- * 목록에는 아직 만들어지지 않은 친구 1:1 대화도 섞여 온다 (`source: "friends"`, `id: null`, 실측 2026-11).
- * 이런 항목에 메시지를 보내려면 먼저 `createConversations({ type: "one_to_one", userId })`로 대화를 만든다.
- */
-declare const RobloxChatConversationSchema: z.ZodObject<{
-    id: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxConversationId", "out">>;
-    type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    source: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    is_default_name: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-    created_by: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>>;
-    participant_user_ids: z.ZodArray<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
-    user_data: z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodObject<{
-        id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-        name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        display_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        combined_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        is_verified: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-    }, z.core.$strip>>>>;
-    messages: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
-        id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
-        content: z.ZodString;
-        sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
-        created_at: z.ZodString;
-        type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
-        is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    }, z.core.$strip>>>>;
-    unread_message_count: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
-    updated_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    created_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    preview_message: z.ZodOptional<z.ZodNullable<z.ZodObject<{
-        id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
-        content: z.ZodString;
-        sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
-        created_at: z.ZodString;
-        type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
-        is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    }, z.core.$strip>>>;
-    sort_index: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
-    universe_id: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUniverseId", "out">>>;
-    participant_pending_status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    osa_acknowledgement_status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    user_opted_into_chat_messages: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-}, z.core.$strip>;
-/** 만들기/바꾸기 응답의 항목. 실패한 항목은 `status: "failed"`이고 나머지가 null이다 */
-declare const RobloxChatConversationResultSchema: z.ZodObject<{
-    type: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
-    source: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
-    name: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
-    is_default_name: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodBoolean>>>;
-    created_by: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>>>;
-    user_data: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodObject<{
-        id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-        name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        display_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        combined_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        is_verified: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-    }, z.core.$strip>>>>>;
-    messages: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
-        id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
-        content: z.ZodString;
-        sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
-        created_at: z.ZodString;
-        type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
-        is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    }, z.core.$strip>>>>>;
-    unread_message_count: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodNumber>>>;
-    updated_at: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
-    created_at: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
-    moderation_type: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
-    preview_message: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodObject<{
-        id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
-        content: z.ZodString;
-        sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
-        created_at: z.ZodString;
-        type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
-        is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    }, z.core.$strip>>>>;
-    sort_index: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodNumber>>>;
-    universe_id: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUniverseId", "out">>>>;
-    participant_pending_status: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
-    osa_acknowledgement_status: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
-    user_opted_into_chat_messages: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
-    id: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxConversationId", "out">>>;
-    participant_user_ids: z.ZodOptional<z.ZodNullable<z.ZodArray<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>>>;
-    status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-}, z.core.$strip>;
-declare const RobloxChatConversationPageRawSchema: z.ZodObject<{
-    conversations: z.ZodArray<z.ZodObject<{
-        id: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxConversationId", "out">>;
-        type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        source: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        is_default_name: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        created_by: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>>;
-        participant_user_ids: z.ZodArray<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
-        user_data: z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodObject<{
-            id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-            name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            display_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            combined_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            is_verified: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        }, z.core.$strip>>>>;
-        messages: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
-            id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
-            content: z.ZodString;
-            sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
-            created_at: z.ZodString;
-            type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
-            is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-            is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-            is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-            visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        }, z.core.$strip>>>>;
-        unread_message_count: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
-        updated_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        created_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        preview_message: z.ZodOptional<z.ZodNullable<z.ZodObject<{
-            id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
-            content: z.ZodString;
-            sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
-            created_at: z.ZodString;
-            type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
-            is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-            is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-            is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-            visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        }, z.core.$strip>>>;
-        sort_index: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
-        universe_id: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUniverseId", "out">>>;
-        participant_pending_status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        osa_acknowledgement_status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        user_opted_into_chat_messages: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    }, z.core.$strip>>;
-    next_cursor: z.ZodPipe<z.ZodOptional<z.ZodNullable<z.ZodString>>, z.ZodTransform<string | null, string | null | undefined>>;
-}, z.core.$strip>;
-declare const RobloxChatMessagePageRawSchema: z.ZodObject<{
-    messages: z.ZodArray<z.ZodObject<{
-        id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
-        content: z.ZodString;
-        sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
-        created_at: z.ZodString;
-        type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
-        is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    }, z.core.$strip>>;
-    next_cursor: z.ZodPipe<z.ZodOptional<z.ZodNullable<z.ZodString>>, z.ZodTransform<string | null, string | null | undefined>>;
-    previous_cursor: z.ZodPipe<z.ZodOptional<z.ZodNullable<z.ZodString>>, z.ZodTransform<string | null, string | null | undefined>>;
-}, z.core.$strip>;
-declare const RobloxChatConversationsResponseSchema: z.ZodObject<{
-    conversations: z.ZodArray<z.ZodObject<{
-        id: z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxConversationId", "out">>;
-        type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        source: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        is_default_name: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        created_by: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>>;
-        participant_user_ids: z.ZodArray<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
-        user_data: z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodObject<{
-            id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-            name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            display_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            combined_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            is_verified: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        }, z.core.$strip>>>>;
-        messages: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
-            id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
-            content: z.ZodString;
-            sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
-            created_at: z.ZodString;
-            type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
-            is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-            is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-            is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-            visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        }, z.core.$strip>>>>;
-        unread_message_count: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
-        updated_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        created_at: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        preview_message: z.ZodOptional<z.ZodNullable<z.ZodObject<{
-            id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
-            content: z.ZodString;
-            sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
-            created_at: z.ZodString;
-            type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
-            is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-            is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-            is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-            visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        }, z.core.$strip>>>;
-        sort_index: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
-        universe_id: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUniverseId", "out">>>;
-        participant_pending_status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        osa_acknowledgement_status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        user_opted_into_chat_messages: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    }, z.core.$strip>>;
-}, z.core.$strip>;
-declare const RobloxChatConversationResultsResponseSchema: z.ZodObject<{
-    conversations: z.ZodArray<z.ZodObject<{
-        type: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
-        source: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
-        name: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
-        is_default_name: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodBoolean>>>;
-        created_by: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>>>;
-        user_data: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodRecord<z.ZodString, z.ZodObject<{
-            id: z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">;
-            name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            display_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            combined_name: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            is_verified: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        }, z.core.$strip>>>>>;
-        messages: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodObject<{
-            id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
-            content: z.ZodString;
-            sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
-            created_at: z.ZodString;
-            type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
-            is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-            is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-            is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-            visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        }, z.core.$strip>>>>>;
-        unread_message_count: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodNumber>>>;
-        updated_at: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
-        created_at: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
-        moderation_type: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
-        preview_message: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodObject<{
-            id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
-            content: z.ZodString;
-            sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
-            created_at: z.ZodString;
-            type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
-            is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-            is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-            is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-            visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-            status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        }, z.core.$strip>>>>;
-        sort_index: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodNumber>>>;
-        universe_id: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUniverseId", "out">>>>;
-        participant_pending_status: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
-        osa_acknowledgement_status: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
-        user_opted_into_chat_messages: z.ZodOptional<z.ZodOptional<z.ZodNullable<z.ZodString>>>;
-        id: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxConversationId", "out">>>;
-        participant_user_ids: z.ZodOptional<z.ZodNullable<z.ZodArray<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>>>;
-        status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    }, z.core.$strip>>;
-}, z.core.$strip>;
-declare const RobloxChatSendResponseSchema: z.ZodObject<{
-    messages: z.ZodArray<z.ZodObject<{
-        id: z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">;
-        content: z.ZodString;
-        sender_user_id: z.ZodNullable<z.core.$ZodBranded<z.ZodNumber, "RobloxUserId", "out">>;
-        created_at: z.ZodString;
-        type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        moderation_type: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        replies_to: z.ZodOptional<z.ZodNullable<z.core.$ZodBranded<z.ZodString, "RobloxChatMessageId", "out">>>;
-        is_deleted: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        is_previewable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        is_badgeable: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-        visibility: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-        status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    }, z.core.$strip>>;
-}, z.core.$strip>;
-/** GET get-conversation-metadata — 안 읽은 수 */
-declare const RobloxChatUnreadCountsSchema: z.ZodObject<{
-    global_unread_message_count: z.ZodNumber;
-    global_unread_count: z.ZodNumber;
-}, z.core.$strip>;
-/**
- * GET metadata — 계정의 채팅 설정과 서버 피처 플래그. 이것만 camelCase이고 필드가 수시로 바뀌어 모르는 키도 남긴다.
- * `isChatVisible`/`isChatUserMessagesEnabled`가 false면 이 계정은 메시지를 보낼 수 없다 (실측: 나이 인증 안 한 봇 계정).
- */
-declare const RobloxChatMetadataSchema: z.ZodObject<{
-    isChatEnabled: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-    isChatEnabledByPrivacySetting: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    isGroupChatEnabledByPrivacySetting: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    isChatEnabledByGlobalRules: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    isChatVisible: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-    isChatUserMessagesEnabled: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
-    maxConversationTitleLength: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
-    typingInChatFromSenderThrottleMs: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
-    typingInChatForReceiverExpirationMs: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
-    validMessageTypesWhiteList: z.ZodOptional<z.ZodNullable<z.ZodArray<z.ZodString>>>;
-}, z.core.$loose>;
-type RobloxChatMessage = z.infer<typeof RobloxChatMessageSchema>;
-type RobloxChatUserData = z.infer<typeof RobloxChatUserDataSchema>;
-type RobloxChatConversation = z.infer<typeof RobloxChatConversationSchema>;
-type RobloxChatConversationResult = z.infer<typeof RobloxChatConversationResultSchema>;
-type RobloxChatUnreadCounts = z.infer<typeof RobloxChatUnreadCountsSchema>;
-type RobloxChatMetadata = z.infer<typeof RobloxChatMetadataSchema>;
-type RobloxChatConversationPage = {
-    conversations: RobloxChatConversation[];
-    nextCursor: string | null;
-};
-type RobloxChatMessagePage = {
-    messages: RobloxChatMessage[];
-    nextCursor: string | null;
-    previousCursor: string | null;
-};
-type RobloxChatPageQuery = {
-    pageSize?: number;
-    cursor?: string;
-};
-/** 새 대화. 참가자는 모두 친구여야 한다 (아니면 403 participants_not_friends) */
-type RobloxCreateConversationRequest = {
-    type: "one_to_one";
-    userId: RobloxUserId;
-} | {
-    type: "group";
-    userIds: RobloxUserId[];
-    name?: string;
-};
-type RobloxRenameConversationRequest = {
-    id: RobloxConversationId;
-    name: string;
-};
-/** 메시지 하나. 답장은 `repliesTo` */
-type RobloxSendMessageRequest = string | {
-    content: string;
-    repliesTo?: RobloxChatMessageId;
-};
-
+/** `.ttl({ chat: { ... } })`로 캐시할 수 있는 메서드. 전부 요청 계정 기준이라 기본으로는 캐시하지 않는다. */
+type RobloxChatCacheable = "getConversations" | "listConversations" | "searchConversations" | "getMessages" | "searchMessages" | "getUnreadCounts" | "getMetadata";
 /**
  * apis.roblox.com/platform-chat-api/v1 — roblox.com 웹 채팅이 쓰는 비공개 API.
  * 전부 요청 계정 기준이라 계정이 하나로 정해져 있어야 한다 (`.as(cookie)` 또는 확장 모드).
@@ -8649,6 +8842,7 @@ declare class RobloxChatApi {
     private readonly conversations;
     constructor(config: RobloxConfig);
     private viewer;
+    private ttl;
     /** 대화 상세(참가자 이름 포함). 같은 틱에 들어온 호출은 25개씩 묶는다. 내가 참가하지 않은 대화는 뺀다. */
     getConversations(ids: readonly RobloxConversationId[]): Promise<RobloxChatConversation[]>;
     /** GET get-user-conversations — 내 대화 목록 (120회/분) */
@@ -8697,27 +8891,202 @@ declare class RobloxChatApi {
     removeUsers(conversationId: RobloxConversationId, userIds: readonly RobloxUserId[]): Promise<void>;
 }
 
-/**
- * `CanTradeResponse` — GET /v1/users/{userId}/can-trade-with.
- * `status`는 이유 코드다 ("CanTrade", "CannotTradeWithSelf", "SenderCannotTrade",
- * "ReceiverCannotTrade", "SenderPrivacySettingsTooRestrictive" 등). 새 값이 와도 깨지지 않게 문자열로 받는다.
- */
-declare const RobloxCanTradeSchema: z.ZodObject<{
-    canTrade: z.ZodBoolean;
-    status: z.ZodString;
-}, z.core.$strip>;
-type RobloxCanTrade = z.infer<typeof RobloxCanTradeSchema>;
-
+/** `.ttl({ trades: { ... } })`로 캐시할 수 있는 메서드. 요청 계정 기준이라 기본으로는 캐시하지 않는다. */
+type RobloxTradesCacheable = "canTradeWith";
 /** trades.roblox.com — 요청 계정 기준 (인증 필요) */
 declare class RobloxTradesApi {
+    private readonly config;
     private readonly http;
     constructor(config: RobloxConfig);
+    private ttl;
     /**
      * GET /v1/users/{userId}/can-trade-with — 요청 계정이 이 유저와 거래할 수 있는지와 그 이유.
-     * 캐시하지 않는다 (프라이버시 설정·차단에 따라 바로 바뀐다).
+     * 프라이버시 설정·차단에 따라 바로 바뀌므로 기본 TTL은 0이다.
      */
-    canTradeWith(userId: RobloxUserId): Promise<RobloxCanTrade>;
+    canTradeWith(userId: RobloxUserId): Promise<{
+        canTrade: boolean;
+        status: string;
+    }>;
 }
+
+type RobloxMode = "extension" | "node";
+type RobloxRetryOptions = {
+    /** 요청당 최대 시도 횟수. 기본 5 */
+    maxAttempts?: number;
+    /** 시도당 타임아웃(ms). 기본 20000 */
+    timeout?: number;
+};
+/** 서비스 → 메서드 → TTL(ms). 적지 않은 메서드는 기본값(`RobloxDefaultTtl`)을 쓴다. 0 이하면 캐시하지 않는다 (저장소의 get/set을 부르지 않는다). 만료 없이 두려면 `Infinity`. */
+type RobloxTtl = {
+    users?: Partial<Record<RobloxUsersCacheable, number>>;
+    thumbnails?: Partial<Record<RobloxThumbnailsCacheable, number>>;
+    presence?: Partial<Record<RobloxPresenceCacheable, number>>;
+    games?: Partial<Record<RobloxGamesCacheable, number>>;
+    friends?: Partial<Record<RobloxFriendsCacheable, number>>;
+    groups?: Partial<Record<RobloxGroupsCacheable, number>>;
+    badges?: Partial<Record<RobloxBadgesCacheable, number>>;
+    chat?: Partial<Record<RobloxChatCacheable, number>>;
+    trades?: Partial<Record<RobloxTradesCacheable, number>>;
+};
+/**
+ * 기본 TTL(ms). `.cache(store)`를 넣었을 때만 쓰인다. 값이 얼마나 자주 바뀌는지에 맞췄다
+ * (4.1의 기본값이 있던 것은 그대로 따랐다).
+ */
+declare const RobloxDefaultTtl: {
+    readonly users: {
+        readonly getUsers: number;
+        readonly getUserDetails: number;
+        readonly getUsersByNames: number;
+        readonly getUsernameHistory: number;
+        readonly searchUsers: number;
+        readonly getProfileActions: 0;
+        readonly getAuthenticated: 0;
+        readonly getAgeBracket: 0;
+        readonly getCountryCode: 0;
+        readonly getRoles: 0;
+        readonly getBirthdate: 0;
+        readonly getDescription: 0;
+        readonly getGender: 0;
+    };
+    readonly thumbnails: {
+        readonly get: number;
+        readonly getGameThumbnails: number;
+    };
+    readonly presence: {
+        readonly get: number;
+    };
+    readonly games: {
+        readonly getGames: number;
+        readonly getUniverseIds: number;
+        readonly getPlaceDetails: number;
+        readonly getProductInfo: number;
+        readonly getPlayability: number;
+        readonly getVotes: number;
+        readonly getFavoriteCounts: number;
+        readonly getMedia: number;
+        readonly getSocialLinks: number;
+        readonly getServerAddresses: number;
+        readonly getServerLocations: number;
+        readonly getServerPage: number;
+        readonly getRecommendations: number;
+        readonly getUserGames: number;
+        readonly getUserFavoriteGames: number;
+        readonly getGroupGames: number;
+        readonly getPrivateServersEnabled: number;
+        readonly getFavorited: 0;
+        readonly getUserVotes: 0;
+        readonly getFollowing: 0;
+        readonly getPrivateServers: 0;
+        readonly getMyPrivateServers: 0;
+        readonly getPrivateServerDetails: 0;
+        readonly getPrivateServerInvites: 0;
+    };
+    readonly friends: {
+        readonly getFriends: number;
+        readonly getFriendCounts: number;
+        readonly getFollowerCounts: number;
+        readonly getFollowingCounts: number;
+        readonly getFollowers: number;
+        readonly getFollowings: number;
+        readonly getMetadata: number;
+        readonly searchFriends: 0;
+        readonly getFriendStatuses: 0;
+        readonly getAreFriends: 0;
+        readonly getFollowingStatuses: 0;
+        readonly getBlockStatuses: 0;
+        readonly getOnlineFriends: 0;
+        readonly getInactiveFriends: 0;
+        readonly getFriendRequests: 0;
+        readonly getTrustedFriendRequests: 0;
+        readonly getFriendRequestCount: 0;
+    };
+    readonly groups: {
+        readonly getGroups: number;
+        readonly getGroupDetails: number;
+        readonly getRoles: number;
+        readonly getRolesByIds: number;
+        readonly getUserGroups: number;
+        readonly getPrimaryGroups: number;
+        readonly getMembers: number;
+        readonly getRoleMembers: number;
+        readonly searchGroups: number;
+        readonly lookupGroups: number;
+        readonly getNameHistory: number;
+        readonly getRelationships: number;
+        readonly getGuestPermissions: number;
+        readonly getFeatureFreezes: number;
+        readonly getFeaturedEvents: number;
+        readonly getSocialLinks: number;
+        readonly getEmotes: number;
+        readonly getConfigurationMetadata: number;
+        readonly getSearchMetadata: number;
+        readonly getMetadata: 0;
+        readonly getMemberships: 0;
+        readonly getPolicies: 0;
+        readonly getPendingGroups: 0;
+        readonly getFriendsGroups: 0;
+        readonly getRolePermissions: 0;
+        readonly getUserPermissions: 0;
+        readonly getJoinRequests: 0;
+        readonly getJoinRequestsByUsers: 0;
+        readonly getBans: 0;
+        readonly getBannedUsers: 0;
+        readonly getAuditLog: 0;
+        readonly getSettings: 0;
+        readonly getConfigurations: 0;
+        readonly getFeatures: 0;
+        readonly getFeaturesBlocked: 0;
+        readonly getKeywords: 0;
+        readonly getRelationshipRequests: 0;
+        readonly getPayouts: 0;
+        readonly getPayoutRestrictions: 0;
+    };
+    readonly badges: {
+        readonly getBadges: number;
+        readonly getAwardedDates: number;
+        readonly getUniverseBadges: number;
+        readonly getMetadata: number;
+        readonly getUserBadges: 0;
+        readonly getFreeQuotas: 0;
+    };
+    readonly chat: {
+        readonly getConversations: 0;
+        readonly listConversations: 0;
+        readonly searchConversations: 0;
+        readonly getMessages: 0;
+        readonly searchMessages: 0;
+        readonly getUnreadCounts: 0;
+        readonly getMetadata: 0;
+    };
+    readonly trades: {
+        readonly canTradeWith: 0;
+    };
+};
+type RobloxConfig = {
+    readonly mode: RobloxMode;
+    /** 돌려 쓸 쿠키 풀. null이면 쿠키 없이(익명으로) 보낸다 */
+    readonly cookies: RobloxCookieStore | null;
+    /** 401을 받은 쿠키를 처리한다. null이면 기본 처리(`cookies.remove`) */
+    readonly onCookieRejected: RobloxCookieRejectedHandler | null;
+    /**
+     * 캐시 키 문자열 → 진행 중인 조회. 같은 프로세스에서 같은 대상을 동시에 물으면 저장소 조회와 요청을 한 번만 한다.
+     * 체인 전체(`.as(cookie)` 포함)가 공유한다. 끝나면 지운다.
+     */
+    readonly inflight: Map<string, Promise<unknown>>;
+    /** 쿠키 → 진행 중인 거부 처리. 같은 쿠키로 동시에 401을 여러 번 받아도 한 번만 부른다. 체인 전체가 공유한다. */
+    readonly rejecting: Map<RobloxCookie, Promise<void>>;
+    /** `.as(cookie)`로 고정한 쿠키. 있으면 `cookies` 로테이션 대신 이것만 쓴다. */
+    readonly fixedCookie: RobloxCookie | null;
+    readonly retry: RobloxRetryOptions;
+    readonly cache: RobloxCacheStore | null;
+    readonly ttl: RobloxTtl;
+    /** 쿠키(확장 모드는 "extension") → X-CSRF-Token. 체인 전체가 공유한다. */
+    readonly csrf: Map<string, string>;
+    /** 엔드포인트별 레이트리밋 상태. Roblox 한도는 IP 단위라 체인 전체가 공유한다. `.rateLimits(store)`로 밖과 동기화할 수 있다. */
+    readonly rateLimits: RobloxRateLimiter;
+    /** IP → 위치 콜백. 있으면 서버 위치를 조회할 수 있다. */
+    readonly geolocate: RobloxGeolocator | null;
+};
 
 /** auth.roblox.com — 요청 계정 기준 (인증 필요) */
 declare class RobloxAuthApi {
@@ -8871,7 +9240,7 @@ interface RobloxNodeStage<L = unknown> extends RobloxNodeServices<L> {
 declare class RobloxOptionsStage<L = unknown, M extends RobloxMode = RobloxMode> extends RobloxConfigurableStage<L, M> {
 }
 declare class RobloxCacheStage<L = unknown, M extends RobloxMode = RobloxMode> extends RobloxClient<L> {
-    /** 서비스 → 메서드 → TTL(ms). 적지 않은 메서드는 기본값(`RobloxDefaultTtl`)을 쓴다. 0이어도 저장소의 get/set은 불린다 (0의 처리는 저장소가 정한다). */
+    /** 서비스 → 메서드 → TTL(ms). 적지 않은 메서드는 기본값(`RobloxDefaultTtl`)을 쓴다. 0 이하면 캐시하지 않는다 (저장소의 get/set을 부르지 않는다). 만료 없이 두려면 `Infinity`. */
     ttl(ttl: RobloxTtl): RobloxModeStage<RobloxCacheStage<L, M>, M, L>;
     retry(options: RobloxRetryOptions): RobloxModeStage<RobloxCacheStage<L, M>, M, L>;
     geolocation<G>(geolocate: RobloxGeolocator<G>): RobloxModeStage<RobloxCacheStage<G, M>, M, G>;
@@ -8970,4 +9339,4 @@ declare function RobloxCreatorSchema<S extends z.ZodRawShape = {}>(extra?: S): z
     type: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
 } & S)[P]; } : never, {}>>>;
 
-export { RobloxAgeBracket, RobloxAgeBracketSchema, type RobloxApiError, RobloxArrayResponseSchema, type RobloxAssetId, RobloxAssetIdSchema, RobloxAuthApi, type RobloxAuthenticatedUser, RobloxAuthenticatedUserSchema, type RobloxAvatarThumbnailOptions, type RobloxBadge, type RobloxBadgeAward, RobloxBadgeAwardSchema, type RobloxBadgeAwardStatus, RobloxBadgeAwardsResponseSchema, type RobloxBadgeIconOptions, type RobloxBadgeId, RobloxBadgeIdSchema, type RobloxBadgeMetadata, RobloxBadgeMetadataSchema, type RobloxBadgePageQuery, RobloxBadgePageSchema, RobloxBadgeSchema, type RobloxBadgeStatistics, RobloxBadgeStatisticsSchema, RobloxBadgesApi, type RobloxBadgesCacheable, type RobloxBirthDay, RobloxBirthDaySchema, type RobloxBirthMonth, RobloxBirthMonthSchema, type RobloxBirthYear, RobloxBirthYearSchema, type RobloxBirthdate, RobloxBirthdateSchema, type RobloxBlockStatus, RobloxBlockStatusSchema, RobloxBlockStatusesResponseSchema, type RobloxBundleId, RobloxBundleIdSchema, type RobloxCacheEntry, type RobloxCacheInfo, RobloxCacheStage, type RobloxCacheStore, type RobloxCacheValue, type RobloxCacheValues, type RobloxCachedServerPage, type RobloxCanTrade, RobloxCanTradeSchema, type RobloxCaptchaStatus, RobloxCaptchaStatusSchema, type RobloxCaptchaTokenRequest, RobloxChatApi, type RobloxChatConversation, type RobloxChatConversationPage, RobloxChatConversationPageRawSchema, type RobloxChatConversationResult, RobloxChatConversationResultSchema, RobloxChatConversationResultsResponseSchema, RobloxChatConversationSchema, RobloxChatConversationsResponseSchema, type RobloxChatMessage, type RobloxChatMessageId, RobloxChatMessageIdSchema, type RobloxChatMessagePage, RobloxChatMessagePageRawSchema, RobloxChatMessageSchema, type RobloxChatMetadata, RobloxChatMetadataSchema, type RobloxChatPageQuery, RobloxChatSendResponseSchema, type RobloxChatUnreadCounts, RobloxChatUnreadCountsSchema, type RobloxChatUserData, RobloxChatUserDataSchema, RobloxClient, type RobloxCommunityTier, RobloxCommunityTierSchema, type RobloxConversationId, RobloxConversationIdSchema, type RobloxCookie, type RobloxCookieRejectReason, type RobloxCookieRejectedHandler, RobloxCookieSchema, type RobloxCookieStore, RobloxCountResponseSchema, type RobloxCreateBadgeRequest, type RobloxCreateConversationRequest, type RobloxCreateGroupKeywordsResponse, RobloxCreateGroupKeywordsResponseSchema, type RobloxCreateGroupRequest, type RobloxCreateGroupRoleRequest, type RobloxCreatePrivateServerRequest, type RobloxCreatedBadge, RobloxCreatedBadgeSchema, type RobloxCreator, RobloxCreatorSchema, type RobloxCreatorType, type RobloxCursor, RobloxCursorSchema, RobloxDefaultTtl, type RobloxDeveloperProductId, RobloxDeveloperProductIdSchema, type RobloxDnrOptions, type RobloxDnrRule, type RobloxEmptyResponse, RobloxEmptyResponseSchema, RobloxError, type RobloxErrorCode, type RobloxErrorData, RobloxErrorMessageFuncs, type RobloxErrorResponse, RobloxErrorResponseSchema, type RobloxErrors, type RobloxExtensionServices, RobloxExtensionStage, type RobloxFavoriteGame, type RobloxFavoriteGamePage, RobloxFavoriteGamePageSchema, RobloxFavoriteGameSchema, RobloxFiatPurchaseDataSchema, type RobloxFindUsersOptions, type RobloxFollowPage, type RobloxFollowPageQuery, RobloxFollowPageSchema, RobloxFollowingExistsResponseSchema, type RobloxFollowingStatus, RobloxFollowingStatusSchema, RobloxFriendListResponseSchema, type RobloxFriendPage, RobloxFriendPageRawSchema, type RobloxFriendPresence, RobloxFriendPresenceSchema, type RobloxFriendRequest, type RobloxFriendRequestPage, RobloxFriendRequestPageSchema, RobloxFriendRequestSchema, type RobloxFriendRequestsQuery, type RobloxFriendSearchQuery, type RobloxFriendStatus, RobloxFriendStatusSchema, RobloxFriendStatusesResponseSchema, RobloxFriendsApi, type RobloxFriendsCacheable, RobloxFriendsGroupsResponseSchema, type RobloxFriendsMetadata, RobloxFriendsMetadataSchema, type RobloxGame, type RobloxGameCreator, RobloxGameCreatorSchema, type RobloxGameFavoriteCount, type RobloxGameFollowStatus, RobloxGameFollowStatusRawSchema, type RobloxGameInfo, type RobloxGameListQuery, type RobloxGameMedia, RobloxGameMediaResponseSchema, RobloxGameMediaSchema, type RobloxGamePassId, RobloxGamePassIdSchema, type RobloxGamePlayability, RobloxGamePlayabilitySchema, type RobloxGameProduct, RobloxGameProductSchema, RobloxGameProductsResponseSchema, type RobloxGameRecommendations, RobloxGameRecommendationsSchema, RobloxGameSchema, type RobloxGameSocialLink, RobloxGameSocialLinkSchema, RobloxGameSocialLinksResponseSchema, type RobloxGameSummary, type RobloxGameSummaryPage, RobloxGameSummaryPageSchema, RobloxGameSummarySchema, type RobloxGameThumbnailId, RobloxGameThumbnailIdSchema, type RobloxGameVotes, RobloxGameVotesResponseSchema, RobloxGameVotesSchema, RobloxGamesApi, type RobloxGamesCacheable, RobloxGamesResponseSchema, RobloxGender, RobloxGenderSchema, type RobloxGeolocator, type RobloxGetServersOptions, type RobloxGroup, type RobloxGroupAuditActionType, RobloxGroupAuditActionTypes, type RobloxGroupAuditLogItem, RobloxGroupAuditLogItemSchema, type RobloxGroupAuditLogPage, RobloxGroupAuditLogPageSchema, type RobloxGroupAuditLogQuery, type RobloxGroupBan, type RobloxGroupBanPage, RobloxGroupBanPageSchema, RobloxGroupBanSchema, type RobloxGroupBasic, RobloxGroupBasicSchema, type RobloxGroupConfiguration, type RobloxGroupConfigurationMetadata, RobloxGroupConfigurationMetadataSchema, RobloxGroupConfigurationSchema, type RobloxGroupDetail, type RobloxGroupDetailPartial, RobloxGroupDetailPartialSchema, RobloxGroupDetailSchema, type RobloxGroupEmoteSet, RobloxGroupEmoteSetsResponseSchema, type RobloxGroupEventId, RobloxGroupEventIdSchema, type RobloxGroupFeatureFreeze, RobloxGroupFeatureFreezesResponseSchema, type RobloxGroupFeaturedEvent, RobloxGroupFeaturedEventSchema, type RobloxGroupFeatures, RobloxGroupFeaturesSchema, type RobloxGroupIconOptions, type RobloxGroupId, RobloxGroupIdSchema, type RobloxGroupJoinRequest, type RobloxGroupJoinRequestPage, RobloxGroupJoinRequestPageSchema, RobloxGroupJoinRequestSchema, type RobloxGroupKeyword, type RobloxGroupKeywordId, RobloxGroupKeywordIdSchema, type RobloxGroupKeywordPage, RobloxGroupKeywordPageSchema, RobloxGroupKeywordSchema, RobloxGroupLookupResponseSchema, type RobloxGroupMember, type RobloxGroupMemberPage, RobloxGroupMemberPageSchema, RobloxGroupMemberSchema, type RobloxGroupMembership, type RobloxGroupMembershipDetail, RobloxGroupMembershipDetailSchema, RobloxGroupMembershipSchema, type RobloxGroupNameHistoryPage, RobloxGroupNameHistoryPageSchema, type RobloxGroupNotificationPreference, RobloxGroupNotificationPreferenceSchema, type RobloxGroupPageQuery, type RobloxGroupPayout, type RobloxGroupPayoutRecipient, type RobloxGroupPayoutRestriction, RobloxGroupPayoutRestrictionSchema, RobloxGroupPayoutsResponseSchema, type RobloxGroupPermissions, RobloxGroupPermissionsSchema, RobloxGroupPoliciesResponseSchema, type RobloxGroupRecurringPayoutRecipient, type RobloxGroupRelationshipType, type RobloxGroupRelationships, type RobloxGroupRelationshipsQuery, RobloxGroupRelationshipsSchema, type RobloxGroupRole, type RobloxGroupRoleDetail, RobloxGroupRoleDetailSchema, RobloxGroupRoleDetailsResponseSchema, type RobloxGroupRoleId, RobloxGroupRoleIdSchema, type RobloxGroupRolePermissions, RobloxGroupRolePermissionsResponseSchema, RobloxGroupRolePermissionsSchema, RobloxGroupRoleSchema, RobloxGroupRolesResponseSchema, RobloxGroupSchema, type RobloxGroupSearchItem, RobloxGroupSearchItemSchema, type RobloxGroupSearchMetadata, RobloxGroupSearchMetadataSchema, type RobloxGroupSearchPage, RobloxGroupSearchPageSchema, type RobloxGroupSearchQuery, type RobloxGroupSettings, RobloxGroupSettingsSchema, type RobloxGroupShout, RobloxGroupShoutSchema, type RobloxGroupSocialLink, type RobloxGroupSocialLinkId, RobloxGroupSocialLinkIdSchema, type RobloxGroupSocialLinkRequest, RobloxGroupSocialLinkSchema, type RobloxGroupSocialLinkType, RobloxGroupSocialLinksResponseSchema, type RobloxGroupTierEvaluation, RobloxGroupTierEvaluationSchema, type RobloxGroupUser, type RobloxGroupUserPage, RobloxGroupUserPageSchema, RobloxGroupUserSchema, RobloxGroupsApi, type RobloxGroupsCacheable, type RobloxGroupsMetadata, RobloxGroupsMetadataSchema, RobloxGroupsResponseSchema, type RobloxIpAddress, RobloxIpAddressSchema, type RobloxItemError, type RobloxJobId, RobloxJobIdSchema, type RobloxJoinGroupRequest, type RobloxJoinResponse, RobloxJoinResponseSchema, RobloxJoinStatus, RobloxMemoryCache, RobloxMemoryCookies, type RobloxMode, type RobloxModeStage, type RobloxMyPrivateServerPage, RobloxMyPrivateServerPageSchema, type RobloxMyPrivateServersQuery, type RobloxNodeServices, RobloxNodeStage, type RobloxOnlineFriend, RobloxOnlineFriendSchema, RobloxOnlineFriendsResponseSchema, RobloxOptionsStage, type RobloxOutfitId, RobloxOutfitIdSchema, type RobloxPageLimit, RobloxPageLimitSchema, RobloxPageResponseSchema, type RobloxPinnedClient, type RobloxPlaceDetails, RobloxPlaceDetailsSchema, type RobloxPlaceId, RobloxPlaceIdSchema, RobloxPresenceApi, type RobloxPresenceCacheable, RobloxPresenceType, RobloxPresenceTypeSchema, type RobloxPrimaryGroup, RobloxPrimaryGroupResponseSchema, type RobloxPrivateServer, type RobloxPrivateServerDetail, RobloxPrivateServerDetailSchema, type RobloxPrivateServerId, RobloxPrivateServerIdSchema, type RobloxPrivateServerInvite, RobloxPrivateServerInviteSchema, type RobloxPrivateServerPage, type RobloxPrivateServerPageQuery, RobloxPrivateServerPageRawSchema, type RobloxPrivateServerPermissions, RobloxPrivateServerPermissionsSchema, RobloxPrivateServerRawSchema, type RobloxPrivateServerSubscription, RobloxPrivateServerSubscriptionSchema, type RobloxProfileAction, RobloxProfileActionSchema, type RobloxProfileActions, RobloxProfileActionsSchema, type RobloxRateLimitState, type RobloxRateLimitStore, type RobloxRecommendationsQuery, type RobloxRecommendedGame, RobloxRecommendedGameSchema, type RobloxRenameConversationRequest, type RobloxRetryOptions, type RobloxSendMessageRequest, type RobloxServer, type RobloxServerAddress, type RobloxServerAddressTarget, type RobloxServerHeadshotOptions, type RobloxServerInfo, type RobloxServerLocation, type RobloxServerPage, type RobloxServerPageQuery, RobloxServerPageRawSchema, type RobloxServerPlayer, RobloxServerPlayerRawSchema, type RobloxServerPlayerUser, RobloxServerRawSchema, type RobloxServerType, RobloxServerTypeSchema, type RobloxSetBirthdateRequest, RobloxSetBirthdateRequestSchema, type RobloxSetDescriptionRequest, RobloxSetDescriptionRequestSchema, type RobloxSetDisplayNameRequest, RobloxSetDisplayNameRequestSchema, type RobloxSetGenderRequest, RobloxSetGenderRequestSchema, type RobloxSortOrder, RobloxSortOrderSchema, type RobloxThumbnail, RobloxThumbnailBatchItemSchema, RobloxThumbnailBatchResponseSchema, type RobloxThumbnailReturnPolicy, RobloxThumbnailReturnPolicySchema, RobloxThumbnailSchema, type RobloxThumbnailSize, RobloxThumbnailSizes, type RobloxThumbnailState, RobloxThumbnailStateSchema, type RobloxThumbnailTarget, type RobloxThumbnailTargetIdOf, type RobloxThumbnailType, RobloxThumbnailsApi, type RobloxThumbnailsCacheable, RobloxThumbnailsResponseSchema, RobloxTradesApi, type RobloxTrustedFriendRequestPage, RobloxTrustedFriendRequestPageSchema, type RobloxTtl, type RobloxUniverseBadgesQuery, type RobloxUniverseId, RobloxUniverseIdSchema, type RobloxUniverseThumbnails, type RobloxUniverseThumbnailsQuery, RobloxUniverseThumbnailsResponseSchema, RobloxUniverseThumbnailsSchema, type RobloxUpdateBadgeRequest, type RobloxUpdateGroupRoleRequest, type RobloxUpdateGroupSettingsRequest, type RobloxUpdatePrivateServerPermissionsRequest, type RobloxUpdatePrivateServerRequest, type RobloxUpdatePrivateServerSubscriptionRequest, type RobloxUser, type RobloxUserAgeBracket, RobloxUserAgeBracketSchema, type RobloxUserBadge, RobloxUserBadgePageSchema, RobloxUserBadgeSchema, type RobloxUserByName, RobloxUserByNameSchema, type RobloxUserCountryCode, RobloxUserCountryCodeSchema, type RobloxUserDescription, RobloxUserDescriptionSchema, type RobloxUserDetail, RobloxUserDetailSchema, type RobloxUserDisplayname, RobloxUserDisplaynameSchema, type RobloxUserFriends, type RobloxUserGameVote, RobloxUserGameVoteSchema, type RobloxUserGender, RobloxUserGenderSchema, type RobloxUserGroupRole, RobloxUserGroupRoleV1Schema, RobloxUserGroupRoleV2Schema, RobloxUserGroupRolesV1ResponseSchema, RobloxUserGroupRolesV2ResponseSchema, type RobloxUserGroups, type RobloxUserId, RobloxUserIdSchema, type RobloxUserName, RobloxUserNameSchema, type RobloxUserPresence, RobloxUserPresenceSchema, type RobloxUserPresencesResponse, RobloxUserPresencesResponseSchema, type RobloxUserRoles, RobloxUserRolesSchema, RobloxUserSchema, type RobloxUserSearchQuery, RobloxUserSearchQuerySchema, type RobloxUserSearchResponse, RobloxUserSearchResponseSchema, type RobloxUserSearchResult, RobloxUserSearchResultSchema, type RobloxUserServer, type RobloxUsernameHistoryEntry, RobloxUsernameHistoryEntrySchema, type RobloxUsernameHistoryQuery, RobloxUsernameHistoryQuerySchema, type RobloxUsernameHistoryResponse, RobloxUsernameHistoryResponseSchema, RobloxUsersApi, type RobloxUsersByNameRequest, RobloxUsersByNameRequestSchema, type RobloxUsersByNameResponse, RobloxUsersByNameResponseSchema, type RobloxUsersCacheable, type RobloxUsersRequest, RobloxUsersRequestSchema, type RobloxUsersResponse, RobloxUsersResponseSchema, type RobloxValidateDisplayNameQuery, RobloxValidateDisplayNameQuerySchema, type RobloxValidateUserDisplayNameQuery, RobloxValidateUserDisplayNameQuerySchema, type RobloxViewerKey, type RobloxWithThumbnail, VigorRoblox, vigorRoblox as default, isRobloxError, robloxCacheKey, robloxDnrRules, toRobloxCreator, vigorRoblox };
+export { RobloxAgeBracket, RobloxAgeBracketSchema, type RobloxApiError, RobloxArrayResponseSchema, type RobloxAssetId, RobloxAssetIdSchema, RobloxAuthApi, type RobloxAuthenticatedUser, RobloxAuthenticatedUserSchema, type RobloxAvatarThumbnailOptions, type RobloxBadge, type RobloxBadgeAward, RobloxBadgeAwardSchema, type RobloxBadgeAwardStatus, RobloxBadgeAwardsResponseSchema, type RobloxBadgeIconOptions, type RobloxBadgeId, RobloxBadgeIdSchema, type RobloxBadgeMetadata, RobloxBadgeMetadataSchema, type RobloxBadgePageQuery, RobloxBadgePageSchema, RobloxBadgeSchema, type RobloxBadgeStatistics, RobloxBadgeStatisticsSchema, RobloxBadgesApi, type RobloxBadgesCacheable, type RobloxBirthDay, RobloxBirthDaySchema, type RobloxBirthMonth, RobloxBirthMonthSchema, type RobloxBirthYear, RobloxBirthYearSchema, type RobloxBirthdate, RobloxBirthdateSchema, type RobloxBlockStatus, RobloxBlockStatusSchema, RobloxBlockStatusesResponseSchema, type RobloxBundleId, RobloxBundleIdSchema, type RobloxCacheEntry, type RobloxCacheInfo, RobloxCacheStage, type RobloxCacheStore, type RobloxCacheValue, type RobloxCacheValues, type RobloxCachedServerPage, type RobloxCanTrade, RobloxCanTradeSchema, type RobloxCaptchaStatus, RobloxCaptchaStatusSchema, type RobloxCaptchaTokenRequest, RobloxChatApi, type RobloxChatCacheable, type RobloxChatConversation, type RobloxChatConversationPage, RobloxChatConversationPageRawSchema, type RobloxChatConversationResult, RobloxChatConversationResultSchema, RobloxChatConversationResultsResponseSchema, RobloxChatConversationSchema, RobloxChatConversationsResponseSchema, type RobloxChatMessage, type RobloxChatMessageId, RobloxChatMessageIdSchema, type RobloxChatMessagePage, RobloxChatMessagePageRawSchema, RobloxChatMessageSchema, type RobloxChatMetadata, RobloxChatMetadataSchema, type RobloxChatPageQuery, RobloxChatSendResponseSchema, type RobloxChatUnreadCounts, RobloxChatUnreadCountsSchema, type RobloxChatUserData, RobloxChatUserDataSchema, RobloxClient, type RobloxCommunityTier, RobloxCommunityTierSchema, type RobloxConversationId, RobloxConversationIdSchema, type RobloxCookie, type RobloxCookieRejectReason, type RobloxCookieRejectedHandler, RobloxCookieSchema, type RobloxCookieStore, RobloxCountResponseSchema, type RobloxCreateBadgeRequest, type RobloxCreateConversationRequest, type RobloxCreateGroupKeywordsResponse, RobloxCreateGroupKeywordsResponseSchema, type RobloxCreateGroupRequest, type RobloxCreateGroupRoleRequest, type RobloxCreatePrivateServerRequest, type RobloxCreatedBadge, RobloxCreatedBadgeSchema, type RobloxCreator, RobloxCreatorSchema, type RobloxCreatorType, type RobloxCursor, RobloxCursorSchema, RobloxDefaultTtl, type RobloxDeveloperProductId, RobloxDeveloperProductIdSchema, type RobloxDnrOptions, type RobloxDnrRule, type RobloxEmptyResponse, RobloxEmptyResponseSchema, RobloxError, type RobloxErrorCode, type RobloxErrorData, RobloxErrorMessageFuncs, type RobloxErrorResponse, RobloxErrorResponseSchema, type RobloxErrors, type RobloxExtensionServices, RobloxExtensionStage, type RobloxFavoriteGame, type RobloxFavoriteGamePage, RobloxFavoriteGamePageSchema, RobloxFavoriteGameSchema, RobloxFiatPurchaseDataSchema, type RobloxFindUsersOptions, type RobloxFollowPage, type RobloxFollowPageQuery, RobloxFollowPageSchema, RobloxFollowingExistsResponseSchema, type RobloxFollowingStatus, RobloxFollowingStatusSchema, RobloxFriendListResponseSchema, type RobloxFriendPage, RobloxFriendPageRawSchema, type RobloxFriendPresence, RobloxFriendPresenceSchema, type RobloxFriendRequest, type RobloxFriendRequestPage, RobloxFriendRequestPageSchema, RobloxFriendRequestSchema, type RobloxFriendRequestsQuery, type RobloxFriendSearchQuery, type RobloxFriendStatus, RobloxFriendStatusSchema, RobloxFriendStatusesResponseSchema, RobloxFriendsApi, type RobloxFriendsCacheable, RobloxFriendsGroupsResponseSchema, type RobloxFriendsMetadata, RobloxFriendsMetadataSchema, type RobloxGame, type RobloxGameCreator, RobloxGameCreatorSchema, type RobloxGameFavoriteCount, type RobloxGameFollowStatus, RobloxGameFollowStatusRawSchema, type RobloxGameInfo, type RobloxGameListQuery, type RobloxGameMedia, RobloxGameMediaResponseSchema, RobloxGameMediaSchema, type RobloxGamePassId, RobloxGamePassIdSchema, type RobloxGamePlayability, RobloxGamePlayabilitySchema, type RobloxGameProduct, RobloxGameProductSchema, RobloxGameProductsResponseSchema, type RobloxGameRecommendations, RobloxGameRecommendationsSchema, RobloxGameSchema, type RobloxGameSocialLink, RobloxGameSocialLinkSchema, RobloxGameSocialLinksResponseSchema, type RobloxGameSummary, type RobloxGameSummaryPage, RobloxGameSummaryPageSchema, RobloxGameSummarySchema, type RobloxGameThumbnailId, RobloxGameThumbnailIdSchema, type RobloxGameVotes, RobloxGameVotesResponseSchema, RobloxGameVotesSchema, RobloxGamesApi, type RobloxGamesCacheable, RobloxGamesResponseSchema, RobloxGender, RobloxGenderSchema, type RobloxGeolocator, type RobloxGetServersOptions, type RobloxGroup, type RobloxGroupAuditActionType, RobloxGroupAuditActionTypes, type RobloxGroupAuditLogItem, RobloxGroupAuditLogItemSchema, type RobloxGroupAuditLogPage, RobloxGroupAuditLogPageSchema, type RobloxGroupAuditLogQuery, type RobloxGroupBan, type RobloxGroupBanPage, RobloxGroupBanPageSchema, RobloxGroupBanSchema, type RobloxGroupBasic, RobloxGroupBasicSchema, type RobloxGroupConfiguration, type RobloxGroupConfigurationMetadata, RobloxGroupConfigurationMetadataSchema, RobloxGroupConfigurationSchema, type RobloxGroupDetail, type RobloxGroupDetailPartial, RobloxGroupDetailPartialSchema, RobloxGroupDetailSchema, type RobloxGroupEmoteSet, RobloxGroupEmoteSetsResponseSchema, type RobloxGroupEventId, RobloxGroupEventIdSchema, type RobloxGroupFeatureFreeze, RobloxGroupFeatureFreezesResponseSchema, type RobloxGroupFeaturedEvent, RobloxGroupFeaturedEventSchema, type RobloxGroupFeatures, RobloxGroupFeaturesSchema, type RobloxGroupIconOptions, type RobloxGroupId, RobloxGroupIdSchema, type RobloxGroupJoinRequest, type RobloxGroupJoinRequestPage, RobloxGroupJoinRequestPageSchema, RobloxGroupJoinRequestSchema, type RobloxGroupKeyword, type RobloxGroupKeywordId, RobloxGroupKeywordIdSchema, type RobloxGroupKeywordPage, RobloxGroupKeywordPageSchema, RobloxGroupKeywordSchema, RobloxGroupLookupResponseSchema, type RobloxGroupMember, type RobloxGroupMemberPage, RobloxGroupMemberPageSchema, RobloxGroupMemberSchema, type RobloxGroupMembership, type RobloxGroupMembershipDetail, RobloxGroupMembershipDetailSchema, RobloxGroupMembershipSchema, type RobloxGroupNameHistoryPage, RobloxGroupNameHistoryPageSchema, type RobloxGroupNotificationPreference, RobloxGroupNotificationPreferenceSchema, type RobloxGroupPageQuery, type RobloxGroupPayout, type RobloxGroupPayoutRecipient, type RobloxGroupPayoutRestriction, RobloxGroupPayoutRestrictionSchema, RobloxGroupPayoutsResponseSchema, type RobloxGroupPermissions, RobloxGroupPermissionsSchema, RobloxGroupPoliciesResponseSchema, type RobloxGroupRecurringPayoutRecipient, type RobloxGroupRelationshipType, type RobloxGroupRelationships, type RobloxGroupRelationshipsQuery, RobloxGroupRelationshipsSchema, type RobloxGroupRole, type RobloxGroupRoleDetail, RobloxGroupRoleDetailSchema, RobloxGroupRoleDetailsResponseSchema, type RobloxGroupRoleId, RobloxGroupRoleIdSchema, type RobloxGroupRolePermissions, RobloxGroupRolePermissionsResponseSchema, RobloxGroupRolePermissionsSchema, RobloxGroupRoleSchema, RobloxGroupRolesResponseSchema, RobloxGroupSchema, type RobloxGroupSearchItem, RobloxGroupSearchItemSchema, type RobloxGroupSearchMetadata, RobloxGroupSearchMetadataSchema, type RobloxGroupSearchPage, RobloxGroupSearchPageSchema, type RobloxGroupSearchQuery, type RobloxGroupSettings, RobloxGroupSettingsSchema, type RobloxGroupShout, RobloxGroupShoutSchema, type RobloxGroupSocialLink, type RobloxGroupSocialLinkId, RobloxGroupSocialLinkIdSchema, type RobloxGroupSocialLinkRequest, RobloxGroupSocialLinkSchema, type RobloxGroupSocialLinkType, RobloxGroupSocialLinksResponseSchema, type RobloxGroupTierEvaluation, RobloxGroupTierEvaluationSchema, type RobloxGroupUser, type RobloxGroupUserPage, RobloxGroupUserPageSchema, RobloxGroupUserSchema, RobloxGroupsApi, type RobloxGroupsCacheable, type RobloxGroupsMetadata, RobloxGroupsMetadataSchema, RobloxGroupsResponseSchema, type RobloxIpAddress, RobloxIpAddressSchema, type RobloxItemError, type RobloxJobId, RobloxJobIdSchema, type RobloxJoinGroupRequest, type RobloxJoinResponse, RobloxJoinResponseSchema, RobloxJoinStatus, RobloxMemoryCache, RobloxMemoryCookies, type RobloxMode, type RobloxModeStage, type RobloxMyPrivateServerPage, RobloxMyPrivateServerPageSchema, type RobloxMyPrivateServersQuery, type RobloxNodeServices, RobloxNodeStage, type RobloxOnlineFriend, RobloxOnlineFriendSchema, RobloxOnlineFriendsResponseSchema, RobloxOptionsStage, type RobloxOutfitId, RobloxOutfitIdSchema, type RobloxPageLimit, RobloxPageLimitSchema, RobloxPageResponseSchema, type RobloxPinnedClient, type RobloxPlaceDetails, RobloxPlaceDetailsSchema, type RobloxPlaceId, RobloxPlaceIdSchema, RobloxPresenceApi, type RobloxPresenceCacheable, RobloxPresenceType, RobloxPresenceTypeSchema, type RobloxPrimaryGroup, RobloxPrimaryGroupResponseSchema, type RobloxPrivateServer, type RobloxPrivateServerDetail, RobloxPrivateServerDetailSchema, type RobloxPrivateServerId, RobloxPrivateServerIdSchema, type RobloxPrivateServerInvite, RobloxPrivateServerInviteSchema, type RobloxPrivateServerPage, type RobloxPrivateServerPageQuery, RobloxPrivateServerPageRawSchema, type RobloxPrivateServerPermissions, RobloxPrivateServerPermissionsSchema, RobloxPrivateServerRawSchema, type RobloxPrivateServerSubscription, RobloxPrivateServerSubscriptionSchema, type RobloxProfileAction, RobloxProfileActionSchema, type RobloxProfileActions, RobloxProfileActionsSchema, type RobloxRateLimitState, type RobloxRateLimitStore, type RobloxRecommendationsQuery, type RobloxRecommendedGame, RobloxRecommendedGameSchema, type RobloxRenameConversationRequest, type RobloxRetryOptions, type RobloxSendMessageRequest, type RobloxServer, type RobloxServerAddress, type RobloxServerAddressTarget, type RobloxServerHeadshotOptions, type RobloxServerInfo, type RobloxServerLocation, type RobloxServerPage, type RobloxServerPageQuery, RobloxServerPageRawSchema, type RobloxServerPlayer, RobloxServerPlayerRawSchema, type RobloxServerPlayerUser, RobloxServerRawSchema, type RobloxServerType, RobloxServerTypeSchema, type RobloxSetBirthdateRequest, RobloxSetBirthdateRequestSchema, type RobloxSetDescriptionRequest, RobloxSetDescriptionRequestSchema, type RobloxSetDisplayNameRequest, RobloxSetDisplayNameRequestSchema, type RobloxSetGenderRequest, RobloxSetGenderRequestSchema, type RobloxSortOrder, RobloxSortOrderSchema, type RobloxThumbnail, RobloxThumbnailBatchItemSchema, RobloxThumbnailBatchResponseSchema, type RobloxThumbnailReturnPolicy, RobloxThumbnailReturnPolicySchema, RobloxThumbnailSchema, type RobloxThumbnailSize, RobloxThumbnailSizes, type RobloxThumbnailState, RobloxThumbnailStateSchema, type RobloxThumbnailTarget, type RobloxThumbnailTargetIdOf, type RobloxThumbnailType, RobloxThumbnailsApi, type RobloxThumbnailsCacheable, RobloxThumbnailsResponseSchema, RobloxTradesApi, type RobloxTradesCacheable, type RobloxTrustedFriendRequestPage, RobloxTrustedFriendRequestPageSchema, type RobloxTrustedFriendRequestsQuery, type RobloxTtl, type RobloxUniverseBadgesQuery, type RobloxUniverseId, RobloxUniverseIdSchema, type RobloxUniverseThumbnails, type RobloxUniverseThumbnailsQuery, RobloxUniverseThumbnailsResponseSchema, RobloxUniverseThumbnailsSchema, type RobloxUpdateBadgeRequest, type RobloxUpdateGroupRoleRequest, type RobloxUpdateGroupSettingsRequest, type RobloxUpdatePrivateServerPermissionsRequest, type RobloxUpdatePrivateServerRequest, type RobloxUpdatePrivateServerSubscriptionRequest, type RobloxUser, type RobloxUserAgeBracket, RobloxUserAgeBracketSchema, type RobloxUserBadge, RobloxUserBadgePageSchema, RobloxUserBadgeSchema, type RobloxUserByName, RobloxUserByNameSchema, type RobloxUserCountryCode, RobloxUserCountryCodeSchema, type RobloxUserDescription, RobloxUserDescriptionSchema, type RobloxUserDetail, RobloxUserDetailSchema, type RobloxUserDisplayname, RobloxUserDisplaynameSchema, type RobloxUserFriends, type RobloxUserGameVote, RobloxUserGameVoteSchema, type RobloxUserGender, RobloxUserGenderSchema, type RobloxUserGroupRole, RobloxUserGroupRoleV1Schema, RobloxUserGroupRoleV2Schema, RobloxUserGroupRolesV1ResponseSchema, RobloxUserGroupRolesV2ResponseSchema, type RobloxUserGroups, type RobloxUserId, RobloxUserIdSchema, type RobloxUserName, RobloxUserNameSchema, type RobloxUserPresence, RobloxUserPresenceSchema, type RobloxUserPresencesResponse, RobloxUserPresencesResponseSchema, type RobloxUserRoles, RobloxUserRolesSchema, RobloxUserSchema, type RobloxUserSearchQuery, RobloxUserSearchQuerySchema, type RobloxUserSearchResponse, RobloxUserSearchResponseSchema, type RobloxUserSearchResult, RobloxUserSearchResultSchema, type RobloxUserServer, type RobloxUsernameHistoryEntry, RobloxUsernameHistoryEntrySchema, type RobloxUsernameHistoryQuery, RobloxUsernameHistoryQuerySchema, type RobloxUsernameHistoryResponse, RobloxUsernameHistoryResponseSchema, RobloxUsersApi, type RobloxUsersByNameRequest, RobloxUsersByNameRequestSchema, type RobloxUsersByNameResponse, RobloxUsersByNameResponseSchema, type RobloxUsersCacheable, type RobloxUsersRequest, RobloxUsersRequestSchema, type RobloxUsersResponse, RobloxUsersResponseSchema, type RobloxValidateDisplayNameQuery, RobloxValidateDisplayNameQuerySchema, type RobloxValidateUserDisplayNameQuery, RobloxValidateUserDisplayNameQuerySchema, type RobloxViewerKey, type RobloxWithThumbnail, VigorRoblox, vigorRoblox as default, isRobloxError, robloxCacheKey, robloxDnrRules, toRobloxCreator, vigorRoblox };

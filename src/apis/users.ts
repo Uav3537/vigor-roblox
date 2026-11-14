@@ -3,7 +3,7 @@ import { RobloxBatcher, RobloxBatchSkip, captureHeaders, nullOn, type RobloxBatc
 import { resolveTtl, type RobloxConfig } from "@/core/config"
 import type { RobloxThumbnailsApi } from "@/apis/thumbnails"
 import type { RobloxAvatarThumbnailOptions, RobloxThumbnailTarget, RobloxWithThumbnail } from "@/types/thumbnails"
-import { cached, createHttp, validate } from "@/core/http"
+import { cached, cachedByViewer, createHttp, validate } from "@/core/http"
 import { finish, found, settle, type RobloxItemError } from "@/core/partial"
 import { RobloxEmptyResponseSchema } from "@/types/common"
 import {
@@ -21,7 +21,6 @@ import {
     RobloxUsersResponseSchema,
     RobloxUserSchema,
     RobloxProfileActionsSchema,
-    type RobloxProfileActions,
     type RobloxGender,
     type RobloxUser,
     type RobloxUserByName,
@@ -35,7 +34,10 @@ import {
 } from "@/types/users"
 
 /** `.ttl({ users: { ... } })`로 캐시할 수 있는 메서드. 배열을 받는 메서드는 항목 하나씩 캐시한다. */
-export type RobloxUsersCacheable = "getUserDetails" | "getUsers" | "getUsersByNames" | "getUsernameHistory"
+export type RobloxUsersCacheable =
+    | "getUserDetails" | "getUsers" | "getUsersByNames" | "getUsernameHistory" | "searchUsers"
+    // depend on the requesting account
+    | "getProfileActions" | "getAuthenticated" | "getAgeBracket" | "getCountryCode" | "getRoles" | "getBirthdate" | "getDescription" | "getGender"
 
 const ORIGIN = "https://users.roblox.com"
 const APIS = "https://apis.roblox.com"
@@ -229,11 +231,11 @@ export class RobloxUsersApi {
 
     /** GET /v1/users/search */
     searchUsers(query: RobloxUserSearchQuery) {
-        return this.http()
+        return cached(this.config, { service: "users", method: "searchUsers", query }, this.ttl("searchUsers"), () => this.http()
             .path("v1", "users", "search")
             .query(query)
             .middlewares(validate(RobloxUserSearchResponseSchema))
-            .request()
+            .request())
     }
 
     /** GET /v1/users/{userId}/username-history */
@@ -261,57 +263,54 @@ export class RobloxUsersApi {
     /**
      * POST apis /profile-platform-api/v1/profiles/get — roblox.com 프로필 화면이 쓰는 비공개 엔드포인트.
      * 요청 계정이 이 유저의 프로필에서 볼 헤더 버튼과 "…" 메뉴 항목. 관계(친구, 팔로우, 차단, 신뢰하는 친구)와
-     * 계정 조건(연령, 거래 자격)에 따라 서버가 고른다. 계정마다 다르고 바로 바뀌므로 캐시하지 않는다.
+     * 계정 조건(연령, 거래 자격)에 따라 서버가 고른다. 계정마다 다르고 바로 바뀌므로 기본 TTL은 0이다.
      */
-    getProfileActions(userId: RobloxUserId): Promise<RobloxProfileActions> {
-        return this.apisHttp()
+    getProfileActions(userId: RobloxUserId) {
+        return cachedByViewer(this.config, viewer => ({ service: "users", method: "getProfileActions", viewer, userId }), this.ttl("getProfileActions"), () => this.apisHttp()
             .path("profile-platform-api", "v1", "profiles", "get")
             .body("overwrite", { profileType: "User", profileId: String(userId), components: [{ component: "Actions" }] })
             .middlewares(validate(RobloxProfileActionsSchema))
-            .request()
+            .request())
     }
 
     /** GET /v1/users/authenticated */
     getAuthenticated() {
-        return this.http()
+        return cachedByViewer(this.config, viewer => ({ service: "users", method: "getAuthenticated", viewer }), this.ttl("getAuthenticated"), () => this.http()
             .path("v1", "users", "authenticated")
             .middlewares(validate(RobloxAuthenticatedUserSchema))
-            .request()
+            .request())
     }
 
     /** GET /v1/users/authenticated/age-bracket */
-    async getAgeBracket() {
-        const res = await this.http()
+    getAgeBracket() {
+        return cachedByViewer(this.config, viewer => ({ service: "users", method: "getAgeBracket", viewer }), this.ttl("getAgeBracket"), async () => (await this.http()
             .path("v1", "users", "authenticated", "age-bracket")
             .middlewares(validate(RobloxUserAgeBracketSchema))
-            .request()
-        return res.ageBracket
+            .request()).ageBracket)
     }
 
     /** GET /v1/users/authenticated/country-code */
-    async getCountryCode() {
-        const res = await this.http()
+    getCountryCode() {
+        return cachedByViewer(this.config, viewer => ({ service: "users", method: "getCountryCode", viewer }), this.ttl("getCountryCode"), async () => (await this.http()
             .path("v1", "users", "authenticated", "country-code")
             .middlewares(validate(RobloxUserCountryCodeSchema))
-            .request()
-        return res.countryCode
+            .request()).countryCode)
     }
 
     /** GET /v1/users/authenticated/roles */
-    async getRoles() {
-        const res = await this.http()
+    getRoles() {
+        return cachedByViewer(this.config, viewer => ({ service: "users", method: "getRoles", viewer }), this.ttl("getRoles"), async () => (await this.http()
             .path("v1", "users", "authenticated", "roles")
             .middlewares(validate(RobloxUserRolesSchema))
-            .request()
-        return res.roles
+            .request()).roles)
     }
 
     /** GET /v1/birthdate */
     getBirthdate() {
-        return this.http()
+        return cachedByViewer(this.config, viewer => ({ service: "users", method: "getBirthdate", viewer }), this.ttl("getBirthdate"), () => this.http()
             .path("v1", "birthdate")
             .middlewares(validate(RobloxBirthdateSchema))
-            .request()
+            .request())
     }
 
     /** POST /v1/birthdate — 비밀번호가 필요하다. */
@@ -324,12 +323,11 @@ export class RobloxUsersApi {
     }
 
     /** GET /v1/description */
-    async getDescription() {
-        const res = await this.http()
+    getDescription() {
+        return cachedByViewer(this.config, viewer => ({ service: "users", method: "getDescription", viewer }), this.ttl("getDescription"), async () => (await this.http()
             .path("v1", "description")
             .middlewares(validate(RobloxUserDescriptionSchema))
-            .request()
-        return res.description
+            .request()).description)
     }
 
     /** POST /v1/description — 필터링된 뒤의 설명을 돌려준다. */
@@ -343,12 +341,11 @@ export class RobloxUsersApi {
     }
 
     /** GET /v1/gender */
-    async getGender() {
-        const res = await this.http()
+    getGender() {
+        return cachedByViewer(this.config, viewer => ({ service: "users", method: "getGender", viewer }), this.ttl("getGender"), async () => (await this.http()
             .path("v1", "gender")
             .middlewares(validate(RobloxUserGenderSchema))
-            .request()
-        return res.gender
+            .request()).gender)
     }
 
     /** POST /v1/gender */

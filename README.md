@@ -372,17 +372,21 @@ Every call gets two things:
 
 ### TTLs
 
-Every method has a default TTL (`RobloxDefaultTtl`), used whenever a cache is set. Override per method with `.ttl()`. A TTL of `0` is passed to the store like any other value: `get` and `set` are still called, and the store decides what `0` means (`RobloxMemoryCache` doesn't store it).
+Every read method has a default TTL (`RobloxDefaultTtl`), used whenever a cache is set. Override per method with `.ttl()`. A TTL of `0` (or less) disables caching for that method: the store's `get` and `set` are not called. Use `Infinity` to keep entries without expiry.
+
+Methods whose answer depends on the requesting account (the `my*`/`get*Status`-style lookups, group management reads, chat, trades) can be cached too, but default to `0`. Give them a TTL to turn caching on; their entries include the viewer like the ones above.
 
 | Service | Defaults |
 | --- | --- |
-| users | `getUsers` 24 h, `getUserDetails` 1 h, `getUsersByNames` 30 min, `getUsernameHistory` 1 h |
+| users | `getUsers` 24 h, `getUserDetails` 1 h, `getUsersByNames` 30 min, `getUsernameHistory` 1 h, `searchUsers` 5 s. Account-dependent (`getAuthenticated`, `getProfileActions`, ...): 0 |
 | thumbnails | `get` 24 h, `getGameThumbnails` 1 h |
 | presence | `get` 30 s |
-| games | `getUniverseIds` 30 d, `getServerLocations` 31 d, `getServerAddresses` 30 min, details/media/products 1 h, votes/counts/playability/games 5 min, server pages/paged game lists/`getPrivateServersEnabled` 5 s |
-| friends | 10 min |
-| groups | `getGroups`, `getRoles`, `getRolesByIds` 1 h, `getGroupDetails`, `getUserGroups` 10 min |
-| badges | `getBadges` 10 min, `getAwardedDates` 24 h |
+| games | `getUniverseIds` 30 d, `getServerLocations` 31 d, `getServerAddresses` 30 min, details/media/products 1 h, votes/counts/playability/games 5 min, server pages/paged game lists/`getPrivateServersEnabled` 5 s. Account-dependent (`getFavorited`, `getUserVotes`, `getFollowing`, private servers): 0 |
+| friends | friends and counts 10 min, `getMetadata` 10 min, `getFollowers`/`getFollowings` 5 s. Account-dependent (statuses, requests, online/inactive friends, `searchFriends`): 0 |
+| groups | `getGroups`, `getRoles`, `getRolesByIds`, `getNameHistory`, `getGuestPermissions`, `getSocialLinks`, `getEmotes`, metadata 1 h, `getGroupDetails`, `getUserGroups`, `getPrimaryGroups`, `getFeatureFreezes`, `getFeaturedEvents` 10 min, paged lists and searches 5 s. Account-dependent (`getMetadata`, memberships, policies, management reads): 0 |
+| badges | `getBadges` 10 min, `getAwardedDates` 24 h, `getMetadata` 1 h, `getUniverseBadges` 5 s. Account-dependent (`getUserBadges`, `getFreeQuotas`): 0 |
+| chat | all 0 (account-dependent) |
+| trades | `canTradeWith` 0 (account-dependent) |
 
 ## Errors
 

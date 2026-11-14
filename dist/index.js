@@ -129,7 +129,7 @@ async function robloxCacheKey(info) {
   const { service, method, ...args } = canonicalInfo(info);
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(JSON.stringify(args)));
   const name = `${service}.${method}`;
-  const prefix = UNVERSIONED.has(name) ? "" : `${"6.1.0"}:`;
+  const prefix = UNVERSIONED.has(name) ? "" : `${"6.2.0"}:`;
   return `${prefix}${name}::${base64url(new Uint8Array(digest).slice(0, 16))}`;
 }
 var RobloxMemoryCache = class {
@@ -162,6 +162,31 @@ var RobloxMemoryCache = class {
     this.entries.set(key, { value, expiresAt: now + ttl });
   }
 };
+
+// src/core/viewer.ts
+var hashes = /* @__PURE__ */ new Map();
+async function sha256(text) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest).slice(0, 12), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function viewerKey(config) {
+  if (config.mode === "extension") return "extension";
+  if (config.fixedCookie) {
+    let hash = hashes.get(config.fixedCookie);
+    if (!hash) hashes.set(config.fixedCookie, hash = sha256(config.fixedCookie));
+    return `cookie:${await hash}`;
+  }
+  if (!config.cookies) return "anonymous";
+  return null;
+}
+function canAuthenticate(config) {
+  return config.mode === "extension" || config.fixedCookie !== null || config.cookies !== null;
+}
+async function requireViewer(config) {
+  const viewer = await viewerKey(config);
+  if (viewer === null) throw new RobloxError("VIEWER_REQUIRED", {});
+  return viewer;
+}
 
 // src/core/http.ts
 function findFetchFailed(error) {
@@ -257,7 +282,7 @@ function cached(config, info, ttl, run, keep = () => true) {
   const normalized = canonicalInfo(info);
   return singleFlight(config, JSON.stringify(normalized), async () => {
     const store = config.cache;
-    if (!store) return run();
+    if (!store || ttl <= 0) return run();
     const key = await robloxCacheKey(normalized);
     const hit = await store.get(key, normalized);
     if (hit !== void 0) return hit;
@@ -265,6 +290,10 @@ function cached(config, info, ttl, run, keep = () => true) {
     if (result !== null && keep(result)) await store.set(key, result, ttl, normalized);
     return result;
   });
+}
+async function cachedByViewer(config, info, ttl, run, keep) {
+  const viewer = config.cache && ttl > 0 ? await viewerKey(config) : null;
+  return viewer === null ? run() : cached(config, info(viewer), ttl, run, keep);
 }
 function chunk(list, size) {
   const out = [];
@@ -296,7 +325,7 @@ var RobloxBatcher = class {
   httpFor(route) {
     const origin = route.origin ?? this.origin;
     let http = this.https.get(origin);
-    if (!http) this.https.set(origin, http = createHttp(this.config, origin, { userAgent: this.options.userAgent, retryRateLimited: false }));
+    if (!http) this.https.set(origin, http = createHttp(this.config, origin, { userAgent: this.options.userAgent, browserTracker: this.options.browserTracker, retryRateLimited: false }));
     return http;
   }
   /** key가 같은 요청이 진행 중이면 그 결과를 같이 받는다. */
@@ -448,7 +477,17 @@ var RobloxDefaultTtl = {
     // 설명/정지 여부는 이름보다 자주 바뀐다
     getUsersByNames: 30 * MINUTE,
     // 이름은 남이 가져갈 수 있다
-    getUsernameHistory: HOUR
+    getUsernameHistory: HOUR,
+    searchUsers: 5 * SECOND,
+    // 요청 계정 기준이다. 기본으로는 캐시하지 않는다
+    getProfileActions: 0,
+    getAuthenticated: 0,
+    getAgeBracket: 0,
+    getCountryCode: 0,
+    getRoles: 0,
+    getBirthdate: 0,
+    getDescription: 0,
+    getGender: 0
   },
   thumbnails: {
     get: DAY,
@@ -481,13 +520,35 @@ var RobloxDefaultTtl = {
     getUserGames: 5 * SECOND,
     getUserFavoriteGames: 5 * SECOND,
     getGroupGames: 5 * SECOND,
-    getPrivateServersEnabled: 5 * SECOND
+    getPrivateServersEnabled: 5 * SECOND,
+    // 요청 계정 기준이다. 기본으로는 캐시하지 않는다
+    getFavorited: 0,
+    getUserVotes: 0,
+    getFollowing: 0,
+    getPrivateServers: 0,
+    getMyPrivateServers: 0,
+    getPrivateServerDetails: 0,
+    getPrivateServerInvites: 0
   },
   friends: {
     getFriends: 10 * MINUTE,
     getFriendCounts: 10 * MINUTE,
     getFollowerCounts: 10 * MINUTE,
-    getFollowingCounts: 10 * MINUTE
+    getFollowingCounts: 10 * MINUTE,
+    getFollowers: 5 * SECOND,
+    getFollowings: 5 * SECOND,
+    getMetadata: 10 * MINUTE,
+    // 요청 계정 기준이다. 기본으로는 캐시하지 않는다
+    searchFriends: 0,
+    getFriendStatuses: 0,
+    getAreFriends: 0,
+    getFollowingStatuses: 0,
+    getBlockStatuses: 0,
+    getOnlineFriends: 0,
+    getInactiveFriends: 0,
+    getFriendRequests: 0,
+    getTrustedFriendRequests: 0,
+    getFriendRequestCount: 0
   },
   groups: {
     getGroups: HOUR,
@@ -495,13 +556,67 @@ var RobloxDefaultTtl = {
     // 멤버 수가 들어 있다
     getRoles: HOUR,
     getRolesByIds: HOUR,
-    getUserGroups: 10 * MINUTE
+    getUserGroups: 10 * MINUTE,
+    getPrimaryGroups: 10 * MINUTE,
+    getMembers: 5 * SECOND,
+    getRoleMembers: 5 * SECOND,
+    searchGroups: 5 * SECOND,
+    lookupGroups: 5 * SECOND,
+    getNameHistory: HOUR,
+    getRelationships: 5 * SECOND,
+    getGuestPermissions: HOUR,
+    getFeatureFreezes: 10 * MINUTE,
+    getFeaturedEvents: 10 * MINUTE,
+    getSocialLinks: HOUR,
+    getEmotes: HOUR,
+    getConfigurationMetadata: HOUR,
+    getSearchMetadata: HOUR,
+    // 요청 계정 기준이다. 기본으로는 캐시하지 않는다
+    getMetadata: 0,
+    getMemberships: 0,
+    getPolicies: 0,
+    getPendingGroups: 0,
+    getFriendsGroups: 0,
+    getRolePermissions: 0,
+    getUserPermissions: 0,
+    getJoinRequests: 0,
+    getJoinRequestsByUsers: 0,
+    getBans: 0,
+    getBannedUsers: 0,
+    getAuditLog: 0,
+    getSettings: 0,
+    getConfigurations: 0,
+    getFeatures: 0,
+    getFeaturesBlocked: 0,
+    getKeywords: 0,
+    getRelationshipRequests: 0,
+    getPayouts: 0,
+    getPayoutRestrictions: 0
   },
   badges: {
     getBadges: 10 * MINUTE,
     // 통계(획득 수)가 들어 있다
-    getAwardedDates: DAY
+    getAwardedDates: DAY,
     // 받은 날짜는 바뀌지 않는다 (유저가 지우면 사라진다)
+    getUniverseBadges: 5 * SECOND,
+    getMetadata: HOUR,
+    // 요청 계정 기준이다. 기본으로는 캐시하지 않는다
+    getUserBadges: 0,
+    getFreeQuotas: 0
+  },
+  // 전부 요청 계정 기준이다. 기본으로는 캐시하지 않는다
+  chat: {
+    getConversations: 0,
+    listConversations: 0,
+    searchConversations: 0,
+    getMessages: 0,
+    searchMessages: 0,
+    getUnreadCounts: 0,
+    getMetadata: 0
+  },
+  trades: {
+    canTradeWith: 0
+    // 요청 계정 기준
   }
 };
 function resolveTtl(config, service, method) {
@@ -828,7 +943,7 @@ var RobloxUsersApi = class {
   }
   /** GET /v1/users/search */
   searchUsers(query) {
-    return this.http().path("v1", "users", "search").query(query).middlewares(validate(RobloxUserSearchResponseSchema)).request();
+    return cached(this.config, { service: "users", method: "searchUsers", query }, this.ttl("searchUsers"), () => this.http().path("v1", "users", "search").query(query).middlewares(validate(RobloxUserSearchResponseSchema)).request());
   }
   /** GET /v1/users/{userId}/username-history */
   getUsernameHistory(userId, query = {}) {
@@ -847,42 +962,38 @@ var RobloxUsersApi = class {
   /**
    * POST apis /profile-platform-api/v1/profiles/get — roblox.com 프로필 화면이 쓰는 비공개 엔드포인트.
    * 요청 계정이 이 유저의 프로필에서 볼 헤더 버튼과 "…" 메뉴 항목. 관계(친구, 팔로우, 차단, 신뢰하는 친구)와
-   * 계정 조건(연령, 거래 자격)에 따라 서버가 고른다. 계정마다 다르고 바로 바뀌므로 캐시하지 않는다.
+   * 계정 조건(연령, 거래 자격)에 따라 서버가 고른다. 계정마다 다르고 바로 바뀌므로 기본 TTL은 0이다.
    */
   getProfileActions(userId) {
-    return this.apisHttp().path("profile-platform-api", "v1", "profiles", "get").body("overwrite", { profileType: "User", profileId: String(userId), components: [{ component: "Actions" }] }).middlewares(validate(RobloxProfileActionsSchema)).request();
+    return cachedByViewer(this.config, (viewer) => ({ service: "users", method: "getProfileActions", viewer, userId }), this.ttl("getProfileActions"), () => this.apisHttp().path("profile-platform-api", "v1", "profiles", "get").body("overwrite", { profileType: "User", profileId: String(userId), components: [{ component: "Actions" }] }).middlewares(validate(RobloxProfileActionsSchema)).request());
   }
   /** GET /v1/users/authenticated */
   getAuthenticated() {
-    return this.http().path("v1", "users", "authenticated").middlewares(validate(RobloxAuthenticatedUserSchema)).request();
+    return cachedByViewer(this.config, (viewer) => ({ service: "users", method: "getAuthenticated", viewer }), this.ttl("getAuthenticated"), () => this.http().path("v1", "users", "authenticated").middlewares(validate(RobloxAuthenticatedUserSchema)).request());
   }
   /** GET /v1/users/authenticated/age-bracket */
-  async getAgeBracket() {
-    const res = await this.http().path("v1", "users", "authenticated", "age-bracket").middlewares(validate(RobloxUserAgeBracketSchema)).request();
-    return res.ageBracket;
+  getAgeBracket() {
+    return cachedByViewer(this.config, (viewer) => ({ service: "users", method: "getAgeBracket", viewer }), this.ttl("getAgeBracket"), async () => (await this.http().path("v1", "users", "authenticated", "age-bracket").middlewares(validate(RobloxUserAgeBracketSchema)).request()).ageBracket);
   }
   /** GET /v1/users/authenticated/country-code */
-  async getCountryCode() {
-    const res = await this.http().path("v1", "users", "authenticated", "country-code").middlewares(validate(RobloxUserCountryCodeSchema)).request();
-    return res.countryCode;
+  getCountryCode() {
+    return cachedByViewer(this.config, (viewer) => ({ service: "users", method: "getCountryCode", viewer }), this.ttl("getCountryCode"), async () => (await this.http().path("v1", "users", "authenticated", "country-code").middlewares(validate(RobloxUserCountryCodeSchema)).request()).countryCode);
   }
   /** GET /v1/users/authenticated/roles */
-  async getRoles() {
-    const res = await this.http().path("v1", "users", "authenticated", "roles").middlewares(validate(RobloxUserRolesSchema)).request();
-    return res.roles;
+  getRoles() {
+    return cachedByViewer(this.config, (viewer) => ({ service: "users", method: "getRoles", viewer }), this.ttl("getRoles"), async () => (await this.http().path("v1", "users", "authenticated", "roles").middlewares(validate(RobloxUserRolesSchema)).request()).roles);
   }
   /** GET /v1/birthdate */
   getBirthdate() {
-    return this.http().path("v1", "birthdate").middlewares(validate(RobloxBirthdateSchema)).request();
+    return cachedByViewer(this.config, (viewer) => ({ service: "users", method: "getBirthdate", viewer }), this.ttl("getBirthdate"), () => this.http().path("v1", "birthdate").middlewares(validate(RobloxBirthdateSchema)).request());
   }
   /** POST /v1/birthdate — 비밀번호가 필요하다. */
   async setBirthdate(request) {
     await this.http().path("v1", "birthdate").body("overwrite", request).middlewares(validate(RobloxEmptyResponseSchema)).request();
   }
   /** GET /v1/description */
-  async getDescription() {
-    const res = await this.http().path("v1", "description").middlewares(validate(RobloxUserDescriptionSchema)).request();
-    return res.description;
+  getDescription() {
+    return cachedByViewer(this.config, (viewer) => ({ service: "users", method: "getDescription", viewer }), this.ttl("getDescription"), async () => (await this.http().path("v1", "description").middlewares(validate(RobloxUserDescriptionSchema)).request()).description);
   }
   /** POST /v1/description — 필터링된 뒤의 설명을 돌려준다. */
   async setDescription(description) {
@@ -890,9 +1001,8 @@ var RobloxUsersApi = class {
     return res.description;
   }
   /** GET /v1/gender */
-  async getGender() {
-    const res = await this.http().path("v1", "gender").middlewares(validate(RobloxUserGenderSchema)).request();
-    return res.gender;
+  getGender() {
+    return cachedByViewer(this.config, (viewer) => ({ service: "users", method: "getGender", viewer }), this.ttl("getGender"), async () => (await this.http().path("v1", "gender").middlewares(validate(RobloxUserGenderSchema)).request()).gender);
   }
   /** POST /v1/gender */
   async setGender(gender) {
@@ -1139,31 +1249,6 @@ var RobloxThumbnailsApi = class {
     return finish(found(values), errors);
   }
 };
-
-// src/core/viewer.ts
-var hashes = /* @__PURE__ */ new Map();
-async function sha256(text) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(digest).slice(0, 12), (b) => b.toString(16).padStart(2, "0")).join("");
-}
-async function viewerKey(config) {
-  if (config.mode === "extension") return "extension";
-  if (config.fixedCookie) {
-    let hash = hashes.get(config.fixedCookie);
-    if (!hash) hashes.set(config.fixedCookie, hash = sha256(config.fixedCookie));
-    return `cookie:${await hash}`;
-  }
-  if (!config.cookies) return "anonymous";
-  return null;
-}
-function canAuthenticate(config) {
-  return config.mode === "extension" || config.fixedCookie !== null || config.cookies !== null;
-}
-async function requireViewer(config) {
-  const viewer = await viewerKey(config);
-  if (viewer === null) throw new RobloxError("VIEWER_REQUIRED", {});
-  return viewer;
-}
 
 // src/types/presence.ts
 import z6 from "zod";
@@ -1932,7 +2017,7 @@ var RobloxGamesApi = class {
   // ── 요청 계정 기준 (인증 필요) ─────────────────────
   /** GET /v1/games/{universeId}/favorites — 내가 즐겨찾기했는지 */
   async getFavorited(universeIds) {
-    const { values, errors } = await settle(universeIds, (id2) => this.favorited.load(String(id2), id2));
+    const { values, errors } = await this.each("getFavorited", universeIds, (id2) => this.favorited.load(String(id2), id2), (universeId, viewer) => ({ service: "games", method: "getFavorited", viewer, universeId }), true);
     return finish(found(universeIds.map((universeId, i) => values[i] === null ? null : { universeId, isFavorited: values[i] })), errors);
   }
   /** POST /v1/games/{universeId}/favorites */
@@ -1941,7 +2026,7 @@ var RobloxGamesApi = class {
   }
   /** GET /v1/games/{universeId}/votes/user — 내 투표와 투표 가능 여부 */
   async getUserVotes(universeIds) {
-    const { values, errors } = await settle(universeIds, (id2) => this.userVotes.load(String(id2), id2));
+    const { values, errors } = await this.each("getUserVotes", universeIds, (id2) => this.userVotes.load(String(id2), id2), (universeId, viewer) => ({ service: "games", method: "getUserVotes", viewer, universeId }), true);
     return finish(found(universeIds.map((universeId, i) => values[i] && { universeId, ...values[i] })), errors);
   }
   /** PATCH /v1/games/{universeId}/user-votes — true = 좋아요, false = 싫어요, null = 취소. 게임을 플레이한 적이 있어야 한다. */
@@ -1961,7 +2046,7 @@ var RobloxGamesApi = class {
   /** GET followings /v1/users/{me}/universes/{universeId}/status — 내가 팔로우하는지, 더 팔로우할 수 있는지 */
   async getFollowing(universeIds) {
     const me = await this.myId();
-    const { values, errors } = await settle(universeIds, async (universeId) => {
+    const { values, errors } = await this.each("getFollowing", universeIds, async (universeId) => {
       const res = await this.followingsHttp().path("v1", "users", me, "universes", universeId, "status").middlewares(validate(RobloxGameFollowStatusRawSchema)).request();
       return {
         universeId,
@@ -1970,7 +2055,7 @@ var RobloxGamesApi = class {
         followingCount: res.FollowingCountByType,
         followingLimit: res.FollowingLimitByType
       };
-    });
+    }, (universeId, viewer) => ({ service: "games", method: "getFollowing", viewer, universeId }), true);
     return finish(found(values), errors);
   }
   /** POST(팔로우) / DELETE(취소) followings /v1/users/{me}/universes/{universeId} — 게임 업데이트 알림을 받는다 */
@@ -2041,8 +2126,8 @@ var RobloxGamesApi = class {
   }
   /** 캐시를 보고, 없는 IP만 콜백에 넘긴 뒤 저장한다. 모르는 IP는 결과에 없다 */
   async locate(ips, geolocate) {
-    const store = this.config.cache;
     const ttl = this.ttl("getServerLocations");
+    const store = ttl > 0 ? this.config.cache : void 0;
     const known = /* @__PURE__ */ new Map();
     const entry = async (ip) => {
       const info = { service: "games", method: "getServerLocations", ip };
@@ -2069,11 +2154,14 @@ var RobloxGamesApi = class {
   }
   /** GET /v1/games/{placeId}/private-servers — 내가 들어갈 수 있는 비공개 서버. 플레이어 헤드샷을 이어서 받는다 (`headshots: false`면 받지 않는다) */
   async getPrivateServers(placeId, query = {}) {
-    const params = {};
-    if (query.cursor) params.exclusiveStartKeyCursor = query.cursor;
-    if (query.excludeFriendServers !== void 0) params.excludeFriendServers = query.excludeFriendServers;
-    const res = await this.http().path("v1", "games", placeId, "private-servers").query(params).middlewares(validate(RobloxPrivateServerPageRawSchema)).request();
-    const players = await this.players(res.data.map((s) => ({ playerTokens: s.playerTokens ?? [], players: s.players ?? [] })), query.headshots ?? {});
+    const { headshots, ...page } = query;
+    const res = await cachedByViewer(this.config, (viewer) => ({ service: "games", method: "getPrivateServers", viewer, placeId, query: page }), this.ttl("getPrivateServers"), () => {
+      const params = {};
+      if (page.cursor) params.exclusiveStartKeyCursor = page.cursor;
+      if (page.excludeFriendServers !== void 0) params.excludeFriendServers = page.excludeFriendServers;
+      return this.http().path("v1", "games", placeId, "private-servers").query(params).middlewares(validate(RobloxPrivateServerPageRawSchema)).request();
+    });
+    const players = await this.players(res.data.map((s) => ({ playerTokens: s.playerTokens ?? [], players: s.players ?? [] })), headshots ?? {});
     return { ...res, data: res.data.map(({ playerTokens, players: _, ...server }, i) => ({ ...server, players: players[i] })) };
   }
   /** 서버마다 플레이어 토큰을 헤드샷으로 바꿔 붙이고 토큰은 뗀다 */
@@ -2101,7 +2189,12 @@ var RobloxGamesApi = class {
   }
   /** 내 비공개 서버 목록. /v1/vip-servers/…와 /v1/private-servers/…를 번갈아 쓴다. */
   getMyPrivateServers(query = {}) {
-    return this.myPrivateServers.load(JSON.stringify(query), query);
+    return cachedByViewer(
+      this.config,
+      (viewer) => ({ service: "games", method: "getMyPrivateServers", viewer, query }),
+      this.ttl("getMyPrivateServers"),
+      () => this.myPrivateServers.load(JSON.stringify(query), query)
+    );
   }
   /** GET /v1/private-servers/enabled-in-universe/{universeId} */
   async getPrivateServersEnabled(universeIds) {
@@ -2110,12 +2203,12 @@ var RobloxGamesApi = class {
   }
   /** GET /v1/vip-servers/{id} — 내가 관리하는 비공개 서버의 설정 */
   async getPrivateServerDetails(ids) {
-    const { values, errors } = await settle(ids, (id2) => this.privateServerDetails.load(String(id2), id2));
+    const { values, errors } = await this.each("getPrivateServerDetails", ids, (id2) => this.privateServerDetails.load(String(id2), id2), (privateServerId, viewer) => ({ service: "games", method: "getPrivateServerDetails", viewer, privateServerId }), true);
     return finish(found(values), errors);
   }
   /** GET /v1/vip-server/can-invite/{userId} — 내 비공개 서버에 초대할 수 있는지 */
   async getPrivateServerInvites(userIds) {
-    const { values, errors } = await settle(userIds, (id2) => this.invites.load(String(id2), id2));
+    const { values, errors } = await this.each("getPrivateServerInvites", userIds, (id2) => this.invites.load(String(id2), id2), (userId, viewer) => ({ service: "games", method: "getPrivateServerInvites", viewer, userId }), true);
     return finish(found(userIds.map((userId, i) => values[i] && { userId, ...values[i] })), errors);
   }
   /** POST /v1/games/vip-servers/{universeId} — 비공개 서버를 산다 */
@@ -2485,6 +2578,16 @@ var RobloxFriendsApi = class {
         return targets.map((t) => byId.get(t.userId) ?? null);
       }
     }]);
+    this.blocks = new RobloxBatcher(config, APIS3, [{
+      bucket: "apis POST /user-blocking-api/v1/users/batch-check-reciprocal-block",
+      limit: BLOCK_CHECK_LIMIT,
+      group: (t) => String(t.me),
+      async send(http, targets, onHeaders) {
+        const res = await http().path("user-blocking-api", "v1", "users", "batch-check-reciprocal-block").body("overwrite", { userIds: targets.map((t) => t.userId), requesterId: targets[0].me }).middlewares(captureHeaders(onHeaders)).middlewares(validate(RobloxBlockStatusesResponseSchema)).request();
+        const byId = new Map(res.users.map((s) => [s.userId, s]));
+        return targets.map((t) => byId.get(t.userId) ?? null);
+      }
+    }], { browserTracker: true });
   }
   config;
   users;
@@ -2498,6 +2601,7 @@ var RobloxFriendsApi = class {
   statuses;
   areFriends;
   followings;
+  blocks;
   /** viewer → 인증된 내 id */
   me = /* @__PURE__ */ new Map();
   ttl(method) {
@@ -2532,94 +2636,96 @@ var RobloxFriendsApi = class {
     const { values, errors } = await this.each("getFriendCounts", userIds, (id2) => this.friendCounts.load(String(id2), id2));
     return finish(found(userIds.map((userId, i) => values[i] === null ? null : { userId, count: values[i] })), errors);
   }
-  /** GET /v1/users/{userId}/followers/count */
-  async getFollowerCounts(userIds) {
-    const { values, errors } = await this.each("getFollowerCounts", userIds, (id2) => this.followerCounts.load(String(id2), id2));
-    return finish(found(userIds.map((userId, i) => values[i] === null ? null : { userId, count: values[i] })), errors);
-  }
-  /** GET /v1/users/{userId}/followings/count */
-  async getFollowingCounts(userIds) {
-    const { values, errors } = await this.each("getFollowingCounts", userIds, (id2) => this.followingCounts.load(String(id2), id2));
-    return finish(found(userIds.map((userId, i) => values[i] === null ? null : { userId, count: values[i] })), errors);
-  }
   /** GET /v1/users/{userId}/followers — 인증 필요. 항목은 id뿐이다 */
   getFollowers(userId, query = {}) {
-    return this.http().path("v1", "users", userId, "followers").query(query).middlewares(validate(RobloxFollowPageSchema)).request();
+    return cached(this.config, { service: "friends", method: "getFollowers", userId, query }, this.ttl("getFollowers"), () => this.http().path("v1", "users", userId, "followers").query(query).middlewares(validate(RobloxFollowPageSchema)).request());
   }
   /** GET /v1/users/{userId}/followings — 인증 필요. 항목은 id뿐이다 */
   getFollowings(userId, query = {}) {
-    return this.http().path("v1", "users", userId, "followings").query(query).middlewares(validate(RobloxFollowPageSchema)).request();
+    return cached(this.config, { service: "friends", method: "getFollowings", userId, query }, this.ttl("getFollowings"), () => this.http().path("v1", "users", userId, "followings").query(query).middlewares(validate(RobloxFollowPageSchema)).request());
   }
   /** GET /v1/users/{userId}/friends/search — 친구를 이름으로 찾는다. 인증 필요 */
-  async searchFriends(userId, query) {
-    const res = await this.http().path("v1", "users", userId, "friends", "search").query(query).middlewares(validate(RobloxFriendPageRawSchema)).request();
-    return {
-      previousPageCursor: res.PreviousCursor,
-      nextPageCursor: res.NextCursor,
-      data: res.PageItems.map((f) => ({ id: f.id, hasVerifiedBadge: f.hasVerifiedBadge ?? null }))
-    };
+  searchFriends(userId, query) {
+    return cachedByViewer(this.config, (viewer) => ({ service: "friends", method: "searchFriends", viewer, userId, query }), this.ttl("searchFriends"), async () => {
+      const res = await this.http().path("v1", "users", userId, "friends", "search").query(query).middlewares(validate(RobloxFriendPageRawSchema)).request();
+      return {
+        previousPageCursor: res.PreviousCursor,
+        nextPageCursor: res.NextCursor,
+        data: res.PageItems.map((f) => ({ id: f.id, hasVerifiedBadge: f.hasVerifiedBadge ?? null }))
+      };
+    });
   }
   /** GET /v1/metadata — 친구 페이지 설정과 대상의 이름 */
   getMetadata(targetUserId) {
-    return this.http().path("v1", "metadata").query({ targetUserId }).middlewares(validate(RobloxFriendsMetadataSchema)).request();
+    return cached(this.config, { service: "friends", method: "getMetadata", targetUserId }, this.ttl("getMetadata"), () => this.http().path("v1", "metadata").query({ targetUserId }).middlewares(validate(RobloxFriendsMetadataSchema)).request());
   }
   // ── 요청 계정 기준 (인증 필요, 계정 고정) ─────────
+  /** Caches item by item per requesting account. Failed items become null and are collected in errors */
+  mine(method, ids, load) {
+    const ttl = this.ttl(method);
+    return settle(ids, (id2) => cachedByViewer(this.config, (viewer) => ({ service: "friends", method, viewer, userId: id2 }), ttl, () => load(id2)));
+  }
   /** GET /v1/users/{me}/friends/statuses — 나와의 관계 ("Friends", "RequestSent" 등) */
   async getFriendStatuses(userIds) {
     const me = await this.myId();
-    const { values, errors } = await settle(userIds, (userId) => this.statuses.load(`${me}:${userId}`, { me, userId }));
+    const { values, errors } = await this.mine("getFriendStatuses", userIds, (userId) => this.statuses.load(`${me}:${userId}`, { me, userId }));
     return finish(found(values), errors);
   }
   /** 나와 친구인지. multiget-are-friends와 statuses를 나눠 쓴다. */
   async getAreFriends(userIds) {
     const me = await this.myId();
-    const { values, errors } = await settle(userIds, (userId) => this.areFriends.load(`${me}:${userId}`, { me, userId }));
+    const { values, errors } = await this.mine("getAreFriends", userIds, (userId) => this.areFriends.load(`${me}:${userId}`, { me, userId }));
     return finish(found(userIds.map((userId, i) => values[i] === null ? null : { userId, isFriend: values[i] })), errors);
   }
   /** POST /v1/user/following-exists — 내가 팔로우하는지 / 나를 팔로우하는지 */
   async getFollowingStatuses(userIds) {
     const me = await this.myId();
-    const { values, errors } = await settle(userIds, (userId) => this.followings.load(`${me}:${userId}`, { me, userId }));
+    const { values, errors } = await this.mine("getFollowingStatuses", userIds, (userId) => this.followings.load(`${me}:${userId}`, { me, userId }));
     return finish(found(values), errors);
   }
   /**
    * POST apis /user-blocking-api/v1/users/batch-check-reciprocal-block — 내가 차단했는지 / 나를 차단했는지.
-   * 결과는 입력 순서이고, 서버가 답하지 않은 유저는 뺀다. 캐시하지 않는다 (차단은 바로 바뀐다).
+   * 결과는 입력 순서이고, 서버가 답하지 않은 유저는 뺀다. 차단은 바로 바뀌므로 기본 TTL은 0이다.
    */
   async getBlockStatuses(userIds) {
     if (userIds.length === 0) return [];
     const me = await this.myId();
-    const chunks = [];
-    for (let i = 0; i < userIds.length; i += BLOCK_CHECK_LIMIT) chunks.push(userIds.slice(i, i + BLOCK_CHECK_LIMIT));
-    const responses = await Promise.all(chunks.map((ids) => this.apisHttp().path("user-blocking-api", "v1", "users", "batch-check-reciprocal-block").body("overwrite", { userIds: ids, requesterId: me }).middlewares(validate(RobloxBlockStatusesResponseSchema)).request()));
-    const byId = new Map(responses.flatMap((res) => res.users).map((s) => [s.userId, s]));
-    return found(userIds.map((id2) => byId.get(id2) ?? null));
+    const { values, errors } = await this.mine("getBlockStatuses", userIds, (userId) => this.blocks.load(`${me}:${userId}`, { me, userId }));
+    return finish(found(values), errors);
   }
   /** GET /v1/users/{me}/friends/online — 지금 접속 중인 내 친구와 위치 */
-  async getOnlineFriends() {
-    const me = await this.myId();
-    const res = await this.http().path("v1", "users", me, "friends", "online").middlewares(validate(RobloxOnlineFriendsResponseSchema)).request();
-    return res.data;
+  getOnlineFriends() {
+    return cachedByViewer(this.config, (viewer) => ({ service: "friends", method: "getOnlineFriends", viewer }), this.ttl("getOnlineFriends"), async () => {
+      const me = await this.myId();
+      const res = await this.http().path("v1", "users", me, "friends", "online").middlewares(validate(RobloxOnlineFriendsResponseSchema)).request();
+      return res.data;
+    });
   }
   /** GET /v1/users/{me}/friends/inactive — 오래 접속하지 않은 내 친구 */
-  async getInactiveFriends() {
-    const me = await this.myId();
-    const res = await this.http().path("v1", "users", me, "friends", "inactive").middlewares(validate(RobloxFriendListResponseSchema)).request();
-    return res.data.map((f) => f.id);
+  getInactiveFriends() {
+    return cachedByViewer(this.config, (viewer) => ({ service: "friends", method: "getInactiveFriends", viewer }), this.ttl("getInactiveFriends"), async () => {
+      const me = await this.myId();
+      const res = await this.http().path("v1", "users", me, "friends", "inactive").middlewares(validate(RobloxFriendListResponseSchema)).request();
+      return res.data.map((f) => f.id);
+    });
   }
   /** GET /v1/my/friends/requests — 받은 친구 요청 */
   getFriendRequests(query = {}) {
-    return this.http().path("v1", "my", "friends", "requests").query(query).middlewares(validate(RobloxFriendRequestPageSchema)).request();
+    return cachedByViewer(this.config, (viewer) => ({ service: "friends", method: "getFriendRequests", viewer, query }), this.ttl("getFriendRequests"), () => this.http().path("v1", "my", "friends", "requests").query(query).middlewares(validate(RobloxFriendRequestPageSchema)).request());
   }
   /** GET /v1/my/trusted-friends/requests — 받은 신뢰하는 친구 요청 */
   getTrustedFriendRequests(query = {}) {
-    return this.http().path("v1", "my", "trusted-friends", "requests").query(query).middlewares(validate(RobloxTrustedFriendRequestPageSchema)).request();
+    return cachedByViewer(this.config, (viewer) => ({ service: "friends", method: "getTrustedFriendRequests", viewer, query }), this.ttl("getTrustedFriendRequests"), () => this.http().path("v1", "my", "trusted-friends", "requests").query(query).middlewares(validate(RobloxTrustedFriendRequestPageSchema)).request());
   }
   /** 받은 요청 수. `unseen`이면 아직 보지 않은 것만 (/my/new-friend-requests/count) */
-  async getFriendRequestCount(opts = {}) {
-    const path = opts.unseen ? ["v1", "my", "new-friend-requests", "count"] : ["v1", "user", opts.trusted ? "trusted-friend-requests" : "friend-requests", "count"];
-    const res = await this.http().path(...path).middlewares(validate(RobloxCountResponseSchema)).request();
-    return res.count;
+  getFriendRequestCount(opts = {}) {
+    const unseen = opts.unseen ?? false;
+    const trusted = opts.trusted ?? false;
+    return cachedByViewer(this.config, (viewer) => ({ service: "friends", method: "getFriendRequestCount", viewer, unseen, trusted }), this.ttl("getFriendRequestCount"), async () => {
+      const path = unseen ? ["v1", "my", "new-friend-requests", "count"] : ["v1", "user", trusted ? "trusted-friend-requests" : "friend-requests", "count"];
+      const res = await this.http().path(...path).middlewares(validate(RobloxCountResponseSchema)).request();
+      return res.count;
+    });
   }
   // ── 쓰기 ───────────────────────────────────────────
   // 문서에 없는 엔드포인트(request-friendship 등)는 실측으로 확인했다.
@@ -2789,54 +2895,71 @@ var RobloxChatApi = class {
   viewer() {
     return requireViewer(this.config);
   }
+  ttl(method) {
+    return resolveTtl(this.config, "chat", method);
+  }
   // ── 조회 ───────────────────────────────────────────
   /** 대화 상세(참가자 이름 포함). 같은 틱에 들어온 호출은 25개씩 묶는다. 내가 참가하지 않은 대화는 뺀다. */
   async getConversations(ids) {
     const viewer = await this.viewer();
-    const { values, errors } = await settle(ids, (id2) => this.conversations.load(`${viewer}:${id2}`, { viewer, id: id2 }));
+    const ttl = this.ttl("getConversations");
+    const { values, errors } = await settle(ids, (id2) => cachedByViewer(
+      this.config,
+      (key) => ({ service: "chat", method: "getConversations", viewer: key, conversationId: id2 }),
+      ttl,
+      () => this.conversations.load(`${viewer}:${id2}`, { viewer, id: id2 })
+    ));
     return finish(found(values), errors);
   }
   /** GET get-user-conversations — 내 대화 목록 (120회/분) */
   async listConversations(query = {}) {
     await this.viewer();
-    const params = { page_size: query.pageSize ?? 20, include_user_data: true };
-    if (query.cursor) params.cursor = query.cursor;
-    const res = await this.http().path(...BASE, "get-user-conversations").query(params).middlewares(validate(RobloxChatConversationPageRawSchema)).request();
-    return { conversations: res.conversations, nextCursor: res.next_cursor };
+    return cachedByViewer(this.config, (viewer) => ({ service: "chat", method: "listConversations", viewer, query }), this.ttl("listConversations"), async () => {
+      const params = { page_size: query.pageSize ?? 20, include_user_data: true };
+      if (query.cursor) params.cursor = query.cursor;
+      const res = await this.http().path(...BASE, "get-user-conversations").query(params).middlewares(validate(RobloxChatConversationPageRawSchema)).request();
+      return { conversations: res.conversations, nextCursor: res.next_cursor };
+    });
   }
   /** POST search-conversations — 대화를 이름/참가자로 찾는다 */
   async searchConversations(query, page = {}) {
     await this.viewer();
-    const body = { query, page_size: page.pageSize ?? 20 };
-    if (page.cursor) body.cursor = page.cursor;
-    const res = await this.http().path(...BASE, "search-conversations").body("overwrite", body).middlewares(validate(RobloxChatConversationPageRawSchema)).request();
-    return { conversations: res.conversations, nextCursor: res.next_cursor };
+    return cachedByViewer(this.config, (viewer) => ({ service: "chat", method: "searchConversations", viewer, query, page }), this.ttl("searchConversations"), async () => {
+      const body = { query, page_size: page.pageSize ?? 20 };
+      if (page.cursor) body.cursor = page.cursor;
+      const res = await this.http().path(...BASE, "search-conversations").body("overwrite", body).middlewares(validate(RobloxChatConversationPageRawSchema)).request();
+      return { conversations: res.conversations, nextCursor: res.next_cursor };
+    });
   }
   /** GET get-conversation-messages — 최신순 (120회/분). 커서 두 개를 응답 그대로 돌려준다 */
   async getMessages(conversationId, query = {}) {
     await this.viewer();
-    const params = { conversation_id: conversationId, page_size: query.pageSize ?? 30 };
-    if (query.cursor) params.cursor = query.cursor;
-    const res = await this.http().path(...BASE, "get-conversation-messages").query(params).middlewares(validate(RobloxChatMessagePageRawSchema)).request();
-    return { messages: res.messages, nextCursor: res.next_cursor, previousCursor: res.previous_cursor };
+    return cachedByViewer(this.config, (viewer) => ({ service: "chat", method: "getMessages", viewer, conversationId, query }), this.ttl("getMessages"), async () => {
+      const params = { conversation_id: conversationId, page_size: query.pageSize ?? 30 };
+      if (query.cursor) params.cursor = query.cursor;
+      const res = await this.http().path(...BASE, "get-conversation-messages").query(params).middlewares(validate(RobloxChatMessagePageRawSchema)).request();
+      return { messages: res.messages, nextCursor: res.next_cursor, previousCursor: res.previous_cursor };
+    });
   }
   /** POST search-messages — 한 대화 안에서 메시지 검색 */
   async searchMessages(conversationId, query, page = {}) {
     await this.viewer();
-    const body = { conversation_id: conversationId, query, page_size: page.pageSize ?? 30 };
-    if (page.cursor) body.cursor = page.cursor;
-    const res = await this.http().path(...BASE, "search-messages").body("overwrite", body).middlewares(validate(RobloxChatMessagePageRawSchema)).request();
-    return { messages: res.messages, nextCursor: res.next_cursor, previousCursor: res.previous_cursor };
+    return cachedByViewer(this.config, (viewer) => ({ service: "chat", method: "searchMessages", viewer, conversationId, query, page }), this.ttl("searchMessages"), async () => {
+      const body = { conversation_id: conversationId, query, page_size: page.pageSize ?? 30 };
+      if (page.cursor) body.cursor = page.cursor;
+      const res = await this.http().path(...BASE, "search-messages").body("overwrite", body).middlewares(validate(RobloxChatMessagePageRawSchema)).request();
+      return { messages: res.messages, nextCursor: res.next_cursor, previousCursor: res.previous_cursor };
+    });
   }
   /** GET get-conversation-metadata — 전체 안 읽은 수 */
   async getUnreadCounts() {
     await this.viewer();
-    return this.http().path(...BASE, "get-conversation-metadata").middlewares(validate(RobloxChatUnreadCountsSchema)).request();
+    return cachedByViewer(this.config, (viewer) => ({ service: "chat", method: "getUnreadCounts", viewer }), this.ttl("getUnreadCounts"), () => this.http().path(...BASE, "get-conversation-metadata").middlewares(validate(RobloxChatUnreadCountsSchema)).request());
   }
   /** GET metadata — 채팅 가능 여부와 설정. `isChatUserMessagesEnabled`가 false면 메시지를 보낼 수 없다 */
   async getMetadata() {
     await this.viewer();
-    return this.http().path(...BASE, "metadata").middlewares(validate(RobloxChatMetadataSchema)).request();
+    return cachedByViewer(this.config, (viewer) => ({ service: "chat", method: "getMetadata", viewer }), this.ttl("getMetadata"), () => this.http().path(...BASE, "metadata").middlewares(validate(RobloxChatMetadataSchema)).request());
   }
   // ── 쓰기 ───────────────────────────────────────────
   /**
@@ -3501,9 +3624,17 @@ var RobloxGroupsApi = class {
     const field = method === "getRolesByIds" ? "roleId" : method === "getUserGroups" ? "userId" : "groupId";
     return settle(ids, (id2) => cached(this.config, { service: "groups", method, [field]: id2 }, this.ttl(method), () => load(id2)));
   }
-  /** 대상마다 batcher로 보내고 없는 대상은 뺀다. 일부가 실패하면 RobloxError(PARTIAL) */
-  async many(batcher, targets, key) {
-    const { values, errors } = await settle(targets, (t) => batcher.load(key(t), t));
+  /**
+   * Caches item by item. `info` gives the cache info fields of one item; with `byViewer` the requesting account is added
+   * (and nothing is cached while cookies rotate). Failed items become null and are collected in errors
+   */
+  cachedEach(method, targets, info, load, byViewer) {
+    const ttl = this.ttl(method);
+    return settle(targets, (t) => byViewer ? cachedByViewer(this.config, (viewer) => ({ service: "groups", method, viewer, ...info(t) }), ttl, () => load(t)) : cached(this.config, { service: "groups", method, ...info(t) }, ttl, () => load(t)));
+  }
+  /** 대상마다 batcher로 보내고(항목 하나씩 캐시) 없는 대상은 뺀다. 일부가 실패하면 RobloxError(PARTIAL) */
+  async many(method, batcher, targets, key, info, byViewer = false) {
+    const { values, errors } = await this.cachedEach(method, targets, info, (t) => batcher.load(key(t), t), byViewer);
     return finish(found(values), errors);
   }
   /** 그룹들을 받아 실패가 있으면 RobloxError(PARTIAL)로 던진다. `option`이 있으면 아이콘을 붙이고, 아이콘을 받지 못한 그룹은 `thumbnail: null`이다 */
@@ -3542,88 +3673,88 @@ var RobloxGroupsApi = class {
   }
   /** GET /v1/users/{userId}/groups/primary/role — 대표 그룹. 대표 그룹이 없는 유저는 뺀다 */
   getPrimaryGroups(userIds) {
-    return this.many(this.primaryGroups, userIds, String);
+    return this.many("getPrimaryGroups", this.primaryGroups, userIds, String, (userId) => ({ userId }));
   }
   /** GET /v1/groups/{groupId}/users — 멤버와 역할 */
   getMembers(groupId, query = {}) {
-    return this.http().path("v1", "groups", groupId, "users").query(query).middlewares(validate(RobloxGroupMemberPageSchema)).request();
+    return cached(this.config, { service: "groups", method: "getMembers", groupId, query }, this.ttl("getMembers"), () => this.http().path("v1", "groups", groupId, "users").query(query).middlewares(validate(RobloxGroupMemberPageSchema)).request());
   }
   /** GET /v1/groups/{groupId}/roles/{roleSetId}/users — 역할 하나의 멤버 */
   getRoleMembers(groupId, roleId, query = {}) {
-    return this.http().path("v1", "groups", groupId, "roles", roleId, "users").query(query).middlewares(validate(RobloxGroupUserPageSchema)).request();
+    return cached(this.config, { service: "groups", method: "getRoleMembers", groupId, roleId, query }, this.ttl("getRoleMembers"), () => this.http().path("v1", "groups", groupId, "roles", roleId, "users").query(query).middlewares(validate(RobloxGroupUserPageSchema)).request());
   }
   /** GET /v1/groups/search — 키워드 검색. totalResults는 1000에서 멈춘다 */
   searchGroups(query) {
-    return this.http().path("v1", "groups", "search").query(query).middlewares(validate(RobloxGroupSearchPageSchema)).request();
+    return cached(this.config, { service: "groups", method: "searchGroups", query }, this.ttl("searchGroups"), () => this.http().path("v1", "groups", "search").query(query).middlewares(validate(RobloxGroupSearchPageSchema)).request());
   }
   /** GET /v1/groups/search/lookup — 이름으로 찾는다. 정확히 맞는 그룹이 있으면 맨 앞에 온다 */
-  async lookupGroups(groupName) {
-    const res = await this.http().path("v1", "groups", "search", "lookup").query({ groupName }).middlewares(validate(RobloxGroupLookupResponseSchema)).request();
-    return res.data;
+  lookupGroups(groupName) {
+    return cached(this.config, { service: "groups", method: "lookupGroups", groupName }, this.ttl("lookupGroups"), async () => (await this.http().path("v1", "groups", "search", "lookup").query({ groupName }).middlewares(validate(RobloxGroupLookupResponseSchema)).request()).data);
   }
   /** GET /v1/groups/{groupId}/name-history */
   getNameHistory(groupId, query = {}) {
-    return this.http().path("v1", "groups", groupId, "name-history").query(query).middlewares(validate(RobloxGroupNameHistoryPageSchema)).request();
+    return cached(this.config, { service: "groups", method: "getNameHistory", groupId, query }, this.ttl("getNameHistory"), () => this.http().path("v1", "groups", groupId, "name-history").query(query).middlewares(validate(RobloxGroupNameHistoryPageSchema)).request());
   }
   /** GET /v1/groups/{groupId}/relationships/{allies|enemies} — 동맹/적 그룹 */
   getRelationships(groupId, type, query = {}) {
-    return this.http().path("v1", "groups", groupId, "relationships", relationshipPath(type)).query({ StartRowIndex: query.startRowIndex ?? 0, MaxRows: query.maxRows ?? 100 }).middlewares(validate(RobloxGroupRelationshipsSchema)).request();
+    return cached(this.config, { service: "groups", method: "getRelationships", groupId, type, query }, this.ttl("getRelationships"), () => this.http().path("v1", "groups", groupId, "relationships", relationshipPath(type)).query({ StartRowIndex: query.startRowIndex ?? 0, MaxRows: query.maxRows ?? 100 }).middlewares(validate(RobloxGroupRelationshipsSchema)).request());
   }
   /** GET /v1/groups/{groupId}/roles/guest/permissions — 멤버가 아닌 사람이 할 수 있는 것 (30회/분) */
   getGuestPermissions(groupIds) {
-    return this.many(this.guestPermissions, groupIds, String);
+    return this.many("getGuestPermissions", this.guestPermissions, groupIds, String, (groupId) => ({ groupId }));
   }
   /** GET /v1/groups/{groupId}/community-feature-freezes — 포럼 등 기능이 멈춰 있는지 */
   async getFeatureFreezes(groupIds) {
-    const { values: lists, errors } = await settle(groupIds, (id2) => this.featureFreezes.load(String(id2), id2));
+    const { values: lists, errors } = await this.cachedEach("getFeatureFreezes", groupIds, (groupId) => ({ groupId }), (id2) => this.featureFreezes.load(String(id2), id2), false);
     return finish(found(groupIds.map((groupId, i) => lists[i] ? { groupId, features: lists[i] } : null)), errors);
   }
   /** GET /v1/featured-content/event — 그룹이 내건 이벤트. 없는 그룹은 뺀다 */
   getFeaturedEvents(groupIds) {
-    return this.many(this.featuredEvents, groupIds, String);
+    return this.many("getFeaturedEvents", this.featuredEvents, groupIds, String, (groupId) => ({ groupId }));
   }
   /** GET /v1/groups/metadata — 그룹 수 한도 등. 인증하면 요청 계정의 가입 수가 들어간다 */
   getMetadata() {
-    return this.http().path("v1", "groups", "metadata").middlewares(validate(RobloxGroupsMetadataSchema)).request();
+    return cachedByViewer(this.config, (viewer) => ({ service: "groups", method: "getMetadata", viewer }), this.ttl("getMetadata"), () => this.http().path("v1", "groups", "metadata").middlewares(validate(RobloxGroupsMetadataSchema)).request());
   }
   /** GET /v1/groups/configuration/metadata — 이름 길이, 생성/개명 비용 등 */
   getConfigurationMetadata() {
-    return this.http().path("v1", "groups", "configuration", "metadata").middlewares(validate(RobloxGroupConfigurationMetadataSchema)).request();
+    return cached(this.config, { service: "groups", method: "getConfigurationMetadata" }, this.ttl("getConfigurationMetadata"), () => this.http().path("v1", "groups", "configuration", "metadata").middlewares(validate(RobloxGroupConfigurationMetadataSchema)).request());
   }
   /** GET /v1/groups/search/metadata — 추천 검색어 */
   getSearchMetadata() {
-    return this.http().path("v1", "groups", "search", "metadata").middlewares(validate(RobloxGroupSearchMetadataSchema)).request();
+    return cached(this.config, { service: "groups", method: "getSearchMetadata" }, this.ttl("getSearchMetadata"), () => this.http().path("v1", "groups", "search", "metadata").middlewares(validate(RobloxGroupSearchMetadataSchema)).request());
   }
   // ── 요청 계정 기준 (인증 필요) ─────────────────────
   /** GET /v1/groups/{groupId}/membership — 내 역할, 권한, 가입 대기 여부, 알림 설정 */
   getMemberships(groupIds) {
-    return this.many(this.memberships, groupIds, String);
+    return this.many("getMemberships", this.memberships, groupIds, String, (groupId) => ({ groupId }), true);
   }
   /** POST /v1/groups/policies — 내 계정으로 그룹을 볼 수 있는지 (지역 정책) */
   async getPolicies(groupIds) {
-    const { values: list, errors } = await settle(groupIds, (id2) => this.policies.load(String(id2), id2));
+    const { values: list, errors } = await this.cachedEach("getPolicies", groupIds, (groupId) => ({ groupId }), (id2) => this.policies.load(String(id2), id2), true);
     return finish(found(groupIds.map((groupId, i) => list[i] === null ? null : { groupId, canViewGroup: list[i] })), errors);
   }
   /** GET /v1/groups/{groupId}/social-links */
   async getSocialLinks(groupIds) {
-    const { values: lists, errors } = await settle(groupIds, (id2) => this.socialLinks.load(String(id2), id2));
+    const { values: lists, errors } = await this.cachedEach("getSocialLinks", groupIds, (groupId) => ({ groupId }), (id2) => this.socialLinks.load(String(id2), id2), false);
     return finish(found(groupIds.map((groupId, i) => lists[i] ? { groupId, links: lists[i] } : null)), errors);
   }
   /** GET /v1/groups/{groupId}/emotes — 포럼 이모트 */
   async getEmotes(groupIds) {
-    const { values: lists, errors } = await settle(groupIds, (id2) => this.emotes.load(String(id2), id2));
+    const { values: lists, errors } = await this.cachedEach("getEmotes", groupIds, (groupId) => ({ groupId }), (id2) => this.emotes.load(String(id2), id2), false);
     return finish(found(groupIds.map((groupId, i) => lists[i] ? { groupId, emoteSets: lists[i] } : null)), errors);
   }
   /** GET /v1/user/groups/pending — 가입을 요청해 둔 그룹 */
-  async getPendingGroups() {
-    const res = await this.http().path("v1", "user", "groups", "pending").middlewares(validate(z15.object({ data: z15.array(RobloxGroupDetailPartialSchema) }))).request();
-    return res.data;
+  getPendingGroups() {
+    return cachedByViewer(this.config, (viewer) => ({ service: "groups", method: "getPendingGroups", viewer }), this.ttl("getPendingGroups"), async () => (await this.http().path("v1", "user", "groups", "pending").middlewares(validate(z15.object({ data: z15.array(RobloxGroupDetailPartialSchema) }))).request()).data);
   }
   /** GET /v1/users/{me}/friends/groups/roles — 내 친구들이 속한 그룹. 다른 유저로는 403이다 */
-  async getFriendsGroups() {
-    const me = await this.myId();
-    const res = await this.http().path("v1", "users", me, "friends", "groups", "roles").middlewares(validate(RobloxFriendsGroupsResponseSchema)).request();
-    return res.data;
+  getFriendsGroups() {
+    return cachedByViewer(this.config, (viewer) => ({ service: "groups", method: "getFriendsGroups", viewer }), this.ttl("getFriendsGroups"), async () => {
+      const me = await this.myId();
+      const res = await this.http().path("v1", "users", me, "friends", "groups", "roles").middlewares(validate(RobloxFriendsGroupsResponseSchema)).request();
+      return res.data;
+    });
   }
   /** POST /v1/groups/{groupId}/users — 가입한다. 승인제 그룹이면 가입 요청이 된다. 캡차를 요구할 수 있다 */
   async joinGroup(groupId, request = {}) {
@@ -3662,7 +3793,7 @@ var RobloxGroupsApi = class {
   // 권한이 없으면 403 FETCH_FAILED로 실패한다.
   /** 역할들의 권한. 주인이면 모든 역할을 한 번에(/roles/permissions), 아니면 역할 하나씩 받는다 */
   getRolePermissions(groupId, roleIds) {
-    return this.many(this.rolePermissions, roleIds.map((roleId) => ({ groupId, roleId })), (t) => `${t.groupId}:${t.roleId}`);
+    return this.many("getRolePermissions", this.rolePermissions, roleIds.map((roleId) => ({ groupId, roleId })), (t) => `${t.groupId}:${t.roleId}`, (t) => t, true);
   }
   /** PATCH /v1/groups/{groupId}/roles/{roleSetId}/permissions — `{ "ViewWall": true }`처럼 권한 이름 → 값 */
   async updateRolePermissions(groupId, roleId, permissions) {
@@ -3670,7 +3801,7 @@ var RobloxGroupsApi = class {
   }
   /** GET /v1/groups/{groupId}/users/{userId}/permissions — 주인과 권한 관리자만 볼 수 있다 */
   getUserPermissions(groupId, userIds) {
-    return this.many(this.userPermissions, userIds.map((userId) => ({ groupId, userId })), (t) => `${t.groupId}:${t.userId}`);
+    return this.many("getUserPermissions", this.userPermissions, userIds.map((userId) => ({ groupId, userId })), (t) => `${t.groupId}:${t.userId}`, (t) => t, true);
   }
   /** POST /v1/groups/{groupId}/rolesets/create */
   createRole(groupId, request) {
@@ -3694,11 +3825,11 @@ var RobloxGroupsApi = class {
   }
   /** GET /v1/groups/{groupId}/join-requests — 가입 요청 목록 */
   getJoinRequests(groupId, query = {}) {
-    return this.http().path("v1", "groups", groupId, "join-requests").query(query).middlewares(validate(RobloxGroupJoinRequestPageSchema)).request();
+    return cachedByViewer(this.config, (viewer) => ({ service: "groups", method: "getJoinRequests", viewer, groupId, query }), this.ttl("getJoinRequests"), () => this.http().path("v1", "groups", groupId, "join-requests").query(query).middlewares(validate(RobloxGroupJoinRequestPageSchema)).request());
   }
   /** GET /v1/groups/{groupId}/join-requests/users/{userId} — 이 유저들의 가입 요청. 요청이 없는 유저는 뺀다 */
   async getJoinRequestsByUsers(groupId, userIds) {
-    return this.many(this.joinRequests, userIds.map((userId) => ({ groupId, userId })), (t) => `${t.groupId}:${t.userId}`);
+    return this.many("getJoinRequestsByUsers", this.joinRequests, userIds.map((userId) => ({ groupId, userId })), (t) => `${t.groupId}:${t.userId}`, (t) => t, true);
   }
   /** 가입 요청을 받아들인다. 한 명이면 /users/{userId}, 여러 명이면 묶음 엔드포인트로 보낸다 */
   async acceptJoinRequests(groupId, userIds) {
@@ -3729,11 +3860,11 @@ var RobloxGroupsApi = class {
   }
   /** GET /v1/groups/{groupId}/bans */
   getBans(groupId, query = {}) {
-    return this.http().path("v1", "groups", groupId, "bans").query(query).middlewares(validate(RobloxGroupBanPageSchema)).request();
+    return cachedByViewer(this.config, (viewer) => ({ service: "groups", method: "getBans", viewer, groupId, query }), this.ttl("getBans"), () => this.http().path("v1", "groups", groupId, "bans").query(query).middlewares(validate(RobloxGroupBanPageSchema)).request());
   }
   /** GET /v1/groups/{groupId}/bans/{userId} — 이 유저들의 차단 정보. 차단되지 않은 유저는 뺀다 */
   getBannedUsers(groupId, userIds) {
-    return this.many(this.bans, userIds.map((userId) => ({ groupId, userId })), (t) => `${t.groupId}:${t.userId}`);
+    return this.many("getBannedUsers", this.bans, userIds.map((userId) => ({ groupId, userId })), (t) => `${t.groupId}:${t.userId}`, (t) => t, true);
   }
   /** POST /v1/groups/{groupId}/bans/{userId} */
   banUser(groupId, userId) {
@@ -3745,11 +3876,11 @@ var RobloxGroupsApi = class {
   }
   /** GET /v1/groups/{groupId}/audit-log */
   getAuditLog(groupId, query = {}) {
-    return this.http().path("v1", "groups", groupId, "audit-log").query(query).middlewares(validate(RobloxGroupAuditLogPageSchema)).request();
+    return cachedByViewer(this.config, (viewer) => ({ service: "groups", method: "getAuditLog", viewer, groupId, query }), this.ttl("getAuditLog"), () => this.http().path("v1", "groups", groupId, "audit-log").query(query).middlewares(validate(RobloxGroupAuditLogPageSchema)).request());
   }
   /** GET /v1/groups/{groupId}/settings */
   async getSettings(groupIds) {
-    const { values: list, errors } = await settle(groupIds, (id2) => this.settings.load(String(id2), id2));
+    const { values: list, errors } = await this.cachedEach("getSettings", groupIds, (groupId) => ({ groupId }), (id2) => this.settings.load(String(id2), id2), true);
     return finish(found(groupIds.map((groupId, i) => list[i] && { groupId, ...list[i] })), errors);
   }
   /** PATCH /v1/groups/{groupId}/settings — 넣은 항목만 바꾼다 */
@@ -3758,16 +3889,16 @@ var RobloxGroupsApi = class {
   }
   /** GET /v1/groups/{groupId}/configuration — 엠블럼/커버 사진 asset id */
   getConfigurations(groupIds) {
-    return this.many(this.configurations, groupIds, String);
+    return this.many("getConfigurations", this.configurations, groupIds, String, (groupId) => ({ groupId }), true);
   }
   /** GET /v1/groups/{groupId}/features — 기능별 차단 상태와 잠금 여부 */
   async getFeatures(groupIds) {
-    const { values: list, errors } = await settle(groupIds, (id2) => this.features.load(String(id2), id2));
+    const { values: list, errors } = await this.cachedEach("getFeatures", groupIds, (groupId) => ({ groupId }), (id2) => this.features.load(String(id2), id2), true);
     return finish(found(groupIds.map((groupId, i) => list[i] && { groupId, ...list[i] })), errors);
   }
   /** GET /v1/groups/{groupId}/features/status — 막힌 기능이 하나라도 있는지 */
   async getFeaturesBlocked(groupIds) {
-    const { values: list, errors } = await settle(groupIds, (id2) => this.featuresBlocked.load(String(id2), id2));
+    const { values: list, errors } = await this.cachedEach("getFeaturesBlocked", groupIds, (groupId) => ({ groupId }), (id2) => this.featuresBlocked.load(String(id2), id2), true);
     return finish(found(groupIds.map((groupId, i) => list[i] === null ? null : { groupId, hasFeaturesBlocked: list[i] })), errors);
   }
   /** PATCH /v1/groups/{groupId}/features — 지금은 걸려 있는 차단을 푸는 것만 된다. 바뀌었으면 true */
@@ -3809,7 +3940,7 @@ var RobloxGroupsApi = class {
   }
   /** GET /v1/groups/{groupId}/blocked-keywords — 포럼 차단 키워드 */
   getKeywords(groupId, query = {}) {
-    return this.http().path("v1", "groups", groupId, "blocked-keywords").query(query).middlewares(validate(RobloxGroupKeywordPageSchema)).request();
+    return cachedByViewer(this.config, (viewer) => ({ service: "groups", method: "getKeywords", viewer, groupId, query }), this.ttl("getKeywords"), () => this.http().path("v1", "groups", groupId, "blocked-keywords").query(query).middlewares(validate(RobloxGroupKeywordPageSchema)).request());
   }
   /** POST /v1/groups/{groupId}/blocked-keywords — 스펙은 keywords를 문자열 하나로 받는다 */
   createKeywords(groupId, request) {
@@ -3833,7 +3964,7 @@ var RobloxGroupsApi = class {
   }
   /** GET /v1/groups/{groupId}/relationships/{type}/requests — 받은 동맹 요청 */
   getRelationshipRequests(groupId, type, query = {}) {
-    return this.http().path("v1", "groups", groupId, "relationships", relationshipPath(type), "requests").query({ StartRowIndex: query.startRowIndex ?? 0, MaxRows: query.maxRows ?? 100 }).middlewares(validate(RobloxGroupRelationshipsSchema)).request();
+    return cachedByViewer(this.config, (viewer) => ({ service: "groups", method: "getRelationshipRequests", viewer, groupId, type, query }), this.ttl("getRelationshipRequests"), () => this.http().path("v1", "groups", groupId, "relationships", relationshipPath(type), "requests").query({ StartRowIndex: query.startRowIndex ?? 0, MaxRows: query.maxRows ?? 100 }).middlewares(validate(RobloxGroupRelationshipsSchema)).request());
   }
   /** 받은 동맹 요청을 받아들인다. 하나면 /requests/{relatedGroupId}, 여러 개면 묶음 엔드포인트로 보낸다 */
   async acceptRelationshipRequests(groupId, type, relatedGroupIds) {
@@ -3863,12 +3994,12 @@ var RobloxGroupsApi = class {
   }
   /** GET /v1/groups/{groupId}/payouts — 정기 지급 대상과 비율 */
   async getPayouts(groupIds) {
-    const { values: lists, errors } = await settle(groupIds, (id2) => this.payouts.load(String(id2), id2));
+    const { values: lists, errors } = await this.cachedEach("getPayouts", groupIds, (groupId) => ({ groupId }), (id2) => this.payouts.load(String(id2), id2), true);
     return finish(found(groupIds.map((groupId, i) => lists[i] ? { groupId, payouts: lists[i] } : null)), errors);
   }
   /** GET /v1/groups/{groupId}/payout-restriction — 지급 기능을 쓸 수 있는지 */
   async getPayoutRestrictions(groupIds) {
-    const { values: list, errors } = await settle(groupIds, (id2) => this.payoutRestrictions.load(String(id2), id2));
+    const { values: list, errors } = await this.cachedEach("getPayoutRestrictions", groupIds, (groupId) => ({ groupId }), (id2) => this.payoutRestrictions.load(String(id2), id2), true);
     return finish(found(groupIds.map((groupId, i) => list[i] && { groupId, ...list[i] })), errors);
   }
   /**
@@ -4031,11 +4162,11 @@ var RobloxBadgesApi = class {
   }
   /** GET /v1/universes/{universeId}/badges — 게임의 배지 (100회/분). 없는 게임이면 빈 목록이다 */
   getUniverseBadges(universeId, query = {}) {
-    return this.http().path("v1", "universes", universeId, "badges").query(query).middlewares(validate(RobloxBadgePageSchema)).request();
+    return cached(this.config, { service: "badges", method: "getUniverseBadges", universeId, query }, this.ttl("getUniverseBadges"), () => this.http().path("v1", "universes", universeId, "badges").query(query).middlewares(validate(RobloxBadgePageSchema)).request());
   }
   /** GET /v1/users/{userId}/badges — 유저가 받은 배지 (1000회/분). 인증 필요. 없는 유저면 404 */
   getUserBadges(userId, query = {}) {
-    return this.http().path("v1", "users", userId, "badges").query(query).middlewares(validate(RobloxUserBadgePageSchema)).request();
+    return cachedByViewer(this.config, (viewer) => ({ service: "badges", method: "getUserBadges", viewer, userId, query }), this.ttl("getUserBadges"), () => this.http().path("v1", "users", userId, "badges").query(query).middlewares(validate(RobloxUserBadgePageSchema)).request());
   }
   /**
    * 유저가 배지들을 받았는지와 받은 날짜. 인증 필요. 결과는 입력과 같은 순서이고, 받지 않은 배지는 `awardedDate`가 null이다
@@ -4054,12 +4185,13 @@ var RobloxBadgesApi = class {
   }
   /** GET /v1/universes/{universeId}/free-badges-quota — 오늘(UTC) 남은 무료 배지 수. 없는 게임은 뺀다 */
   async getFreeQuotas(universeIds) {
-    const { values, errors } = await settle(universeIds, (id2) => this.freeQuotas.load(String(id2), id2));
+    const ttl = this.ttl("getFreeQuotas");
+    const { values, errors } = await settle(universeIds, (id2) => cachedByViewer(this.config, (viewer) => ({ service: "badges", method: "getFreeQuotas", viewer, universeId: id2 }), ttl, () => this.freeQuotas.load(String(id2), id2)));
     return finish(found(universeIds.map((universeId, i) => values[i] === null ? null : { universeId, quota: values[i] })), errors);
   }
   /** GET /v1/badges/metadata — 배지 비용과 이름/설명 길이 제한 */
   getMetadata() {
-    return this.http().path("v1", "badges", "metadata").middlewares(validate(RobloxBadgeMetadataSchema)).request();
+    return cached(this.config, { service: "badges", method: "getMetadata" }, this.ttl("getMetadata"), () => this.http().path("v1", "badges", "metadata").middlewares(validate(RobloxBadgeMetadataSchema)).request());
   }
   // ── 관리 (인증 필요) ───────────────────────────────
   /**
@@ -4103,16 +4235,21 @@ var RobloxCanTradeSchema = z18.object({
 // src/apis/trades.ts
 var ORIGIN8 = "https://trades.roblox.com";
 var RobloxTradesApi = class {
-  http;
   constructor(config) {
+    this.config = config;
     this.http = createHttp(config, ORIGIN8);
+  }
+  config;
+  http;
+  ttl(method) {
+    return resolveTtl(this.config, "trades", method);
   }
   /**
    * GET /v1/users/{userId}/can-trade-with — 요청 계정이 이 유저와 거래할 수 있는지와 그 이유.
-   * 캐시하지 않는다 (프라이버시 설정·차단에 따라 바로 바뀐다).
+   * 프라이버시 설정·차단에 따라 바로 바뀌므로 기본 TTL은 0이다.
    */
   canTradeWith(userId) {
-    return this.http().path("v1", "users", userId, "can-trade-with").middlewares(validate(RobloxCanTradeSchema)).request();
+    return cachedByViewer(this.config, (viewer) => ({ service: "trades", method: "canTradeWith", viewer, userId }), this.ttl("canTradeWith"), () => this.http().path("v1", "users", userId, "can-trade-with").middlewares(validate(RobloxCanTradeSchema)).request());
   }
 };
 
@@ -4475,7 +4612,7 @@ var RobloxNodeStage = class _RobloxNodeStage extends RobloxConfigurableStage {
 var RobloxOptionsStage = class extends RobloxConfigurableStage {
 };
 var RobloxCacheStage = class _RobloxCacheStage extends RobloxClient {
-  /** 서비스 → 메서드 → TTL(ms). 적지 않은 메서드는 기본값(`RobloxDefaultTtl`)을 쓴다. 0이어도 저장소의 get/set은 불린다 (0의 처리는 저장소가 정한다). */
+  /** 서비스 → 메서드 → TTL(ms). 적지 않은 메서드는 기본값(`RobloxDefaultTtl`)을 쓴다. 0 이하면 캐시하지 않는다 (저장소의 get/set을 부르지 않는다). 만료 없이 두려면 `Infinity`. */
   ttl(ttl) {
     return this.next({ ...this.config, ttl: mergeTtl(this.config.ttl, ttl) });
   }

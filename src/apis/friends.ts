@@ -1,7 +1,7 @@
 import { RobloxBatcher, captureHeaders, mapRoute, nullOn, type RobloxBatchRoute } from "@/core/batcher"
 import type { RobloxCacheInfo, RobloxCacheValue } from "@/core/cache"
 import { resolveTtl, type RobloxConfig } from "@/core/config"
-import { cached, createHttp, validate } from "@/core/http"
+import { cached, cachedByViewer, createHttp, validate } from "@/core/http"
 import { extra, finish, found, settle } from "@/core/partial"
 import { requireViewer } from "@/core/viewer"
 import type { RobloxUsersApi } from "@/apis/users"
@@ -28,6 +28,7 @@ import {
     type RobloxFriendSearchQuery,
     type RobloxFriendStatus,
     type RobloxOnlineFriend,
+    type RobloxTrustedFriendRequestsQuery,
     type RobloxUserFriends,
 } from "@/types/friends"
 import type { RobloxAvatarThumbnailOptions, RobloxWithThumbnail } from "@/types/thumbnails"
@@ -35,7 +36,11 @@ import type { RobloxUser, RobloxUserId } from "@/types/users"
 import z from "zod"
 
 /** `.ttl({ friends: { ... } })`로 캐시할 수 있는 메서드. 배열을 받는 메서드는 항목 하나씩 캐시한다. */
-export type RobloxFriendsCacheable = "getFriends" | "getFriendCounts" | "getFollowerCounts" | "getFollowingCounts"
+export type RobloxFriendsCacheable =
+    | "getFriends" | "getFriendCounts" | "getFollowerCounts" | "getFollowingCounts" | "getFollowers" | "getFollowings" | "getMetadata"
+    // depend on the requesting account
+    | "searchFriends" | "getFriendStatuses" | "getAreFriends" | "getFollowingStatuses" | "getBlockStatuses"
+    | "getOnlineFriends" | "getInactiveFriends" | "getFriendRequests" | "getTrustedFriendRequests" | "getFriendRequestCount"
 
 const ORIGIN = "https://friends.roblox.com"
 const CONTACTS = "https://contacts.roblox.com"
@@ -110,6 +115,7 @@ export class RobloxFriendsApi {
     private readonly statuses
     private readonly areFriends
     private readonly followings
+    private readonly blocks
     /** viewer → 인증된 내 id */
     private readonly me = new Map<string, Promise<RobloxUserId>>()
 
@@ -168,6 +174,20 @@ export class RobloxFriendsApi {
                 return targets.map(t => byId.get(t.userId) ?? null)
             },
         }])
+        // user-blocking-api는 브라우저 id 쿠키가 없으면 403이다
+        this.blocks = new RobloxBatcher<Mine, RobloxBlockStatus | null>(config, APIS, [{
+            bucket: "apis POST /user-blocking-api/v1/users/batch-check-reciprocal-block", limit: BLOCK_CHECK_LIMIT, group: t => String(t.me),
+            async send(http, targets, onHeaders) {
+                const res = await http()
+                    .path("user-blocking-api", "v1", "users", "batch-check-reciprocal-block")
+                    .body("overwrite", { userIds: targets.map(t => t.userId), requesterId: targets[0].me })
+                    .middlewares(captureHeaders(onHeaders))
+                    .middlewares(validate(RobloxBlockStatusesResponseSchema))
+                    .request()
+                const byId = new Map(res.users.map(s => [s.userId, s]))
+                return targets.map(t => byId.get(t.userId) ?? null)
+            },
+        }], { browserTracker: true })
     }
 
     private ttl(method: RobloxFriendsCacheable) {
@@ -220,148 +240,145 @@ export class RobloxFriendsApi {
         return finish(found(userIds.map((userId, i) => values[i] === null ? null : { userId, count: values[i] })), errors)
     }
 
-    /** GET /v1/users/{userId}/followers/count */
-    async getFollowerCounts(userIds: readonly RobloxUserId[]): Promise<{ userId: RobloxUserId, count: number }[]> {
-        const { values, errors } = await this.each("getFollowerCounts", userIds, id => this.followerCounts.load(String(id), id))
-        return finish(found(userIds.map((userId, i) => values[i] === null ? null : { userId, count: values[i] })), errors)
-    }
-
-    /** GET /v1/users/{userId}/followings/count */
-    async getFollowingCounts(userIds: readonly RobloxUserId[]): Promise<{ userId: RobloxUserId, count: number }[]> {
-        const { values, errors } = await this.each("getFollowingCounts", userIds, id => this.followingCounts.load(String(id), id))
-        return finish(found(userIds.map((userId, i) => values[i] === null ? null : { userId, count: values[i] })), errors)
-    }
-
     /** GET /v1/users/{userId}/followers — 인증 필요. 항목은 id뿐이다 */
     getFollowers(userId: RobloxUserId, query: RobloxFollowPageQuery = {}) {
-        return this.http()
+        return cached(this.config, { service: "friends", method: "getFollowers", userId, query }, this.ttl("getFollowers"), () => this.http()
             .path("v1", "users", userId, "followers")
             .query(query)
             .middlewares(validate(RobloxFollowPageSchema))
-            .request()
+            .request())
     }
 
     /** GET /v1/users/{userId}/followings — 인증 필요. 항목은 id뿐이다 */
     getFollowings(userId: RobloxUserId, query: RobloxFollowPageQuery = {}) {
-        return this.http()
+        return cached(this.config, { service: "friends", method: "getFollowings", userId, query }, this.ttl("getFollowings"), () => this.http()
             .path("v1", "users", userId, "followings")
             .query(query)
             .middlewares(validate(RobloxFollowPageSchema))
-            .request()
+            .request())
     }
 
     /** GET /v1/users/{userId}/friends/search — 친구를 이름으로 찾는다. 인증 필요 */
-    async searchFriends(userId: RobloxUserId, query: RobloxFriendSearchQuery): Promise<RobloxFriendPage> {
-        const res = await this.http()
-            .path("v1", "users", userId, "friends", "search")
-            .query(query)
-            .middlewares(validate(RobloxFriendPageRawSchema))
-            .request()
-        return {
-            previousPageCursor: res.PreviousCursor,
-            nextPageCursor:     res.NextCursor,
-            data:               res.PageItems.map(f => ({ id: f.id, hasVerifiedBadge: f.hasVerifiedBadge ?? null })),
-        }
+    searchFriends(userId: RobloxUserId, query: RobloxFriendSearchQuery) {
+        return cachedByViewer(this.config, viewer => ({ service: "friends", method: "searchFriends", viewer, userId, query }), this.ttl("searchFriends"), async (): Promise<RobloxFriendPage> => {
+            const res = await this.http()
+                .path("v1", "users", userId, "friends", "search")
+                .query(query)
+                .middlewares(validate(RobloxFriendPageRawSchema))
+                .request()
+            return {
+                previousPageCursor: res.PreviousCursor,
+                nextPageCursor:     res.NextCursor,
+                data:               res.PageItems.map(f => ({ id: f.id, hasVerifiedBadge: f.hasVerifiedBadge ?? null })),
+            }
+        })
     }
 
     /** GET /v1/metadata — 친구 페이지 설정과 대상의 이름 */
     getMetadata(targetUserId: RobloxUserId) {
-        return this.http()
+        return cached(this.config, { service: "friends", method: "getMetadata", targetUserId }, this.ttl("getMetadata"), () => this.http()
             .path("v1", "metadata")
             .query({ targetUserId })
             .middlewares(validate(RobloxFriendsMetadataSchema))
-            .request()
+            .request())
     }
 
     // ── 요청 계정 기준 (인증 필요, 계정 고정) ─────────
 
+    /** Caches item by item per requesting account. Failed items become null and are collected in errors */
+    private mine<R extends RobloxCacheValue<RobloxCacheInfo>>(method: RobloxFriendsCacheable, ids: readonly RobloxUserId[], load: (id: RobloxUserId) => Promise<R | null>) {
+        const ttl = this.ttl(method)
+        return settle(ids, id => cachedByViewer(this.config, viewer => ({ service: "friends", method, viewer, userId: id }) as RobloxCacheInfo, ttl, () => load(id)))
+    }
+
     /** GET /v1/users/{me}/friends/statuses — 나와의 관계 ("Friends", "RequestSent" 등) */
     async getFriendStatuses(userIds: readonly RobloxUserId[]): Promise<RobloxFriendStatus[]> {
         const me = await this.myId()
-        const { values, errors } = await settle(userIds, userId => this.statuses.load(`${me}:${userId}`, { me, userId }))
-        return finish(found(values), errors)
+        const { values, errors } = await this.mine("getFriendStatuses", userIds, userId => this.statuses.load(`${me}:${userId}`, { me, userId }))
+        return finish(found(values as (RobloxFriendStatus | null)[]), errors)
     }
 
     /** 나와 친구인지. multiget-are-friends와 statuses를 나눠 쓴다. */
     async getAreFriends(userIds: readonly RobloxUserId[]): Promise<{ userId: RobloxUserId, isFriend: boolean }[]> {
         const me = await this.myId()
-        const { values, errors } = await settle(userIds, userId => this.areFriends.load(`${me}:${userId}`, { me, userId }))
-        return finish(found(userIds.map((userId, i) => values[i] === null ? null : { userId, isFriend: values[i] })), errors)
+        const { values, errors } = await this.mine("getAreFriends", userIds, userId => this.areFriends.load(`${me}:${userId}`, { me, userId }))
+        return finish(found(userIds.map((userId, i) => values[i] === null ? null : { userId, isFriend: values[i] as boolean })), errors)
     }
 
     /** POST /v1/user/following-exists — 내가 팔로우하는지 / 나를 팔로우하는지 */
     async getFollowingStatuses(userIds: readonly RobloxUserId[]): Promise<RobloxFollowingStatus[]> {
         const me = await this.myId()
-        const { values, errors } = await settle(userIds, userId => this.followings.load(`${me}:${userId}`, { me, userId }))
-        return finish(found(values), errors)
+        const { values, errors } = await this.mine("getFollowingStatuses", userIds, userId => this.followings.load(`${me}:${userId}`, { me, userId }))
+        return finish(found(values as (RobloxFollowingStatus | null)[]), errors)
     }
 
     /**
      * POST apis /user-blocking-api/v1/users/batch-check-reciprocal-block — 내가 차단했는지 / 나를 차단했는지.
-     * 결과는 입력 순서이고, 서버가 답하지 않은 유저는 뺀다. 캐시하지 않는다 (차단은 바로 바뀐다).
+     * 결과는 입력 순서이고, 서버가 답하지 않은 유저는 뺀다. 차단은 바로 바뀌므로 기본 TTL은 0이다.
      */
     async getBlockStatuses(userIds: readonly RobloxUserId[]): Promise<RobloxBlockStatus[]> {
         if (userIds.length === 0) return []
         const me = await this.myId()
-        const chunks: RobloxUserId[][] = []
-        for (let i = 0; i < userIds.length; i += BLOCK_CHECK_LIMIT) chunks.push(userIds.slice(i, i + BLOCK_CHECK_LIMIT))
-        const responses = await Promise.all(chunks.map(ids => this.apisHttp()
-            .path("user-blocking-api", "v1", "users", "batch-check-reciprocal-block")
-            .body("overwrite", { userIds: ids, requesterId: me })
-            .middlewares(validate(RobloxBlockStatusesResponseSchema))
-            .request()))
-        const byId = new Map(responses.flatMap(res => res.users).map(s => [s.userId, s]))
-        return found(userIds.map(id => byId.get(id) ?? null))
+        const { values, errors } = await this.mine("getBlockStatuses", userIds, userId => this.blocks.load(`${me}:${userId}`, { me, userId }))
+        return finish(found(values as (RobloxBlockStatus | null)[]), errors)
     }
 
     /** GET /v1/users/{me}/friends/online — 지금 접속 중인 내 친구와 위치 */
-    async getOnlineFriends(): Promise<RobloxOnlineFriend[]> {
-        const me = await this.myId()
-        const res = await this.http()
-            .path("v1", "users", me, "friends", "online")
-            .middlewares(validate(RobloxOnlineFriendsResponseSchema))
-            .request()
-        return res.data
+    getOnlineFriends() {
+        return cachedByViewer(this.config, viewer => ({ service: "friends", method: "getOnlineFriends", viewer }), this.ttl("getOnlineFriends"), async (): Promise<RobloxOnlineFriend[]> => {
+            const me = await this.myId()
+            const res = await this.http()
+                .path("v1", "users", me, "friends", "online")
+                .middlewares(validate(RobloxOnlineFriendsResponseSchema))
+                .request()
+            return res.data
+        })
     }
 
     /** GET /v1/users/{me}/friends/inactive — 오래 접속하지 않은 내 친구 */
-    async getInactiveFriends() {
-        const me = await this.myId()
-        const res = await this.http()
-            .path("v1", "users", me, "friends", "inactive")
-            .middlewares(validate(RobloxFriendListResponseSchema))
-            .request()
-        return res.data.map(f => f.id)
+    getInactiveFriends() {
+        return cachedByViewer(this.config, viewer => ({ service: "friends", method: "getInactiveFriends", viewer }), this.ttl("getInactiveFriends"), async (): Promise<RobloxUserId[]> => {
+            const me = await this.myId()
+            const res = await this.http()
+                .path("v1", "users", me, "friends", "inactive")
+                .middlewares(validate(RobloxFriendListResponseSchema))
+                .request()
+            return res.data.map(f => f.id)
+        })
     }
 
     /** GET /v1/my/friends/requests — 받은 친구 요청 */
     getFriendRequests(query: RobloxFriendRequestsQuery = {}) {
-        return this.http()
+        return cachedByViewer(this.config, viewer => ({ service: "friends", method: "getFriendRequests", viewer, query }), this.ttl("getFriendRequests"), () => this.http()
             .path("v1", "my", "friends", "requests")
             .query(query)
             .middlewares(validate(RobloxFriendRequestPageSchema))
-            .request()
+            .request())
     }
 
     /** GET /v1/my/trusted-friends/requests — 받은 신뢰하는 친구 요청 */
-    getTrustedFriendRequests(query: { limit?: number, cursor?: RobloxCursor, sortOrder?: 0 | 1 } = {}) {
-        return this.http()
+    getTrustedFriendRequests(query: RobloxTrustedFriendRequestsQuery = {}) {
+        return cachedByViewer(this.config, viewer => ({ service: "friends", method: "getTrustedFriendRequests", viewer, query }), this.ttl("getTrustedFriendRequests"), () => this.http()
             .path("v1", "my", "trusted-friends", "requests")
             .query(query)
             .middlewares(validate(RobloxTrustedFriendRequestPageSchema))
-            .request()
+            .request())
     }
 
     /** 받은 요청 수. `unseen`이면 아직 보지 않은 것만 (/my/new-friend-requests/count) */
-    async getFriendRequestCount(opts: { unseen?: boolean, trusted?: boolean } = {}): Promise<number> {
-        const path = opts.unseen
-            ? ["v1", "my", "new-friend-requests", "count"]
-            : ["v1", "user", opts.trusted ? "trusted-friend-requests" : "friend-requests", "count"]
-        const res = await this.http()
-            .path(...path)
-            .middlewares(validate(RobloxCountResponseSchema))
-            .request()
-        return res.count
+    getFriendRequestCount(opts: { unseen?: boolean, trusted?: boolean } = {}) {
+        const unseen = opts.unseen ?? false
+        const trusted = opts.trusted ?? false
+        return cachedByViewer(this.config, viewer => ({ service: "friends", method: "getFriendRequestCount", viewer, unseen, trusted }), this.ttl("getFriendRequestCount"), async (): Promise<number> => {
+            const path = unseen
+                ? ["v1", "my", "new-friend-requests", "count"]
+                : ["v1", "user", trusted ? "trusted-friend-requests" : "friend-requests", "count"]
+            const res = await this.http()
+                .path(...path)
+                .middlewares(validate(RobloxCountResponseSchema))
+                .request()
+            return res.count
+        })
     }
 
     // ── 쓰기 ───────────────────────────────────────────

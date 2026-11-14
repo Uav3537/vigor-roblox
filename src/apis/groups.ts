@@ -2,7 +2,7 @@ import z from "zod"
 import { RobloxBatcher, captureHeaders, nullOn, type RobloxBatchRoute } from "@/core/batcher"
 import type { RobloxCacheInfo, RobloxCacheValue } from "@/core/cache"
 import { resolveTtl, type RobloxConfig } from "@/core/config"
-import { cached, chunk, createHttp, validate } from "@/core/http"
+import { cached, cachedByViewer, chunk, createHttp, validate } from "@/core/http"
 import { finish, found, settle, type RobloxItemError } from "@/core/partial"
 import { requireViewer } from "@/core/viewer"
 import type { RobloxThumbnailsApi } from "@/apis/thumbnails"
@@ -96,7 +96,16 @@ import type { RobloxGroupIconOptions, RobloxWithThumbnail } from "@/types/thumbn
 import type { RobloxUserId } from "@/types/users"
 
 /** `.ttl({ groups: { ... } })`로 캐시할 수 있는 메서드. 배열을 받는 메서드는 항목 하나씩 캐시한다. */
-export type RobloxGroupsCacheable = "getGroups" | "getGroupDetails" | "getRoles" | "getRolesByIds" | "getUserGroups"
+export type RobloxGroupsCacheable =
+    | "getGroups" | "getGroupDetails" | "getRoles" | "getRolesByIds" | "getUserGroups" | "getPrimaryGroups"
+    | "getMembers" | "getRoleMembers" | "searchGroups" | "lookupGroups" | "getNameHistory" | "getRelationships"
+    | "getGuestPermissions" | "getFeatureFreezes" | "getFeaturedEvents" | "getSocialLinks" | "getEmotes"
+    | "getConfigurationMetadata" | "getSearchMetadata"
+    // depend on the requesting account
+    | "getMetadata" | "getMemberships" | "getPolicies" | "getPendingGroups" | "getFriendsGroups"
+    | "getRolePermissions" | "getUserPermissions" | "getJoinRequests" | "getJoinRequestsByUsers" | "getBans" | "getBannedUsers"
+    | "getAuditLog" | "getSettings" | "getConfigurations" | "getFeatures" | "getFeaturesBlocked" | "getKeywords"
+    | "getRelationshipRequests" | "getPayouts" | "getPayoutRestrictions"
 
 const ORIGIN = "https://groups.roblox.com"
 
@@ -343,9 +352,24 @@ export class RobloxGroupsApi {
         return settle(ids, id => cached(this.config, { service: "groups", method, [field]: id } as RobloxCacheInfo, this.ttl(method), () => load(id)))
     }
 
-    /** 대상마다 batcher로 보내고 없는 대상은 뺀다. 일부가 실패하면 RobloxError(PARTIAL) */
-    private async many<T, R>(batcher: RobloxBatcher<T, R | null>, targets: readonly T[], key: (t: T) => string): Promise<R[]> {
-        const { values, errors } = await settle(targets, t => batcher.load(key(t), t))
+    /**
+     * Caches item by item. `info` gives the cache info fields of one item; with `byViewer` the requesting account is added
+     * (and nothing is cached while cookies rotate). Failed items become null and are collected in errors
+     */
+    private cachedEach<T, R extends RobloxCacheValue<RobloxCacheInfo>>(
+        method: RobloxGroupsCacheable, targets: readonly T[], info: (t: T) => object, load: (t: T) => Promise<R | null>, byViewer: boolean,
+    ) {
+        const ttl = this.ttl(method)
+        return settle(targets, t => byViewer
+            ? cachedByViewer(this.config, viewer => ({ service: "groups", method, viewer, ...info(t) }) as RobloxCacheInfo, ttl, () => load(t))
+            : cached(this.config, { service: "groups", method, ...info(t) } as RobloxCacheInfo, ttl, () => load(t)))
+    }
+
+    /** 대상마다 batcher로 보내고(항목 하나씩 캐시) 없는 대상은 뺀다. 일부가 실패하면 RobloxError(PARTIAL) */
+    private async many<T, R extends RobloxCacheValue<RobloxCacheInfo>>(
+        method: RobloxGroupsCacheable, batcher: RobloxBatcher<T, R | null>, targets: readonly T[], key: (t: T) => string, info: (t: T) => object, byViewer = false,
+    ): Promise<R[]> {
+        const { values, errors } = await this.cachedEach(method, targets, info, t => batcher.load(key(t), t), byViewer)
         return finish(found(values), errors)
     }
 
@@ -412,146 +436,146 @@ export class RobloxGroupsApi {
 
     /** GET /v1/users/{userId}/groups/primary/role — 대표 그룹. 대표 그룹이 없는 유저는 뺀다 */
     getPrimaryGroups(userIds: readonly RobloxUserId[]): Promise<RobloxPrimaryGroup[]> {
-        return this.many(this.primaryGroups, userIds, String)
+        return this.many("getPrimaryGroups", this.primaryGroups, userIds, String, userId => ({ userId }))
     }
 
     /** GET /v1/groups/{groupId}/users — 멤버와 역할 */
     getMembers(groupId: RobloxGroupId, query: RobloxGroupPageQuery = {}) {
-        return this.http()
+        return cached(this.config, { service: "groups", method: "getMembers", groupId, query }, this.ttl("getMembers"), () => this.http()
             .path("v1", "groups", groupId, "users")
             .query(query)
             .middlewares(validate(RobloxGroupMemberPageSchema))
-            .request()
+            .request())
     }
 
     /** GET /v1/groups/{groupId}/roles/{roleSetId}/users — 역할 하나의 멤버 */
     getRoleMembers(groupId: RobloxGroupId, roleId: RobloxGroupRoleId, query: RobloxGroupPageQuery = {}) {
-        return this.http()
+        return cached(this.config, { service: "groups", method: "getRoleMembers", groupId, roleId, query }, this.ttl("getRoleMembers"), () => this.http()
             .path("v1", "groups", groupId, "roles", roleId, "users")
             .query(query)
             .middlewares(validate(RobloxGroupUserPageSchema))
-            .request()
+            .request())
     }
 
     /** GET /v1/groups/search — 키워드 검색. totalResults는 1000에서 멈춘다 */
     searchGroups(query: RobloxGroupSearchQuery) {
-        return this.http()
+        return cached(this.config, { service: "groups", method: "searchGroups", query }, this.ttl("searchGroups"), () => this.http()
             .path("v1", "groups", "search")
             .query(query)
             .middlewares(validate(RobloxGroupSearchPageSchema))
-            .request()
+            .request())
     }
 
     /** GET /v1/groups/search/lookup — 이름으로 찾는다. 정확히 맞는 그룹이 있으면 맨 앞에 온다 */
-    async lookupGroups(groupName: string) {
-        const res = await this.http()
+    lookupGroups(groupName: string) {
+        return cached(this.config, { service: "groups", method: "lookupGroups", groupName }, this.ttl("lookupGroups"), async () => (await this.http()
             .path("v1", "groups", "search", "lookup")
             .query({ groupName })
             .middlewares(validate(RobloxGroupLookupResponseSchema))
-            .request()
-        return res.data
+            .request()).data)
     }
 
     /** GET /v1/groups/{groupId}/name-history */
     getNameHistory(groupId: RobloxGroupId, query: RobloxGroupPageQuery = {}) {
-        return this.http()
+        return cached(this.config, { service: "groups", method: "getNameHistory", groupId, query }, this.ttl("getNameHistory"), () => this.http()
             .path("v1", "groups", groupId, "name-history")
             .query(query)
             .middlewares(validate(RobloxGroupNameHistoryPageSchema))
-            .request()
+            .request())
     }
 
     /** GET /v1/groups/{groupId}/relationships/{allies|enemies} — 동맹/적 그룹 */
     getRelationships(groupId: RobloxGroupId, type: RobloxGroupRelationshipType, query: RobloxGroupRelationshipsQuery = {}) {
-        return this.http()
+        return cached(this.config, { service: "groups", method: "getRelationships", groupId, type, query }, this.ttl("getRelationships"), () => this.http()
             .path("v1", "groups", groupId, "relationships", relationshipPath(type))
             .query({ StartRowIndex: query.startRowIndex ?? 0, MaxRows: query.maxRows ?? 100 })
             .middlewares(validate(RobloxGroupRelationshipsSchema))
-            .request()
+            .request())
     }
 
     /** GET /v1/groups/{groupId}/roles/guest/permissions — 멤버가 아닌 사람이 할 수 있는 것 (30회/분) */
     getGuestPermissions(groupIds: readonly RobloxGroupId[]): Promise<RobloxGroupRolePermissions[]> {
-        return this.many(this.guestPermissions, groupIds, String)
+        return this.many("getGuestPermissions", this.guestPermissions, groupIds, String, groupId => ({ groupId }))
     }
 
     /** GET /v1/groups/{groupId}/community-feature-freezes — 포럼 등 기능이 멈춰 있는지 */
     async getFeatureFreezes(groupIds: readonly RobloxGroupId[]): Promise<{ groupId: RobloxGroupId, features: RobloxGroupFeatureFreeze[] }[]> {
-        const { values: lists, errors } = await settle(groupIds, id => this.featureFreezes.load(String(id), id))
+        const { values: lists, errors } = await this.cachedEach("getFeatureFreezes", groupIds, groupId => ({ groupId }), id => this.featureFreezes.load(String(id), id), false)
         return finish(found(groupIds.map((groupId, i) => lists[i] ? { groupId, features: lists[i] } : null)), errors)
     }
 
     /** GET /v1/featured-content/event — 그룹이 내건 이벤트. 없는 그룹은 뺀다 */
     getFeaturedEvents(groupIds: readonly RobloxGroupId[]): Promise<RobloxGroupFeaturedEvent[]> {
-        return this.many(this.featuredEvents, groupIds, String)
+        return this.many("getFeaturedEvents", this.featuredEvents, groupIds, String, groupId => ({ groupId }))
     }
 
     /** GET /v1/groups/metadata — 그룹 수 한도 등. 인증하면 요청 계정의 가입 수가 들어간다 */
     getMetadata() {
-        return this.http()
+        return cachedByViewer(this.config, viewer => ({ service: "groups", method: "getMetadata", viewer }), this.ttl("getMetadata"), () => this.http()
             .path("v1", "groups", "metadata")
             .middlewares(validate(RobloxGroupsMetadataSchema))
-            .request()
+            .request())
     }
 
     /** GET /v1/groups/configuration/metadata — 이름 길이, 생성/개명 비용 등 */
     getConfigurationMetadata() {
-        return this.http()
+        return cached(this.config, { service: "groups", method: "getConfigurationMetadata" }, this.ttl("getConfigurationMetadata"), () => this.http()
             .path("v1", "groups", "configuration", "metadata")
             .middlewares(validate(RobloxGroupConfigurationMetadataSchema))
-            .request()
+            .request())
     }
 
     /** GET /v1/groups/search/metadata — 추천 검색어 */
     getSearchMetadata() {
-        return this.http()
+        return cached(this.config, { service: "groups", method: "getSearchMetadata" }, this.ttl("getSearchMetadata"), () => this.http()
             .path("v1", "groups", "search", "metadata")
             .middlewares(validate(RobloxGroupSearchMetadataSchema))
-            .request()
+            .request())
     }
 
     // ── 요청 계정 기준 (인증 필요) ─────────────────────
 
     /** GET /v1/groups/{groupId}/membership — 내 역할, 권한, 가입 대기 여부, 알림 설정 */
     getMemberships(groupIds: readonly RobloxGroupId[]): Promise<RobloxGroupMembership[]> {
-        return this.many(this.memberships, groupIds, String)
+        return this.many("getMemberships", this.memberships, groupIds, String, groupId => ({ groupId }), true)
     }
 
     /** POST /v1/groups/policies — 내 계정으로 그룹을 볼 수 있는지 (지역 정책) */
     async getPolicies(groupIds: readonly RobloxGroupId[]): Promise<{ groupId: RobloxGroupId, canViewGroup: boolean }[]> {
-        const { values: list, errors } = await settle(groupIds, id => this.policies.load(String(id), id))
+        const { values: list, errors } = await this.cachedEach("getPolicies", groupIds, groupId => ({ groupId }), id => this.policies.load(String(id), id), true)
         return finish(found(groupIds.map((groupId, i) => list[i] === null ? null : { groupId, canViewGroup: list[i] })), errors)
     }
 
     /** GET /v1/groups/{groupId}/social-links */
     async getSocialLinks(groupIds: readonly RobloxGroupId[]): Promise<{ groupId: RobloxGroupId, links: RobloxGroupSocialLink[] }[]> {
-        const { values: lists, errors } = await settle(groupIds, id => this.socialLinks.load(String(id), id))
+        const { values: lists, errors } = await this.cachedEach("getSocialLinks", groupIds, groupId => ({ groupId }), id => this.socialLinks.load(String(id), id), false)
         return finish(found(groupIds.map((groupId, i) => lists[i] ? { groupId, links: lists[i] } : null)), errors)
     }
 
     /** GET /v1/groups/{groupId}/emotes — 포럼 이모트 */
     async getEmotes(groupIds: readonly RobloxGroupId[]): Promise<{ groupId: RobloxGroupId, emoteSets: RobloxGroupEmoteSet[] }[]> {
-        const { values: lists, errors } = await settle(groupIds, id => this.emotes.load(String(id), id))
+        const { values: lists, errors } = await this.cachedEach("getEmotes", groupIds, groupId => ({ groupId }), id => this.emotes.load(String(id), id), false)
         return finish(found(groupIds.map((groupId, i) => lists[i] ? { groupId, emoteSets: lists[i] } : null)), errors)
     }
 
     /** GET /v1/user/groups/pending — 가입을 요청해 둔 그룹 */
-    async getPendingGroups(): Promise<RobloxGroupDetailPartial[]> {
-        const res = await this.http()
+    getPendingGroups() {
+        return cachedByViewer(this.config, viewer => ({ service: "groups", method: "getPendingGroups", viewer }), this.ttl("getPendingGroups"), async (): Promise<RobloxGroupDetailPartial[]> => (await this.http()
             .path("v1", "user", "groups", "pending")
             .middlewares(validate(z.object({ data: z.array(RobloxGroupDetailPartialSchema) })))
-            .request()
-        return res.data
+            .request()).data)
     }
 
     /** GET /v1/users/{me}/friends/groups/roles — 내 친구들이 속한 그룹. 다른 유저로는 403이다 */
-    async getFriendsGroups() {
-        const me = await this.myId()
-        const res = await this.http()
-            .path("v1", "users", me, "friends", "groups", "roles")
-            .middlewares(validate(RobloxFriendsGroupsResponseSchema))
-            .request()
-        return res.data
+    getFriendsGroups() {
+        return cachedByViewer(this.config, viewer => ({ service: "groups", method: "getFriendsGroups", viewer }), this.ttl("getFriendsGroups"), async () => {
+            const me = await this.myId()
+            const res = await this.http()
+                .path("v1", "users", me, "friends", "groups", "roles")
+                .middlewares(validate(RobloxFriendsGroupsResponseSchema))
+                .request()
+            return res.data
+        })
     }
 
     /** POST /v1/groups/{groupId}/users — 가입한다. 승인제 그룹이면 가입 요청이 된다. 캡차를 요구할 수 있다 */
@@ -619,7 +643,7 @@ export class RobloxGroupsApi {
 
     /** 역할들의 권한. 주인이면 모든 역할을 한 번에(/roles/permissions), 아니면 역할 하나씩 받는다 */
     getRolePermissions(groupId: RobloxGroupId, roleIds: readonly RobloxGroupRoleId[]): Promise<RobloxGroupRolePermissions[]> {
-        return this.many(this.rolePermissions, roleIds.map(roleId => ({ groupId, roleId })), t => `${t.groupId}:${t.roleId}`)
+        return this.many("getRolePermissions", this.rolePermissions, roleIds.map(roleId => ({ groupId, roleId })), t => `${t.groupId}:${t.roleId}`, t => t, true)
     }
 
     /** PATCH /v1/groups/{groupId}/roles/{roleSetId}/permissions — `{ "ViewWall": true }`처럼 권한 이름 → 값 */
@@ -634,7 +658,7 @@ export class RobloxGroupsApi {
 
     /** GET /v1/groups/{groupId}/users/{userId}/permissions — 주인과 권한 관리자만 볼 수 있다 */
     getUserPermissions(groupId: RobloxGroupId, userIds: readonly RobloxUserId[]): Promise<(RobloxGroupRolePermissions & { userId: RobloxUserId })[]> {
-        return this.many(this.userPermissions, userIds.map(userId => ({ groupId, userId })), t => `${t.groupId}:${t.userId}`)
+        return this.many("getUserPermissions", this.userPermissions, userIds.map(userId => ({ groupId, userId })), t => `${t.groupId}:${t.userId}`, t => t, true)
     }
 
     /** POST /v1/groups/{groupId}/rolesets/create */
@@ -686,16 +710,16 @@ export class RobloxGroupsApi {
 
     /** GET /v1/groups/{groupId}/join-requests — 가입 요청 목록 */
     getJoinRequests(groupId: RobloxGroupId, query: RobloxGroupPageQuery = {}) {
-        return this.http()
+        return cachedByViewer(this.config, viewer => ({ service: "groups", method: "getJoinRequests", viewer, groupId, query }), this.ttl("getJoinRequests"), () => this.http()
             .path("v1", "groups", groupId, "join-requests")
             .query(query)
             .middlewares(validate(RobloxGroupJoinRequestPageSchema))
-            .request()
+            .request())
     }
 
     /** GET /v1/groups/{groupId}/join-requests/users/{userId} — 이 유저들의 가입 요청. 요청이 없는 유저는 뺀다 */
     async getJoinRequestsByUsers(groupId: RobloxGroupId, userIds: readonly RobloxUserId[]): Promise<RobloxGroupJoinRequest[]> {
-        return this.many(this.joinRequests, userIds.map(userId => ({ groupId, userId })), t => `${t.groupId}:${t.userId}`)
+        return this.many("getJoinRequestsByUsers", this.joinRequests, userIds.map(userId => ({ groupId, userId })), t => `${t.groupId}:${t.userId}`, t => t, true)
     }
 
     /** 가입 요청을 받아들인다. 한 명이면 /users/{userId}, 여러 명이면 묶음 엔드포인트로 보낸다 */
@@ -726,16 +750,16 @@ export class RobloxGroupsApi {
 
     /** GET /v1/groups/{groupId}/bans */
     getBans(groupId: RobloxGroupId, query: RobloxGroupPageQuery = {}) {
-        return this.http()
+        return cachedByViewer(this.config, viewer => ({ service: "groups", method: "getBans", viewer, groupId, query }), this.ttl("getBans"), () => this.http()
             .path("v1", "groups", groupId, "bans")
             .query(query)
             .middlewares(validate(RobloxGroupBanPageSchema))
-            .request()
+            .request())
     }
 
     /** GET /v1/groups/{groupId}/bans/{userId} — 이 유저들의 차단 정보. 차단되지 않은 유저는 뺀다 */
     getBannedUsers(groupId: RobloxGroupId, userIds: readonly RobloxUserId[]): Promise<RobloxGroupBan[]> {
-        return this.many(this.bans, userIds.map(userId => ({ groupId, userId })), t => `${t.groupId}:${t.userId}`)
+        return this.many("getBannedUsers", this.bans, userIds.map(userId => ({ groupId, userId })), t => `${t.groupId}:${t.userId}`, t => t, true)
     }
 
     /** POST /v1/groups/{groupId}/bans/{userId} */
@@ -758,16 +782,16 @@ export class RobloxGroupsApi {
 
     /** GET /v1/groups/{groupId}/audit-log */
     getAuditLog(groupId: RobloxGroupId, query: RobloxGroupAuditLogQuery = {}) {
-        return this.http()
+        return cachedByViewer(this.config, viewer => ({ service: "groups", method: "getAuditLog", viewer, groupId, query }), this.ttl("getAuditLog"), () => this.http()
             .path("v1", "groups", groupId, "audit-log")
             .query(query)
             .middlewares(validate(RobloxGroupAuditLogPageSchema))
-            .request()
+            .request())
     }
 
     /** GET /v1/groups/{groupId}/settings */
     async getSettings(groupIds: readonly RobloxGroupId[]): Promise<(RobloxGroupSettings & { groupId: RobloxGroupId })[]> {
-        const { values: list, errors } = await settle(groupIds, id => this.settings.load(String(id), id))
+        const { values: list, errors } = await this.cachedEach("getSettings", groupIds, groupId => ({ groupId }), id => this.settings.load(String(id), id), true)
         return finish(found(groupIds.map((groupId, i) => list[i] && { groupId, ...list[i] })), errors)
     }
 
@@ -783,18 +807,18 @@ export class RobloxGroupsApi {
 
     /** GET /v1/groups/{groupId}/configuration — 엠블럼/커버 사진 asset id */
     getConfigurations(groupIds: readonly RobloxGroupId[]): Promise<RobloxGroupConfiguration[]> {
-        return this.many(this.configurations, groupIds, String)
+        return this.many("getConfigurations", this.configurations, groupIds, String, groupId => ({ groupId }), true)
     }
 
     /** GET /v1/groups/{groupId}/features — 기능별 차단 상태와 잠금 여부 */
     async getFeatures(groupIds: readonly RobloxGroupId[]): Promise<(RobloxGroupFeatures & { groupId: RobloxGroupId })[]> {
-        const { values: list, errors } = await settle(groupIds, id => this.features.load(String(id), id))
+        const { values: list, errors } = await this.cachedEach("getFeatures", groupIds, groupId => ({ groupId }), id => this.features.load(String(id), id), true)
         return finish(found(groupIds.map((groupId, i) => list[i] && { groupId, ...list[i] })), errors)
     }
 
     /** GET /v1/groups/{groupId}/features/status — 막힌 기능이 하나라도 있는지 */
     async getFeaturesBlocked(groupIds: readonly RobloxGroupId[]): Promise<{ groupId: RobloxGroupId, hasFeaturesBlocked: boolean }[]> {
-        const { values: list, errors } = await settle(groupIds, id => this.featuresBlocked.load(String(id), id))
+        const { values: list, errors } = await this.cachedEach("getFeaturesBlocked", groupIds, groupId => ({ groupId }), id => this.featuresBlocked.load(String(id), id), true)
         return finish(found(groupIds.map((groupId, i) => list[i] === null ? null : { groupId, hasFeaturesBlocked: list[i] })), errors)
     }
 
@@ -884,11 +908,11 @@ export class RobloxGroupsApi {
 
     /** GET /v1/groups/{groupId}/blocked-keywords — 포럼 차단 키워드 */
     getKeywords(groupId: RobloxGroupId, query: RobloxGroupPageQuery = {}) {
-        return this.http()
+        return cachedByViewer(this.config, viewer => ({ service: "groups", method: "getKeywords", viewer, groupId, query }), this.ttl("getKeywords"), () => this.http()
             .path("v1", "groups", groupId, "blocked-keywords")
             .query(query)
             .middlewares(validate(RobloxGroupKeywordPageSchema))
-            .request()
+            .request())
     }
 
     /** POST /v1/groups/{groupId}/blocked-keywords — 스펙은 keywords를 문자열 하나로 받는다 */
@@ -941,11 +965,11 @@ export class RobloxGroupsApi {
 
     /** GET /v1/groups/{groupId}/relationships/{type}/requests — 받은 동맹 요청 */
     getRelationshipRequests(groupId: RobloxGroupId, type: RobloxGroupRelationshipType, query: RobloxGroupRelationshipsQuery = {}) {
-        return this.http()
+        return cachedByViewer(this.config, viewer => ({ service: "groups", method: "getRelationshipRequests", viewer, groupId, type, query }), this.ttl("getRelationshipRequests"), () => this.http()
             .path("v1", "groups", groupId, "relationships", relationshipPath(type), "requests")
             .query({ StartRowIndex: query.startRowIndex ?? 0, MaxRows: query.maxRows ?? 100 })
             .middlewares(validate(RobloxGroupRelationshipsSchema))
-            .request()
+            .request())
     }
 
     /** 받은 동맹 요청을 받아들인다. 하나면 /requests/{relatedGroupId}, 여러 개면 묶음 엔드포인트로 보낸다 */
@@ -984,13 +1008,13 @@ export class RobloxGroupsApi {
 
     /** GET /v1/groups/{groupId}/payouts — 정기 지급 대상과 비율 */
     async getPayouts(groupIds: readonly RobloxGroupId[]): Promise<{ groupId: RobloxGroupId, payouts: RobloxGroupPayout[] }[]> {
-        const { values: lists, errors } = await settle(groupIds, id => this.payouts.load(String(id), id))
+        const { values: lists, errors } = await this.cachedEach("getPayouts", groupIds, groupId => ({ groupId }), id => this.payouts.load(String(id), id), true)
         return finish(found(groupIds.map((groupId, i) => lists[i] ? { groupId, payouts: lists[i] } : null)), errors)
     }
 
     /** GET /v1/groups/{groupId}/payout-restriction — 지급 기능을 쓸 수 있는지 */
     async getPayoutRestrictions(groupIds: readonly RobloxGroupId[]): Promise<(RobloxGroupPayoutRestriction & { groupId: RobloxGroupId })[]> {
-        const { values: list, errors } = await settle(groupIds, id => this.payoutRestrictions.load(String(id), id))
+        const { values: list, errors } = await this.cachedEach("getPayoutRestrictions", groupIds, groupId => ({ groupId }), id => this.payoutRestrictions.load(String(id), id), true)
         return finish(found(groupIds.map((groupId, i) => list[i] && { groupId, ...list[i] })), errors)
     }
 

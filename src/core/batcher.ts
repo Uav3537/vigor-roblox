@@ -25,6 +25,8 @@ export type RobloxBatchRoute<T, R> = {
 export type RobloxBatcherOptions<R> = {
     /** createHttp에 넘기는 User-Agent */
     userAgent?: string
+    /** Send a browser tracker cookie (see createHttp) */
+    browserTracker?: boolean
     /** 결과를 다시 물어야 하면 기다릴 시간(ms), 아니면 null. tries는 지금까지 다시 물은 횟수 */
     again?: (result: R, tries: number) => number | null
 }
@@ -65,7 +67,7 @@ export class RobloxBatcher<T, R> {
     private httpFor(route: RobloxBatchRoute<T, R>): RobloxHttp {
         const origin = route.origin ?? this.origin
         let http = this.https.get(origin)
-        if (!http) this.https.set(origin, http = createHttp(this.config, origin, { userAgent: this.options.userAgent, retryRateLimited: false }))
+        if (!http) this.https.set(origin, http = createHttp(this.config, origin, { userAgent: this.options.userAgent, browserTracker: this.options.browserTracker, retryRateLimited: false }))
         return http
     }
 

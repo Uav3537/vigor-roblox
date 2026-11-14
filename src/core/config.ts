@@ -9,6 +9,8 @@ import type { RobloxGamesCacheable } from "@/apis/games"
 import type { RobloxFriendsCacheable } from "@/apis/friends"
 import type { RobloxGroupsCacheable } from "@/apis/groups"
 import type { RobloxBadgesCacheable } from "@/apis/badges"
+import type { RobloxChatCacheable } from "@/apis/chat"
+import type { RobloxTradesCacheable } from "@/apis/trades"
 
 export type RobloxMode = "extension" | "node"
 
@@ -19,7 +21,7 @@ export type RobloxRetryOptions = {
     timeout?: number
 }
 
-/** 서비스 → 메서드 → TTL(ms). 적지 않은 메서드는 기본값(`RobloxDefaultTtl`)을 쓴다. 0이어도 저장소의 get/set은 불린다 (0의 처리는 저장소가 정한다). */
+/** 서비스 → 메서드 → TTL(ms). 적지 않은 메서드는 기본값(`RobloxDefaultTtl`)을 쓴다. 0 이하면 캐시하지 않는다 (저장소의 get/set을 부르지 않는다). 만료 없이 두려면 `Infinity`. */
 export type RobloxTtl = {
     users?: Partial<Record<RobloxUsersCacheable, number>>
     thumbnails?: Partial<Record<RobloxThumbnailsCacheable, number>>
@@ -28,6 +30,8 @@ export type RobloxTtl = {
     friends?: Partial<Record<RobloxFriendsCacheable, number>>
     groups?: Partial<Record<RobloxGroupsCacheable, number>>
     badges?: Partial<Record<RobloxBadgesCacheable, number>>
+    chat?: Partial<Record<RobloxChatCacheable, number>>
+    trades?: Partial<Record<RobloxTradesCacheable, number>>
 }
 
 const SECOND = 1000
@@ -45,6 +49,16 @@ export const RobloxDefaultTtl = {
         getUserDetails:     HOUR,       // 설명/정지 여부는 이름보다 자주 바뀐다
         getUsersByNames:    30 * MINUTE, // 이름은 남이 가져갈 수 있다
         getUsernameHistory: HOUR,
+        searchUsers:        5 * SECOND,
+        // 요청 계정 기준이다. 기본으로는 캐시하지 않는다
+        getProfileActions:  0,
+        getAuthenticated:   0,
+        getAgeBracket:      0,
+        getCountryCode:     0,
+        getRoles:           0,
+        getBirthdate:       0,
+        getDescription:     0,
+        getGender:          0,
     },
     thumbnails: {
         get:               DAY,        // 아바타는 바뀔 수 있다 (4.1은 48시간)
@@ -72,12 +86,34 @@ export const RobloxDefaultTtl = {
         getUserFavoriteGames:     5 * SECOND,
         getGroupGames:            5 * SECOND,
         getPrivateServersEnabled: 5 * SECOND,
+        // 요청 계정 기준이다. 기본으로는 캐시하지 않는다
+        getFavorited:            0,
+        getUserVotes:            0,
+        getFollowing:            0,
+        getPrivateServers:       0,
+        getMyPrivateServers:     0,
+        getPrivateServerDetails: 0,
+        getPrivateServerInvites: 0,
     },
     friends: {
         getFriends:         10 * MINUTE,
         getFriendCounts:    10 * MINUTE,
         getFollowerCounts:  10 * MINUTE,
         getFollowingCounts: 10 * MINUTE,
+        getFollowers:       5 * SECOND,
+        getFollowings:      5 * SECOND,
+        getMetadata:        10 * MINUTE,
+        // 요청 계정 기준이다. 기본으로는 캐시하지 않는다
+        searchFriends:            0,
+        getFriendStatuses:        0,
+        getAreFriends:            0,
+        getFollowingStatuses:     0,
+        getBlockStatuses:         0,
+        getOnlineFriends:         0,
+        getInactiveFriends:       0,
+        getFriendRequests:        0,
+        getTrustedFriendRequests: 0,
+        getFriendRequestCount:    0,
     },
     groups: {
         getGroups:       HOUR,
@@ -85,10 +121,63 @@ export const RobloxDefaultTtl = {
         getRoles:        HOUR,
         getRolesByIds:   HOUR,
         getUserGroups:   10 * MINUTE,
+        getPrimaryGroups:         10 * MINUTE,
+        getMembers:               5 * SECOND,
+        getRoleMembers:           5 * SECOND,
+        searchGroups:             5 * SECOND,
+        lookupGroups:             5 * SECOND,
+        getNameHistory:           HOUR,
+        getRelationships:         5 * SECOND,
+        getGuestPermissions:      HOUR,
+        getFeatureFreezes:        10 * MINUTE,
+        getFeaturedEvents:        10 * MINUTE,
+        getSocialLinks:           HOUR,
+        getEmotes:                HOUR,
+        getConfigurationMetadata: HOUR,
+        getSearchMetadata:        HOUR,
+        // 요청 계정 기준이다. 기본으로는 캐시하지 않는다
+        getMetadata:             0,
+        getMemberships:          0,
+        getPolicies:             0,
+        getPendingGroups:        0,
+        getFriendsGroups:        0,
+        getRolePermissions:      0,
+        getUserPermissions:      0,
+        getJoinRequests:         0,
+        getJoinRequestsByUsers:  0,
+        getBans:                 0,
+        getBannedUsers:          0,
+        getAuditLog:             0,
+        getSettings:             0,
+        getConfigurations:       0,
+        getFeatures:             0,
+        getFeaturesBlocked:      0,
+        getKeywords:             0,
+        getRelationshipRequests: 0,
+        getPayouts:              0,
+        getPayoutRestrictions:   0,
     },
     badges: {
         getBadges:       10 * MINUTE, // 통계(획득 수)가 들어 있다
         getAwardedDates: DAY,         // 받은 날짜는 바뀌지 않는다 (유저가 지우면 사라진다)
+        getUniverseBadges: 5 * SECOND,
+        getMetadata:       HOUR,
+        // 요청 계정 기준이다. 기본으로는 캐시하지 않는다
+        getUserBadges:     0,
+        getFreeQuotas:     0,
+    },
+    // 전부 요청 계정 기준이다. 기본으로는 캐시하지 않는다
+    chat: {
+        getConversations:    0,
+        listConversations:   0,
+        searchConversations: 0,
+        getMessages:         0,
+        searchMessages:      0,
+        getUnreadCounts:     0,
+        getMetadata:         0,
+    },
+    trades: {
+        canTradeWith: 0, // 요청 계정 기준
     },
 } as const satisfies { [S in keyof RobloxTtl]-?: Required<NonNullable<RobloxTtl[S]>> }
 

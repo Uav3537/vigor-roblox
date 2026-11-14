@@ -114,7 +114,7 @@ export interface RobloxNodeStage<L = unknown> extends RobloxNodeServices<L> {}
 export class RobloxOptionsStage<L = unknown, M extends RobloxMode = RobloxMode> extends RobloxConfigurableStage<L, M> {}
 
 export class RobloxCacheStage<L = unknown, M extends RobloxMode = RobloxMode> extends RobloxClient<L> {
-    /** 서비스 → 메서드 → TTL(ms). 적지 않은 메서드는 기본값(`RobloxDefaultTtl`)을 쓴다. 0이어도 저장소의 get/set은 불린다 (0의 처리는 저장소가 정한다). */
+    /** 서비스 → 메서드 → TTL(ms). 적지 않은 메서드는 기본값(`RobloxDefaultTtl`)을 쓴다. 0 이하면 캐시하지 않는다 (저장소의 get/set을 부르지 않는다). 만료 없이 두려면 `Infinity`. */
     ttl(ttl: RobloxTtl): RobloxModeStage<RobloxCacheStage<L, M>, M, L> {
         return this.next<L>({ ...this.config, ttl: mergeTtl(this.config.ttl, ttl) })
     }
