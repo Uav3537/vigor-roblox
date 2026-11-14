@@ -1,4 +1,4 @@
-import z from "zod";
+import * as z from "zod";
 
 /**
  * `CanTradeResponse` — GET /v1/users/{userId}/can-trade-with.

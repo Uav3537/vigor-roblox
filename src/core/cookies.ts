@@ -1,4 +1,4 @@
-import z from "zod"
+import * as z from "zod"
 
 /** `.ROBLOSECURITY` 쿠키 값. 문자열이면 `RobloxCookieSchema.parse(value)`로 바꿔 넣는다 */
 export const RobloxCookieSchema = z.string().min(1).brand("RobloxCookie")

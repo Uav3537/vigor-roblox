@@ -1,6 +1,6 @@
 {
   "name": "vigor-roblox",
-  "version": "6.3.0",
+  "version": "6.4.0",
   "description": "",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -34,12 +34,14 @@
   "author": "Uav1010",
   "license": "MIT",
   "dependencies": {
-    "vigor-fetch": "^5.3.0",
+    "vigor-fetch": "^5.4.0",
     "zod": "^4.4.3"
   },
+  "sideEffects": false,
   "type": "module",
   "devDependencies": {
     "@types/node": "^26.4.0",
+    "terser": "^5.51.2",
     "tsup": "^8.5.1",
     "typescript": "^5.8.3"
   }

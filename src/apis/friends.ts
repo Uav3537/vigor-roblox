@@ -33,7 +33,7 @@ import {
 } from "@/types/friends"
 import type { RobloxAvatarThumbnailOptions, RobloxWithThumbnail } from "@/types/thumbnails"
 import type { RobloxUser, RobloxUserId } from "@/types/users"
-import z from "zod"
+import * as z from "zod"
 
 /** `.ttl({ friends: { ... } })`로 캐시할 수 있는 메서드. 배열을 받는 메서드는 항목 하나씩 캐시한다. */
 export type RobloxFriendsCacheable =

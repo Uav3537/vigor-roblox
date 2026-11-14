@@ -1,4 +1,4 @@
-import z from "zod";
+import * as z from "zod";
 import { RobloxArrayResponseSchema, RobloxCursorSchema, RobloxPageLimitSchema, RobloxPageResponseSchema, RobloxSortOrderSchema } from "./common";
 
 export const RobloxBirthYearSchema = z.number().int().max(new Date().getFullYear()).brand("RobloxBirthYear")

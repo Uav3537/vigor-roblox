@@ -1,4 +1,4 @@
-import z from "zod";
+import * as z from "zod";
 import type {
     RobloxAssetId, RobloxBadgeId, RobloxBundleId, RobloxDeveloperProductId, RobloxGamePassId, RobloxGameThumbnailId,
     RobloxGroupId, RobloxOutfitId, RobloxPlaceId, RobloxUniverseId,

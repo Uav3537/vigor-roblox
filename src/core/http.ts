@@ -1,6 +1,6 @@
 import { vigor, isVigorFetchError, VigorFetchPolicySettingsBase } from "vigor-fetch"
 import type { VigorFetchOptions } from "vigor-fetch"
-import type z from "zod"
+import type * as z from "zod"
 import { canonicalInfo, robloxCacheKey, type RobloxCacheInfo, type RobloxCacheValue, type RobloxViewerKey } from "./cache"
 import { viewerKey } from "./viewer"
 import type { RobloxConfig } from "./config"

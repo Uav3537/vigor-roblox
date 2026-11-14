@@ -1,4 +1,4 @@
-import z from "zod"
+import * as z from "zod"
 import { RobloxBatcher, RobloxBatchSkip, captureHeaders, nullOn, type RobloxBatchRoute } from "@/core/batcher"
 import { resolveTtl, type RobloxConfig } from "@/core/config"
 import type { RobloxThumbnailsApi } from "@/apis/thumbnails"

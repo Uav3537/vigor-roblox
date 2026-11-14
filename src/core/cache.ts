@@ -18,7 +18,7 @@ import type {
     RobloxFollowingStatus, RobloxBlockStatus, RobloxOnlineFriend, RobloxFriendRequestsQuery, RobloxFriendRequestPage,
     RobloxTrustedFriendRequestsQuery, RobloxTrustedFriendRequestPage,
 } from "@/types/friends"
-import type z from "zod"
+import type * as z from "zod"
 import type { RobloxCanTrade } from "@/types/trades"
 import type {
     RobloxChatConversation, RobloxChatConversationPage, RobloxChatMessagePage, RobloxChatMetadata, RobloxChatPageQuery, RobloxChatUnreadCounts,

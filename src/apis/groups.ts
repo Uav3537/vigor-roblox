@@ -1,4 +1,4 @@
-import z from "zod"
+import * as z from "zod"
 import { RobloxBatcher, captureHeaders, nullOn, type RobloxBatchRoute } from "@/core/batcher"
 import type { RobloxCacheInfo, RobloxCacheValue } from "@/core/cache"
 import { resolveTtl, type RobloxConfig } from "@/core/config"

@@ -85,7 +85,7 @@ import {
 } from "@/types/games"
 import type { RobloxThumbnail } from "@/types/thumbnails"
 import type { RobloxUserId } from "@/types/users"
-import z from "zod"
+import * as z from "zod"
 
 /** `.ttl({ games: { ... } })`로 캐시할 수 있는 메서드. 배열을 받는 메서드는 항목 하나씩 캐시한다. */
 export type RobloxGamesCacheable =

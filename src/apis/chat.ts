@@ -23,7 +23,7 @@ import {
     type RobloxSendMessageRequest,
 } from "@/types/chat"
 import type { RobloxUserId } from "@/types/users"
-import z from "zod"
+import * as z from "zod"
 
 /** `.ttl({ chat: { ... } })`로 캐시할 수 있는 메서드. 전부 요청 계정 기준이라 기본으로는 캐시하지 않는다. */
 export type RobloxChatCacheable =

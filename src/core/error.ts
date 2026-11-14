@@ -1,5 +1,5 @@
 import { findInVigorErrorChain, isVigorFetchError } from "vigor-fetch"
-import { z } from "zod"
+import * as z from "zod"
 
 /** One entry of a Roblox error body (`{ errors: [{ code, message }] }`) */
 export type RobloxApiError = { code: number | string | null, message: string }

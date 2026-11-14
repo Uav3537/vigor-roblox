@@ -1,4 +1,4 @@
-import z, { z as z$1 } from 'zod';
+import * as z from 'zod';
 import * as vigor_fetch from 'vigor-fetch';
 import { isVigorFetchError } from 'vigor-fetch';
 
@@ -4624,7 +4624,7 @@ declare const RobloxErrorMessageFuncs: {
     }) => string;
     /** The response did not match the expected shape. Roblox may have changed the API */
     readonly INVALID_RESPONSE: ({ issues, url }: {
-        issues: z$1.core.$ZodIssue[];
+        issues: z.core.$ZodIssue[];
         url: string | null;
     }) => string;
     /** Some items of an array call failed. `results` holds the rest, in input order */

@@ -1,4 +1,4 @@
-import z from "zod";
+import * as z from "zod";
 import { RobloxCursorSchema, RobloxJobIdSchema, RobloxPlaceIdSchema, RobloxUniverseIdSchema, type RobloxCursor, type RobloxSortOrder } from "./common";
 import { RobloxUserIdSchema, type RobloxUser, type RobloxUserId } from "./users";
 

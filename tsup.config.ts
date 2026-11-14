@@ -10,6 +10,20 @@ export default defineConfig({
     clean: true,
     sourcemap: false,
     target: "esnext",
-    // 캐시 키에 붙는 라이브러리 버전 (src/core/cache.ts)
+    // Library version appended to cache keys (src/core/cache.ts)
     define: { __VIGOR_ROBLOX_VERSION__: JSON.stringify(version) },
+    // Rollup tree-shaking drops dead code that esbuild leaves behind
+    treeshake: true,
+    // Terser instead of esbuild's minifier: esbuild cannot mangle locals while leaving top-level names alone,
+    // and its `keepNames` helper adds bytes to every consumer bundle
+    minify: "terser",
+    terserOptions: {
+        ecma: 2020,
+        // Classes are emitted as `var Name = class {}`, so `.name` comes from the top-level binding.
+        // Leave top-level bindings alone (no renaming, no inlining) so class names survive
+        // (stack traces, devtools); consumer bundlers rename them anyway
+        compress: { passes: 2, module: false, toplevel: false, keep_classnames: true },
+        mangle: { module: false, toplevel: false, keep_classnames: true },
+        format: { comments: false },
+    },
 })

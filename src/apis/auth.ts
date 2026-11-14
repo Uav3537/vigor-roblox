@@ -2,7 +2,7 @@ import { vigor } from "vigor-fetch"
 import type { RobloxConfig } from "@/core/config"
 import { RobloxError } from "@/core/error"
 import { createHttp, validate } from "@/core/http"
-import z from "zod"
+import * as z from "zod"
 
 const ORIGIN = "https://auth.roblox.com"
 
