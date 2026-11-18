@@ -21,8 +21,8 @@ const usersRoute: RobloxBatchRoute<RobloxUserId, RobloxUserPresence> = {
     group:  () => "",
     async send(http, userIds, onHeaders) {
         const res = await http()
-            .path("v1", "presence", "users")
-            .body("overwrite", { userIds })
+            .path("append", "v1", "presence", "users")
+            .body("replace", { userIds })
             .middlewares(captureHeaders(onHeaders))
             .middlewares(validate(RobloxUserPresencesResponseSchema))
             .request()

@@ -134,8 +134,8 @@ function singleRoute<T, S extends z.ZodType, R>(opts: {
         group:  () => "",
         async send(http, [t], onHeaders) {
             const res = await nullOn(opts.missing ?? [400], onHeaders, () => http()
-                .path(...opts.path(t))
-                .query(opts.query?.(t) ?? {})
+                .path("append", ...opts.path(t))
+                .query("append", opts.query?.(t) ?? {})
                 .middlewares(captureHeaders(onHeaders))
                 .middlewares(validate(opts.schema))
                 .request())
@@ -158,8 +158,8 @@ function listRoute<R>(opts: {
         group:  () => "",
         async send(http, ids, onHeaders) {
             const res = await http()
-                .path(...opts.path)
-                .query({ [opts.param]: csv(ids) })
+                .path("append", ...opts.path)
+                .query("append", { [opts.param]: csv(ids) })
                 .middlewares(captureHeaders(onHeaders))
                 .middlewares(validate(opts.schema))
                 .request()
@@ -264,7 +264,7 @@ export class RobloxGroupsApi {
                 group:  t => String(t.groupId),
                 async send(http, targets, onHeaders) {
                     const res = await http()
-                        .path("v1", "groups", targets[0].groupId, "roles", "permissions")
+                        .path("append", "v1", "groups", targets[0].groupId, "roles", "permissions")
                         .middlewares(captureHeaders(onHeaders))
                         .middlewares(validate(RobloxGroupRolePermissionsResponseSchema))
                         .request()
@@ -302,8 +302,8 @@ export class RobloxGroupsApi {
             group:  () => "",
             async send(http, groupIds, onHeaders) {
                 const res = await http()
-                    .path("v1", "groups", "policies")
-                    .body("overwrite", { groupIds })
+                    .path("append", "v1", "groups", "policies")
+                    .body("replace", { groupIds })
                     .middlewares(captureHeaders(onHeaders))
                     .middlewares(validate(RobloxGroupPoliciesResponseSchema))
                     .request()
@@ -442,8 +442,8 @@ export class RobloxGroupsApi {
     /** GET /v1/groups/{groupId}/users — 멤버와 역할 */
     getMembers(groupId: RobloxGroupId, query: RobloxGroupPageQuery = {}) {
         return cached(this.config, { service: "groups", method: "getMembers", groupId, query }, this.ttl("getMembers"), () => this.http()
-            .path("v1", "groups", groupId, "users")
-            .query(query)
+            .path("append", "v1", "groups", groupId, "users")
+            .query("append", query)
             .middlewares(validate(RobloxGroupMemberPageSchema))
             .request())
     }
@@ -451,8 +451,8 @@ export class RobloxGroupsApi {
     /** GET /v1/groups/{groupId}/roles/{roleSetId}/users — 역할 하나의 멤버 */
     getRoleMembers(groupId: RobloxGroupId, roleId: RobloxGroupRoleId, query: RobloxGroupPageQuery = {}) {
         return cached(this.config, { service: "groups", method: "getRoleMembers", groupId, roleId, query }, this.ttl("getRoleMembers"), () => this.http()
-            .path("v1", "groups", groupId, "roles", roleId, "users")
-            .query(query)
+            .path("append", "v1", "groups", groupId, "roles", roleId, "users")
+            .query("append", query)
             .middlewares(validate(RobloxGroupUserPageSchema))
             .request())
     }
@@ -460,8 +460,8 @@ export class RobloxGroupsApi {
     /** GET /v1/groups/search — 키워드 검색. totalResults는 1000에서 멈춘다 */
     searchGroups(query: RobloxGroupSearchQuery) {
         return cached(this.config, { service: "groups", method: "searchGroups", query }, this.ttl("searchGroups"), () => this.http()
-            .path("v1", "groups", "search")
-            .query(query)
+            .path("append", "v1", "groups", "search")
+            .query("append", query)
             .middlewares(validate(RobloxGroupSearchPageSchema))
             .request())
     }
@@ -469,8 +469,8 @@ export class RobloxGroupsApi {
     /** GET /v1/groups/search/lookup — 이름으로 찾는다. 정확히 맞는 그룹이 있으면 맨 앞에 온다 */
     lookupGroups(groupName: string) {
         return cached(this.config, { service: "groups", method: "lookupGroups", groupName }, this.ttl("lookupGroups"), async () => (await this.http()
-            .path("v1", "groups", "search", "lookup")
-            .query({ groupName })
+            .path("append", "v1", "groups", "search", "lookup")
+            .query("append", { groupName })
             .middlewares(validate(RobloxGroupLookupResponseSchema))
             .request()).data)
     }
@@ -478,8 +478,8 @@ export class RobloxGroupsApi {
     /** GET /v1/groups/{groupId}/name-history */
     getNameHistory(groupId: RobloxGroupId, query: RobloxGroupPageQuery = {}) {
         return cached(this.config, { service: "groups", method: "getNameHistory", groupId, query }, this.ttl("getNameHistory"), () => this.http()
-            .path("v1", "groups", groupId, "name-history")
-            .query(query)
+            .path("append", "v1", "groups", groupId, "name-history")
+            .query("append", query)
             .middlewares(validate(RobloxGroupNameHistoryPageSchema))
             .request())
     }
@@ -487,8 +487,8 @@ export class RobloxGroupsApi {
     /** GET /v1/groups/{groupId}/relationships/{allies|enemies} — 동맹/적 그룹 */
     getRelationships(groupId: RobloxGroupId, type: RobloxGroupRelationshipType, query: RobloxGroupRelationshipsQuery = {}) {
         return cached(this.config, { service: "groups", method: "getRelationships", groupId, type, query }, this.ttl("getRelationships"), () => this.http()
-            .path("v1", "groups", groupId, "relationships", relationshipPath(type))
-            .query({ StartRowIndex: query.startRowIndex ?? 0, MaxRows: query.maxRows ?? 100 })
+            .path("append", "v1", "groups", groupId, "relationships", relationshipPath(type))
+            .query("append", { StartRowIndex: query.startRowIndex ?? 0, MaxRows: query.maxRows ?? 100 })
             .middlewares(validate(RobloxGroupRelationshipsSchema))
             .request())
     }
@@ -512,7 +512,7 @@ export class RobloxGroupsApi {
     /** GET /v1/groups/metadata — 그룹 수 한도 등. 인증하면 요청 계정의 가입 수가 들어간다 */
     getMetadata() {
         return cachedByViewer(this.config, viewer => ({ service: "groups", method: "getMetadata", viewer }), this.ttl("getMetadata"), () => this.http()
-            .path("v1", "groups", "metadata")
+            .path("append", "v1", "groups", "metadata")
             .middlewares(validate(RobloxGroupsMetadataSchema))
             .request())
     }
@@ -520,7 +520,7 @@ export class RobloxGroupsApi {
     /** GET /v1/groups/configuration/metadata — 이름 길이, 생성/개명 비용 등 */
     getConfigurationMetadata() {
         return cached(this.config, { service: "groups", method: "getConfigurationMetadata" }, this.ttl("getConfigurationMetadata"), () => this.http()
-            .path("v1", "groups", "configuration", "metadata")
+            .path("append", "v1", "groups", "configuration", "metadata")
             .middlewares(validate(RobloxGroupConfigurationMetadataSchema))
             .request())
     }
@@ -528,7 +528,7 @@ export class RobloxGroupsApi {
     /** GET /v1/groups/search/metadata — 추천 검색어 */
     getSearchMetadata() {
         return cached(this.config, { service: "groups", method: "getSearchMetadata" }, this.ttl("getSearchMetadata"), () => this.http()
-            .path("v1", "groups", "search", "metadata")
+            .path("append", "v1", "groups", "search", "metadata")
             .middlewares(validate(RobloxGroupSearchMetadataSchema))
             .request())
     }
@@ -561,7 +561,7 @@ export class RobloxGroupsApi {
     /** GET /v1/user/groups/pending — 가입을 요청해 둔 그룹 */
     getPendingGroups() {
         return cachedByViewer(this.config, viewer => ({ service: "groups", method: "getPendingGroups", viewer }), this.ttl("getPendingGroups"), async (): Promise<RobloxGroupDetailPartial[]> => (await this.http()
-            .path("v1", "user", "groups", "pending")
+            .path("append", "v1", "user", "groups", "pending")
             .middlewares(validate(z.object({ data: z.array(RobloxGroupDetailPartialSchema) })))
             .request()).data)
     }
@@ -571,7 +571,7 @@ export class RobloxGroupsApi {
         return cachedByViewer(this.config, viewer => ({ service: "groups", method: "getFriendsGroups", viewer }), this.ttl("getFriendsGroups"), async () => {
             const me = await this.myId()
             const res = await this.http()
-                .path("v1", "users", me, "friends", "groups", "roles")
+                .path("append", "v1", "users", me, "friends", "groups", "roles")
                 .middlewares(validate(RobloxFriendsGroupsResponseSchema))
                 .request()
             return res.data
@@ -581,8 +581,8 @@ export class RobloxGroupsApi {
     /** POST /v1/groups/{groupId}/users — 가입한다. 승인제 그룹이면 가입 요청이 된다. 캡차를 요구할 수 있다 */
     async joinGroup(groupId: RobloxGroupId, request: RobloxJoinGroupRequest = {}): Promise<void> {
         await this.http()
-            .path("v1", "groups", groupId, "users")
-            .body("overwrite", request)
+            .path("append", "v1", "groups", groupId, "users")
+            .body("replace", request)
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -595,8 +595,8 @@ export class RobloxGroupsApi {
     /** POST /v1/user/groups/primary */
     async setPrimaryGroup(groupId: RobloxGroupId): Promise<void> {
         await this.http()
-            .path("v1", "user", "groups", "primary")
-            .body("overwrite", { groupId })
+            .path("append", "v1", "user", "groups", "primary")
+            .body("replace", { groupId })
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -605,7 +605,7 @@ export class RobloxGroupsApi {
     async removePrimaryGroup(): Promise<void> {
         await this.http()
             .method("DELETE")
-            .path("v1", "user", "groups", "primary")
+            .path("append", "v1", "user", "groups", "primary")
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -614,8 +614,8 @@ export class RobloxGroupsApi {
     async setNotificationPreference(groupId: RobloxGroupId, request: { type: string | number, notificationsEnabled: boolean }): Promise<void> {
         await this.http()
             .method("PATCH")
-            .path("v1", "groups", groupId, "notification-preference")
-            .body("overwrite", request)
+            .path("append", "v1", "groups", groupId, "notification-preference")
+            .body("replace", request)
             .middlewares(validate(z.unknown()))
             .request()
     }
@@ -632,8 +632,8 @@ export class RobloxGroupsApi {
         if (request.buildersClubMembersOnly !== undefined) form.append("buildersClubMembersOnly", String(request.buildersClubMembersOnly))
         form.append("Files", request.icon)
         return this.http()
-            .path("v1", "groups", "create")
-            .body("overwrite", form)
+            .path("append", "v1", "groups", "create")
+            .body("replace", form)
             .middlewares(validate(RobloxGroupSchema.extend({ memberCount: z.number().nullish() })))
             .request()
     }
@@ -650,8 +650,8 @@ export class RobloxGroupsApi {
     async updateRolePermissions(groupId: RobloxGroupId, roleId: RobloxGroupRoleId, permissions: Record<string, boolean>): Promise<void> {
         await this.http()
             .method("PATCH")
-            .path("v1", "groups", groupId, "roles", roleId, "permissions")
-            .body("overwrite", { permissions })
+            .path("append", "v1", "groups", groupId, "roles", roleId, "permissions")
+            .body("replace", { permissions })
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -664,8 +664,8 @@ export class RobloxGroupsApi {
     /** POST /v1/groups/{groupId}/rolesets/create */
     createRole(groupId: RobloxGroupId, request: RobloxCreateGroupRoleRequest) {
         return this.http()
-            .path("v1", "groups", groupId, "rolesets", "create")
-            .body("overwrite", request)
+            .path("append", "v1", "groups", groupId, "rolesets", "create")
+            .body("replace", request)
             .middlewares(validate(RobloxGroupRoleSchema))
             .request()
     }
@@ -674,8 +674,8 @@ export class RobloxGroupsApi {
     updateRole(groupId: RobloxGroupId, roleId: RobloxGroupRoleId, request: RobloxUpdateGroupRoleRequest) {
         return this.http()
             .method("PATCH")
-            .path("v1", "groups", groupId, "rolesets", roleId)
-            .body("overwrite", request)
+            .path("append", "v1", "groups", groupId, "rolesets", roleId)
+            .body("replace", request)
             .middlewares(validate(RobloxGroupRoleSchema))
             .request()
     }
@@ -684,7 +684,7 @@ export class RobloxGroupsApi {
     async deleteRole(groupId: RobloxGroupId, roleId: RobloxGroupRoleId): Promise<void> {
         await this.http()
             .method("DELETE")
-            .path("v1", "groups", groupId, "rolesets", roleId)
+            .path("append", "v1", "groups", groupId, "rolesets", roleId)
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -693,8 +693,8 @@ export class RobloxGroupsApi {
     async setMemberRole(groupId: RobloxGroupId, userId: RobloxUserId, roleId: RobloxGroupRoleId): Promise<void> {
         await this.http()
             .method("PATCH")
-            .path("v1", "groups", groupId, "users", userId)
-            .body("overwrite", { roleId })
+            .path("append", "v1", "groups", groupId, "users", userId)
+            .body("replace", { roleId })
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -703,7 +703,7 @@ export class RobloxGroupsApi {
     async removeMember(groupId: RobloxGroupId, userId: RobloxUserId): Promise<void> {
         await this.http()
             .method("DELETE")
-            .path("v1", "groups", groupId, "users", userId)
+            .path("append", "v1", "groups", groupId, "users", userId)
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -711,8 +711,8 @@ export class RobloxGroupsApi {
     /** GET /v1/groups/{groupId}/join-requests — 가입 요청 목록 */
     getJoinRequests(groupId: RobloxGroupId, query: RobloxGroupPageQuery = {}) {
         return cachedByViewer(this.config, viewer => ({ service: "groups", method: "getJoinRequests", viewer, groupId, query }), this.ttl("getJoinRequests"), () => this.http()
-            .path("v1", "groups", groupId, "join-requests")
-            .query(query)
+            .path("append", "v1", "groups", groupId, "join-requests")
+            .query("append", query)
             .middlewares(validate(RobloxGroupJoinRequestPageSchema))
             .request())
     }
@@ -725,15 +725,15 @@ export class RobloxGroupsApi {
     /** 가입 요청을 받아들인다. 한 명이면 /users/{userId}, 여러 명이면 묶음 엔드포인트로 보낸다 */
     async acceptJoinRequests(groupId: RobloxGroupId, userIds: readonly RobloxUserId[]): Promise<void> {
         await this.batchWrite(userIds,
-            userId => this.http().path("v1", "groups", groupId, "join-requests", "users", userId).body("overwrite", {}).middlewares(validate(RobloxEmptyResponseSchema)).request(),
-            UserIds => this.http().path("v1", "groups", groupId, "join-requests").body("overwrite", { UserIds }).middlewares(validate(RobloxEmptyResponseSchema)).request())
+            userId => this.http().path("append", "v1", "groups", groupId, "join-requests", "users", userId).body("replace", {}).middlewares(validate(RobloxEmptyResponseSchema)).request(),
+            UserIds => this.http().path("append", "v1", "groups", groupId, "join-requests").body("replace", { UserIds }).middlewares(validate(RobloxEmptyResponseSchema)).request())
     }
 
     /** 가입 요청을 거절한다. 한 명이면 /users/{userId}, 여러 명이면 묶음 엔드포인트로 보낸다 */
     async declineJoinRequests(groupId: RobloxGroupId, userIds: readonly RobloxUserId[]): Promise<void> {
         await this.batchWrite(userIds,
-            userId => this.http().method("DELETE").path("v1", "groups", groupId, "join-requests", "users", userId).middlewares(validate(RobloxEmptyResponseSchema)).request(),
-            UserIds => this.http().method("DELETE").path("v1", "groups", groupId, "join-requests").body("overwrite", { UserIds }).middlewares(validate(RobloxEmptyResponseSchema)).request())
+            userId => this.http().method("DELETE").path("append", "v1", "groups", groupId, "join-requests", "users", userId).middlewares(validate(RobloxEmptyResponseSchema)).request(),
+            UserIds => this.http().method("DELETE").path("append", "v1", "groups", groupId, "join-requests").body("replace", { UserIds }).middlewares(validate(RobloxEmptyResponseSchema)).request())
     }
 
     /**
@@ -751,8 +751,8 @@ export class RobloxGroupsApi {
     /** GET /v1/groups/{groupId}/bans */
     getBans(groupId: RobloxGroupId, query: RobloxGroupPageQuery = {}) {
         return cachedByViewer(this.config, viewer => ({ service: "groups", method: "getBans", viewer, groupId, query }), this.ttl("getBans"), () => this.http()
-            .path("v1", "groups", groupId, "bans")
-            .query(query)
+            .path("append", "v1", "groups", groupId, "bans")
+            .query("append", query)
             .middlewares(validate(RobloxGroupBanPageSchema))
             .request())
     }
@@ -765,8 +765,8 @@ export class RobloxGroupsApi {
     /** POST /v1/groups/{groupId}/bans/{userId} */
     banUser(groupId: RobloxGroupId, userId: RobloxUserId) {
         return this.http()
-            .path("v1", "groups", groupId, "bans", userId)
-            .body("overwrite", {})
+            .path("append", "v1", "groups", groupId, "bans", userId)
+            .body("replace", {})
             .middlewares(validate(RobloxGroupBanSchema))
             .request()
     }
@@ -775,7 +775,7 @@ export class RobloxGroupsApi {
     async unbanUser(groupId: RobloxGroupId, userId: RobloxUserId): Promise<void> {
         await this.http()
             .method("DELETE")
-            .path("v1", "groups", groupId, "bans", userId)
+            .path("append", "v1", "groups", groupId, "bans", userId)
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -783,8 +783,8 @@ export class RobloxGroupsApi {
     /** GET /v1/groups/{groupId}/audit-log */
     getAuditLog(groupId: RobloxGroupId, query: RobloxGroupAuditLogQuery = {}) {
         return cachedByViewer(this.config, viewer => ({ service: "groups", method: "getAuditLog", viewer, groupId, query }), this.ttl("getAuditLog"), () => this.http()
-            .path("v1", "groups", groupId, "audit-log")
-            .query(query)
+            .path("append", "v1", "groups", groupId, "audit-log")
+            .query("append", query)
             .middlewares(validate(RobloxGroupAuditLogPageSchema))
             .request())
     }
@@ -799,8 +799,8 @@ export class RobloxGroupsApi {
     async updateSettings(groupId: RobloxGroupId, request: RobloxUpdateGroupSettingsRequest): Promise<void> {
         await this.http()
             .method("PATCH")
-            .path("v1", "groups", groupId, "settings")
-            .body("overwrite", request)
+            .path("append", "v1", "groups", groupId, "settings")
+            .body("replace", request)
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -826,8 +826,8 @@ export class RobloxGroupsApi {
     async updateFeatures(groupId: RobloxGroupId, features: Record<string, boolean>): Promise<boolean> {
         const res = await this.http()
             .method("PATCH")
-            .path("v1", "groups", groupId, "features")
-            .body("overwrite", { Features: features })
+            .path("append", "v1", "groups", groupId, "features")
+            .body("replace", { Features: features })
             .middlewares(validate(z.object({ Updated: z.boolean() })))
             .request()
         return res.Updated
@@ -837,8 +837,8 @@ export class RobloxGroupsApi {
     async setName(groupId: RobloxGroupId, name: string): Promise<string> {
         const res = await this.http()
             .method("PATCH")
-            .path("v1", "groups", groupId, "name")
-            .body("overwrite", { name })
+            .path("append", "v1", "groups", groupId, "name")
+            .body("replace", { name })
             .middlewares(validate(z.object({ newName: z.string() })))
             .request()
         return res.newName
@@ -848,8 +848,8 @@ export class RobloxGroupsApi {
     async setDescription(groupId: RobloxGroupId, description: string): Promise<string> {
         const res = await this.http()
             .method("PATCH")
-            .path("v1", "groups", groupId, "description")
-            .body("overwrite", { description })
+            .path("append", "v1", "groups", groupId, "description")
+            .body("replace", { description })
             .middlewares(validate(z.object({ newDescription: z.string() })))
             .request()
         return res.newDescription
@@ -859,8 +859,8 @@ export class RobloxGroupsApi {
     setShout(groupId: RobloxGroupId, message: string) {
         return this.http()
             .method("PATCH")
-            .path("v1", "groups", groupId, "status")
-            .body("overwrite", { message })
+            .path("append", "v1", "groups", groupId, "status")
+            .body("replace", { message })
             .middlewares(validate(RobloxGroupShoutSchema.nullable()))
             .request()
     }
@@ -871,9 +871,9 @@ export class RobloxGroupsApi {
         form.append("Files", icon)
         await this.http()
             .method("PATCH")
-            .path("v1", "groups", "icon")
-            .query({ groupId })
-            .body("overwrite", form)
+            .path("append", "v1", "groups", "icon")
+            .query("append", { groupId })
+            .body("replace", form)
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -881,8 +881,8 @@ export class RobloxGroupsApi {
     /** POST /v1/groups/{groupId}/social-links */
     createSocialLink(groupId: RobloxGroupId, request: RobloxGroupSocialLinkRequest) {
         return this.http()
-            .path("v1", "groups", groupId, "social-links")
-            .body("overwrite", request)
+            .path("append", "v1", "groups", groupId, "social-links")
+            .body("replace", request)
             .middlewares(validate(RobloxGroupSocialLinkSchema))
             .request()
     }
@@ -891,8 +891,8 @@ export class RobloxGroupsApi {
     async updateSocialLink(groupId: RobloxGroupId, socialLinkId: RobloxGroupSocialLinkId, request: RobloxGroupSocialLinkRequest): Promise<void> {
         await this.http()
             .method("PATCH")
-            .path("v1", "groups", groupId, "social-links", socialLinkId)
-            .body("overwrite", request)
+            .path("append", "v1", "groups", groupId, "social-links", socialLinkId)
+            .body("replace", request)
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -901,7 +901,7 @@ export class RobloxGroupsApi {
     async deleteSocialLink(groupId: RobloxGroupId, socialLinkId: RobloxGroupSocialLinkId): Promise<void> {
         await this.http()
             .method("DELETE")
-            .path("v1", "groups", groupId, "social-links", socialLinkId)
+            .path("append", "v1", "groups", groupId, "social-links", socialLinkId)
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -909,8 +909,8 @@ export class RobloxGroupsApi {
     /** GET /v1/groups/{groupId}/blocked-keywords — 포럼 차단 키워드 */
     getKeywords(groupId: RobloxGroupId, query: RobloxGroupPageQuery = {}) {
         return cachedByViewer(this.config, viewer => ({ service: "groups", method: "getKeywords", viewer, groupId, query }), this.ttl("getKeywords"), () => this.http()
-            .path("v1", "groups", groupId, "blocked-keywords")
-            .query(query)
+            .path("append", "v1", "groups", groupId, "blocked-keywords")
+            .query("append", query)
             .middlewares(validate(RobloxGroupKeywordPageSchema))
             .request())
     }
@@ -918,8 +918,8 @@ export class RobloxGroupsApi {
     /** POST /v1/groups/{groupId}/blocked-keywords — 스펙은 keywords를 문자열 하나로 받는다 */
     createKeywords(groupId: RobloxGroupId, request: { keywords: string, isPrivate?: boolean }) {
         return this.http()
-            .path("v1", "groups", groupId, "blocked-keywords")
-            .body("overwrite", request)
+            .path("append", "v1", "groups", groupId, "blocked-keywords")
+            .body("replace", request)
             .middlewares(validate(RobloxCreateGroupKeywordsResponseSchema))
             .request()
     }
@@ -928,8 +928,8 @@ export class RobloxGroupsApi {
     updateKeyword(groupId: RobloxGroupId, keywordId: RobloxGroupKeywordId, request: { keyword?: string, isPrivate?: boolean }) {
         return this.http()
             .method("PATCH")
-            .path("v1", "groups", groupId, "blocked-keywords", keywordId)
-            .body("overwrite", request)
+            .path("append", "v1", "groups", groupId, "blocked-keywords", keywordId)
+            .body("replace", request)
             .middlewares(validate(RobloxGroupKeywordSchema))
             .request()
     }
@@ -938,7 +938,7 @@ export class RobloxGroupsApi {
     async deleteKeyword(groupId: RobloxGroupId, keywordId: RobloxGroupKeywordId): Promise<void> {
         await this.http()
             .method("DELETE")
-            .path("v1", "groups", groupId, "blocked-keywords", keywordId)
+            .path("append", "v1", "groups", groupId, "blocked-keywords", keywordId)
             .middlewares(validate(z.unknown()))
             .request()
     }
@@ -946,9 +946,9 @@ export class RobloxGroupsApi {
     /** POST /v1/featured-content/event — 그룹에 이벤트를 내건다 */
     setFeaturedEvent(groupId: RobloxGroupId, eventId: RobloxGroupEventId) {
         return this.http()
-            .path("v1", "featured-content", "event")
-            .query({ groupId, eventId })
-            .body("overwrite", {})
+            .path("append", "v1", "featured-content", "event")
+            .query("append", { groupId, eventId })
+            .body("replace", {})
             .middlewares(validate(RobloxGroupFeaturedEventSchema))
             .request()
     }
@@ -957,8 +957,8 @@ export class RobloxGroupsApi {
     async removeFeaturedEvent(groupId: RobloxGroupId, eventId: RobloxGroupEventId): Promise<void> {
         await this.http()
             .method("DELETE")
-            .path("v1", "featured-content", "event")
-            .query({ groupId, eventId })
+            .path("append", "v1", "featured-content", "event")
+            .query("append", { groupId, eventId })
             .middlewares(validate(z.unknown()))
             .request()
     }
@@ -966,8 +966,8 @@ export class RobloxGroupsApi {
     /** GET /v1/groups/{groupId}/relationships/{type}/requests — 받은 동맹 요청 */
     getRelationshipRequests(groupId: RobloxGroupId, type: RobloxGroupRelationshipType, query: RobloxGroupRelationshipsQuery = {}) {
         return cachedByViewer(this.config, viewer => ({ service: "groups", method: "getRelationshipRequests", viewer, groupId, type, query }), this.ttl("getRelationshipRequests"), () => this.http()
-            .path("v1", "groups", groupId, "relationships", relationshipPath(type), "requests")
-            .query({ StartRowIndex: query.startRowIndex ?? 0, MaxRows: query.maxRows ?? 100 })
+            .path("append", "v1", "groups", groupId, "relationships", relationshipPath(type), "requests")
+            .query("append", { StartRowIndex: query.startRowIndex ?? 0, MaxRows: query.maxRows ?? 100 })
             .middlewares(validate(RobloxGroupRelationshipsSchema))
             .request())
     }
@@ -976,23 +976,23 @@ export class RobloxGroupsApi {
     async acceptRelationshipRequests(groupId: RobloxGroupId, type: RobloxGroupRelationshipType, relatedGroupIds: readonly RobloxGroupId[]): Promise<void> {
         const base = ["v1", "groups", groupId, "relationships", relationshipPath(type), "requests"] as const
         await this.batchWrite(relatedGroupIds,
-            id => this.http().path(...base, id).body("overwrite", {}).middlewares(validate(RobloxEmptyResponseSchema)).request(),
-            GroupIds => this.http().path(...base).body("overwrite", { GroupIds }).middlewares(validate(RobloxEmptyResponseSchema)).request())
+            id => this.http().path("append", ...base, id).body("replace", {}).middlewares(validate(RobloxEmptyResponseSchema)).request(),
+            GroupIds => this.http().path("append", ...base).body("replace", { GroupIds }).middlewares(validate(RobloxEmptyResponseSchema)).request())
     }
 
     /** 받은 동맹 요청을 거절한다 */
     async declineRelationshipRequests(groupId: RobloxGroupId, type: RobloxGroupRelationshipType, relatedGroupIds: readonly RobloxGroupId[]): Promise<void> {
         const base = ["v1", "groups", groupId, "relationships", relationshipPath(type), "requests"] as const
         await this.batchWrite(relatedGroupIds,
-            id => this.http().method("DELETE").path(...base, id).middlewares(validate(RobloxEmptyResponseSchema)).request(),
-            GroupIds => this.http().method("DELETE").path(...base).body("overwrite", { GroupIds }).middlewares(validate(RobloxEmptyResponseSchema)).request())
+            id => this.http().method("DELETE").path("append", ...base, id).middlewares(validate(RobloxEmptyResponseSchema)).request(),
+            GroupIds => this.http().method("DELETE").path("append", ...base).body("replace", { GroupIds }).middlewares(validate(RobloxEmptyResponseSchema)).request())
     }
 
     /** POST /v1/groups/{groupId}/relationships/{type}/{relatedGroupId} — 동맹 요청을 보내거나 적으로 정한다 */
     async createRelationship(groupId: RobloxGroupId, type: RobloxGroupRelationshipType, relatedGroupId: RobloxGroupId): Promise<void> {
         await this.http()
-            .path("v1", "groups", groupId, "relationships", relationshipPath(type), relatedGroupId)
-            .body("overwrite", {})
+            .path("append", "v1", "groups", groupId, "relationships", relationshipPath(type), relatedGroupId)
+            .body("replace", {})
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -1001,7 +1001,7 @@ export class RobloxGroupsApi {
     async deleteRelationship(groupId: RobloxGroupId, type: RobloxGroupRelationshipType, relatedGroupId: RobloxGroupId): Promise<void> {
         await this.http()
             .method("DELETE")
-            .path("v1", "groups", groupId, "relationships", relationshipPath(type), relatedGroupId)
+            .path("append", "v1", "groups", groupId, "relationships", relationshipPath(type), relatedGroupId)
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -1024,8 +1024,8 @@ export class RobloxGroupsApi {
      */
     async payout(groupId: RobloxGroupId, recipients: readonly RobloxGroupPayoutRecipient[], opts: { idempotencyKey?: string } = {}): Promise<number> {
         const res = await this.http()
-            .path("v1", "groups", groupId, "payouts")
-            .body("overwrite", {
+            .path("append", "v1", "groups", groupId, "payouts")
+            .body("replace", {
                 PayoutType:     1,
                 Recipients:     recipients.map(r => ({ recipientId: r.userId, recipientType: 0, amount: r.amount })),
                 IdempotencyKey: opts.idempotencyKey ?? crypto.randomUUID(),
@@ -1038,8 +1038,8 @@ export class RobloxGroupsApi {
     /** POST /v1/groups/{groupId}/payouts/recurring — 정기 지급 비율을 통째로 바꾼다 */
     async setRecurringPayouts(groupId: RobloxGroupId, recipients: readonly RobloxGroupRecurringPayoutRecipient[]): Promise<void> {
         await this.http()
-            .path("v1", "groups", groupId, "payouts", "recurring")
-            .body("overwrite", {
+            .path("append", "v1", "groups", groupId, "payouts", "recurring")
+            .body("replace", {
                 PayoutType: 2,
                 Recipients: recipients.map(r => ({ recipientId: r.userId, recipientType: 0, amount: r.percentage })),
             })
@@ -1050,8 +1050,8 @@ export class RobloxGroupsApi {
     /** POST /v1/groups/{groupId}/change-owner — 주인을 넘긴다 (멤버여야 한다) */
     async changeOwner(groupId: RobloxGroupId, userId: RobloxUserId): Promise<void> {
         await this.http()
-            .path("v1", "groups", groupId, "change-owner")
-            .body("overwrite", { userId })
+            .path("append", "v1", "groups", groupId, "change-owner")
+            .body("replace", { userId })
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -1059,8 +1059,8 @@ export class RobloxGroupsApi {
     /** POST /v1/groups/{groupId}/claim-ownership — 주인이 없는 그룹을 가져온다 */
     async claimOwnership(groupId: RobloxGroupId): Promise<void> {
         await this.http()
-            .path("v1", "groups", groupId, "claim-ownership")
-            .body("overwrite", {})
+            .path("append", "v1", "groups", groupId, "claim-ownership")
+            .body("replace", {})
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -1068,8 +1068,8 @@ export class RobloxGroupsApi {
     /** POST /v1/groups/{groupId}/community-tier/evaluate — 커뮤니티 등급을 다시 계산한다 */
     evaluateCommunityTier(groupId: RobloxGroupId) {
         return this.http()
-            .path("v1", "groups", groupId, "community-tier", "evaluate")
-            .body("overwrite", {})
+            .path("append", "v1", "groups", groupId, "community-tier", "evaluate")
+            .body("replace", {})
             .middlewares(validate(RobloxGroupTierEvaluationSchema))
             .request()
     }
@@ -1077,8 +1077,8 @@ export class RobloxGroupsApi {
     /** POST /v1/groups/{groupId}/deactivate — 주인만 할 수 있다 */
     async deactivateGroup(groupId: RobloxGroupId): Promise<void> {
         await this.http()
-            .path("v1", "groups", groupId, "deactivate")
-            .body("overwrite", {})
+            .path("append", "v1", "groups", groupId, "deactivate")
+            .body("replace", {})
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }

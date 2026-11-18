@@ -34,7 +34,7 @@
   "author": "Uav1010",
   "license": "MIT",
   "dependencies": {
-    "vigor-fetch": "^5.4.0",
+    "vigor-fetch": "^6.0.0",
     "zod": "^4.4.3"
   },
   "sideEffects": false,

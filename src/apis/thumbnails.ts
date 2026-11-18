@@ -111,9 +111,9 @@ const batchRoute: Route = {
             headShape:           t.headShape,
         }))
         const res = await http()
-            .path("v1", "batch")
+            .path("append", "v1", "batch")
             .headers("merge", placeHeader(targets[0]))
-            .body("overwrite", body)
+            .body("replace", body)
             .middlewares(captureHeaders(onHeaders))
             .middlewares(validate(RobloxThumbnailBatchResponseSchema))
             .request()
@@ -150,9 +150,9 @@ function listRoute(type: RobloxThumbnailType, path: string[], idsParam: string, 
             if (t.returnPolicy !== undefined) query.returnPolicy = t.returnPolicy
 
             const res = await http()
-                .path(...pathOf(t))
+                .path("append", ...pathOf(t))
                 .headers("merge", placeHeader(t))
-                .query(query)
+                .query("append", query)
                 .middlewares(captureHeaders(onHeaders))
                 .middlewares(validate(RobloxThumbnailsResponseSchema))
                 .request()
@@ -170,9 +170,9 @@ function singleRoute(type: RobloxThumbnailType, path: string[], idParam: string,
         group: t => t.type === type ? "" : null,
         async send(http, [t], onHeaders) {
             const res = await http()
-                .path(...path)
+                .path("append", ...path)
                 .headers("merge", placeHeader(t))
-                .query({ [idParam]: t.targetId!, ...extra(t) })
+                .query("append", { [idParam]: t.targetId!, ...extra(t) })
                 .middlewares(captureHeaders(onHeaders))
                 .middlewares(validate(RobloxThumbnailSchema))
                 .request()
@@ -213,8 +213,8 @@ const gameThumbnailsRoute: RobloxBatchRoute<GameThumbnailsTarget, RobloxUniverse
     group:  t => keyOf(t.query as Normalized),
     async send(http, targets, onHeaders) {
         const res = await http()
-            .path("v1", "games", "multiget", "thumbnails")
-            .query({ size: "768x432", format: "Png", isCircular: false, ...targets[0].query, universeIds: targets.map(t => t.universeId).join(",") })
+            .path("append", "v1", "games", "multiget", "thumbnails")
+            .query("append", { size: "768x432", format: "Png", isCircular: false, ...targets[0].query, universeIds: targets.map(t => t.universeId).join(",") })
             .middlewares(captureHeaders(onHeaders))
             .middlewares(validate(RobloxUniverseThumbnailsResponseSchema))
             .request()

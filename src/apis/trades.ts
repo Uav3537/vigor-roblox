@@ -26,7 +26,7 @@ export class RobloxTradesApi {
      */
     canTradeWith(userId: RobloxUserId) {
         return cachedByViewer(this.config, viewer => ({ service: "trades", method: "canTradeWith", viewer, userId }), this.ttl("canTradeWith"), () => this.http()
-            .path("v1", "users", userId, "can-trade-with")
+            .path("append", "v1", "users", userId, "can-trade-with")
             .middlewares(validate(RobloxCanTradeSchema))
             .request())
     }

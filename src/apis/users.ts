@@ -60,7 +60,7 @@ const detailRoute: RobloxBatchRoute<RobloxUserId, RobloxUserDetail | null> = {
     group:  () => "",
     async send(http, [userId], onHeaders) {
         return [await nullOn([404], onHeaders, () => http()
-            .path("v1", "users", userId)
+            .path("append", "v1", "users", userId)
             .middlewares(captureHeaders(onHeaders))
             .middlewares(validate(RobloxUserDetailSchema))
             .request())]
@@ -77,8 +77,8 @@ const byIdRoute: RobloxBatchRoute<ByIdTarget, RobloxUser | null> = {
     group:  t => String(t.excludeBannedUsers),
     async send(http, targets, onHeaders) {
         const res = await http()
-            .path("v1", "users")
-            .body("overwrite", { userIds: targets.map(t => t.userId), excludeBannedUsers: targets[0].excludeBannedUsers })
+            .path("append", "v1", "users")
+            .body("replace", { userIds: targets.map(t => t.userId), excludeBannedUsers: targets[0].excludeBannedUsers })
             .middlewares(captureHeaders(onHeaders))
             .middlewares(validate(RobloxUsersResponseSchema))
             .request()
@@ -109,8 +109,8 @@ const profilesRoute: RobloxBatchRoute<ByIdTarget, RobloxUser | null> = {
     group:  t => t.excludeBannedUsers ? null : "",
     async send(http, targets, onHeaders) {
         const res = await http()
-            .path("user-profile-api", "v1", "user", "profiles", "get-profiles")
-            .body("overwrite", { userIds: targets.map(t => t.userId), fields: ["names.username", "names.displayName", "isVerified", "isDeleted"] })
+            .path("append", "user-profile-api", "v1", "user", "profiles", "get-profiles")
+            .body("replace", { userIds: targets.map(t => t.userId), fields: ["names.username", "names.displayName", "isVerified", "isDeleted"] })
             .middlewares(captureHeaders(onHeaders))
             .middlewares(validate(ProfilesSchema))
             .request()
@@ -131,8 +131,8 @@ const byNameRoute: RobloxBatchRoute<ByNameTarget, RobloxUserByName | null> = {
     group:  t => String(t.excludeBannedUsers),
     async send(http, targets, onHeaders) {
         const res = await http()
-            .path("v1", "usernames", "users")
-            .body("overwrite", { usernames: targets.map(t => t.username), excludeBannedUsers: targets[0].excludeBannedUsers })
+            .path("append", "v1", "usernames", "users")
+            .body("replace", { usernames: targets.map(t => t.username), excludeBannedUsers: targets[0].excludeBannedUsers })
             .middlewares(captureHeaders(onHeaders))
             .middlewares(validate(RobloxUsersByNameResponseSchema))
             .request()
@@ -232,8 +232,8 @@ export class RobloxUsersApi {
     /** GET /v1/users/search */
     searchUsers(query: RobloxUserSearchQuery) {
         return cached(this.config, { service: "users", method: "searchUsers", query }, this.ttl("searchUsers"), () => this.http()
-            .path("v1", "users", "search")
-            .query(query)
+            .path("append", "v1", "users", "search")
+            .query("append", query)
             .middlewares(validate(RobloxUserSearchResponseSchema))
             .request())
     }
@@ -242,8 +242,8 @@ export class RobloxUsersApi {
     getUsernameHistory(userId: RobloxUserId, query: RobloxUsernameHistoryQuery = {}) {
         return cached(this.config, { service: "users", method: "getUsernameHistory", userId, query }, this.ttl("getUsernameHistory"), () =>
             this.http()
-                .path("v1", "users", userId, "username-history")
-                .query(query)
+                .path("append", "v1", "users", userId, "username-history")
+                .query("append", query)
                 .middlewares(validate(RobloxUsernameHistoryResponseSchema))
                 .request()
         )
@@ -252,8 +252,8 @@ export class RobloxUsersApi {
     /** GET /v1/display-names/validate — 신규 유저용. 사용할 수 없으면 FETCH_FAILED(400/429)로 실패한다. */
     async validateDisplayName(query: RobloxValidateDisplayNameQuery): Promise<void> {
         await this.http()
-            .path("v1", "display-names", "validate")
-            .query(query)
+            .path("append", "v1", "display-names", "validate")
+            .query("append", query)
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -267,8 +267,8 @@ export class RobloxUsersApi {
      */
     getProfileActions(userId: RobloxUserId) {
         return cachedByViewer(this.config, viewer => ({ service: "users", method: "getProfileActions", viewer, userId }), this.ttl("getProfileActions"), () => this.apisHttp()
-            .path("profile-platform-api", "v1", "profiles", "get")
-            .body("overwrite", { profileType: "User", profileId: String(userId), components: [{ component: "Actions" }] })
+            .path("append", "profile-platform-api", "v1", "profiles", "get")
+            .body("replace", { profileType: "User", profileId: String(userId), components: [{ component: "Actions" }] })
             .middlewares(validate(RobloxProfileActionsSchema))
             .request())
     }
@@ -276,7 +276,7 @@ export class RobloxUsersApi {
     /** GET /v1/users/authenticated */
     getAuthenticated() {
         return cachedByViewer(this.config, viewer => ({ service: "users", method: "getAuthenticated", viewer }), this.ttl("getAuthenticated"), () => this.http()
-            .path("v1", "users", "authenticated")
+            .path("append", "v1", "users", "authenticated")
             .middlewares(validate(RobloxAuthenticatedUserSchema))
             .request())
     }
@@ -284,7 +284,7 @@ export class RobloxUsersApi {
     /** GET /v1/users/authenticated/age-bracket */
     getAgeBracket() {
         return cachedByViewer(this.config, viewer => ({ service: "users", method: "getAgeBracket", viewer }), this.ttl("getAgeBracket"), async () => (await this.http()
-            .path("v1", "users", "authenticated", "age-bracket")
+            .path("append", "v1", "users", "authenticated", "age-bracket")
             .middlewares(validate(RobloxUserAgeBracketSchema))
             .request()).ageBracket)
     }
@@ -292,7 +292,7 @@ export class RobloxUsersApi {
     /** GET /v1/users/authenticated/country-code */
     getCountryCode() {
         return cachedByViewer(this.config, viewer => ({ service: "users", method: "getCountryCode", viewer }), this.ttl("getCountryCode"), async () => (await this.http()
-            .path("v1", "users", "authenticated", "country-code")
+            .path("append", "v1", "users", "authenticated", "country-code")
             .middlewares(validate(RobloxUserCountryCodeSchema))
             .request()).countryCode)
     }
@@ -300,7 +300,7 @@ export class RobloxUsersApi {
     /** GET /v1/users/authenticated/roles */
     getRoles() {
         return cachedByViewer(this.config, viewer => ({ service: "users", method: "getRoles", viewer }), this.ttl("getRoles"), async () => (await this.http()
-            .path("v1", "users", "authenticated", "roles")
+            .path("append", "v1", "users", "authenticated", "roles")
             .middlewares(validate(RobloxUserRolesSchema))
             .request()).roles)
     }
@@ -308,7 +308,7 @@ export class RobloxUsersApi {
     /** GET /v1/birthdate */
     getBirthdate() {
         return cachedByViewer(this.config, viewer => ({ service: "users", method: "getBirthdate", viewer }), this.ttl("getBirthdate"), () => this.http()
-            .path("v1", "birthdate")
+            .path("append", "v1", "birthdate")
             .middlewares(validate(RobloxBirthdateSchema))
             .request())
     }
@@ -316,8 +316,8 @@ export class RobloxUsersApi {
     /** POST /v1/birthdate — 비밀번호가 필요하다. */
     async setBirthdate(request: RobloxSetBirthdateRequest): Promise<void> {
         await this.http()
-            .path("v1", "birthdate")
-            .body("overwrite", request)
+            .path("append", "v1", "birthdate")
+            .body("replace", request)
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -325,7 +325,7 @@ export class RobloxUsersApi {
     /** GET /v1/description */
     getDescription() {
         return cachedByViewer(this.config, viewer => ({ service: "users", method: "getDescription", viewer }), this.ttl("getDescription"), async () => (await this.http()
-            .path("v1", "description")
+            .path("append", "v1", "description")
             .middlewares(validate(RobloxUserDescriptionSchema))
             .request()).description)
     }
@@ -333,8 +333,8 @@ export class RobloxUsersApi {
     /** POST /v1/description — 필터링된 뒤의 설명을 돌려준다. */
     async setDescription(description: string) {
         const res = await this.http()
-            .path("v1", "description")
-            .body("overwrite", { description })
+            .path("append", "v1", "description")
+            .body("replace", { description })
             .middlewares(validate(RobloxUserDescriptionSchema))
             .request()
         return res.description
@@ -343,7 +343,7 @@ export class RobloxUsersApi {
     /** GET /v1/gender */
     getGender() {
         return cachedByViewer(this.config, viewer => ({ service: "users", method: "getGender", viewer }), this.ttl("getGender"), async () => (await this.http()
-            .path("v1", "gender")
+            .path("append", "v1", "gender")
             .middlewares(validate(RobloxUserGenderSchema))
             .request()).gender)
     }
@@ -351,8 +351,8 @@ export class RobloxUsersApi {
     /** POST /v1/gender */
     async setGender(gender: RobloxGender): Promise<void> {
         await this.http()
-            .path("v1", "gender")
-            .body("overwrite", { gender })
+            .path("append", "v1", "gender")
+            .body("replace", { gender })
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -360,8 +360,8 @@ export class RobloxUsersApi {
     /** GET /v1/users/{userId}/display-names/validate — 기존 유저용 */
     async validateUserDisplayName(userId: RobloxUserId, displayName: string): Promise<void> {
         await this.http()
-            .path("v1", "users", userId, "display-names", "validate")
-            .query({ displayName })
+            .path("append", "v1", "users", userId, "display-names", "validate")
+            .query("append", { displayName })
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -370,8 +370,8 @@ export class RobloxUsersApi {
     async setDisplayName(userId: RobloxUserId, newDisplayName: string): Promise<void> {
         await this.http()
             .method("PATCH")
-            .path("v1", "users", userId, "display-names")
-            .body("overwrite", { newDisplayName })
+            .path("append", "v1", "users", userId, "display-names")
+            .body("replace", { newDisplayName })
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }

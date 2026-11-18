@@ -33,8 +33,8 @@ export class RobloxAuthApi {
         }
         let ticket: string | null = null
         await this.http()
-            .path("v1", "authentication-ticket")
-            .body("overwrite", {})
+            .path("append", "v1", "authentication-ticket")
+            .body("replace", {})
             .middlewares(vigor.builders.fetch.middlewares().after("fluent", ctx => {
                 ticket = ctx.response.headers.get("rbx-authentication-ticket")
             }))

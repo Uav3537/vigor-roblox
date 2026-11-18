@@ -60,7 +60,7 @@ function countRoute(bucket: string, last: string[]): RobloxBatchRoute<RobloxUser
         bucket, limit: 1, group: () => "",
         async send(http, [userId], onHeaders) {
             const res = await nullOn([400, 404], onHeaders, () => http()
-                .path("v1", "users", userId, ...last)
+                .path("append", "v1", "users", userId, ...last)
                 .middlewares(captureHeaders(onHeaders))
                 .middlewares(validate(RobloxCountResponseSchema))
                 .request())
@@ -75,7 +75,7 @@ const friendIdRoutes: RobloxBatchRoute<RobloxUserId, RobloxUserId[] | null>[] = 
         bucket: "friends GET /v1/users/{id}/friends", limit: 1, group: () => "",
         async send(http, [userId], onHeaders) {
             const res = await nullOn([400], onHeaders, () => http()
-                .path("v1", "users", userId, "friends")
+                .path("append", "v1", "users", userId, "friends")
                 .middlewares(captureHeaders(onHeaders))
                 .middlewares(validate(RobloxFriendListResponseSchema))
                 .request())
@@ -89,8 +89,8 @@ const friendIdRoutes: RobloxBatchRoute<RobloxUserId, RobloxUserId[] | null>[] = 
             let cursor: RobloxCursor | null = null
             do {
                 const res = await nullOn([400], onHeaders, () => http()
-                    .path("v1", "users", userId, "friends", "find")
-                    .query(cursor ? { limit: FIND_PAGE_LIMIT, cursor } : { limit: FIND_PAGE_LIMIT })
+                    .path("append", "v1", "users", userId, "friends", "find")
+                    .query("append", cursor ? { limit: FIND_PAGE_LIMIT, cursor } : { limit: FIND_PAGE_LIMIT })
                     .middlewares(captureHeaders(onHeaders))
                     .middlewares(validate(RobloxFriendPageRawSchema))
                     .request())
@@ -134,8 +134,8 @@ export class RobloxFriendsApi {
             bucket: "friends GET /v1/users/{me}/friends/statuses", limit: MULTI_LIMIT, group: t => String(t.me),
             async send(http, targets, onHeaders) {
                 const res = await http()
-                    .path("v1", "users", targets[0].me, "friends", "statuses")
-                    .query({ userIds: targets.map(t => t.userId) })
+                    .path("append", "v1", "users", targets[0].me, "friends", "statuses")
+                    .query("append", { userIds: targets.map(t => t.userId) })
                     .middlewares(captureHeaders(onHeaders))
                     .middlewares(validate(RobloxFriendStatusesResponseSchema))
                     .request()
@@ -150,8 +150,8 @@ export class RobloxFriendsApi {
                 bucket: "friends POST /v1/user/{me}/multiget-are-friends", limit: MULTI_LIMIT, group: t => String(t.me),
                 async send(http, targets, onHeaders) {
                     const res = await http()
-                        .path("v1", "user", targets[0].me, "multiget-are-friends")
-                        .body("overwrite", { targetUserIds: targets.map(t => t.userId) })
+                        .path("append", "v1", "user", targets[0].me, "multiget-are-friends")
+                        .body("replace", { targetUserIds: targets.map(t => t.userId) })
                         .middlewares(captureHeaders(onHeaders))
                         .middlewares(validate(z.object({ friendsId: z.array(z.number()) })))
                         .request()
@@ -165,8 +165,8 @@ export class RobloxFriendsApi {
             bucket: "friends POST /v1/user/following-exists", limit: MULTI_LIMIT, group: t => String(t.me),
             async send(http, targets, onHeaders) {
                 const res = await http()
-                    .path("v1", "user", "following-exists")
-                    .body("overwrite", { targetUserIds: targets.map(t => t.userId) })
+                    .path("append", "v1", "user", "following-exists")
+                    .body("replace", { targetUserIds: targets.map(t => t.userId) })
                     .middlewares(captureHeaders(onHeaders))
                     .middlewares(validate(RobloxFollowingExistsResponseSchema))
                     .request()
@@ -179,8 +179,8 @@ export class RobloxFriendsApi {
             bucket: "apis POST /user-blocking-api/v1/users/batch-check-reciprocal-block", limit: BLOCK_CHECK_LIMIT, group: t => String(t.me),
             async send(http, targets, onHeaders) {
                 const res = await http()
-                    .path("user-blocking-api", "v1", "users", "batch-check-reciprocal-block")
-                    .body("overwrite", { userIds: targets.map(t => t.userId), requesterId: targets[0].me })
+                    .path("append", "user-blocking-api", "v1", "users", "batch-check-reciprocal-block")
+                    .body("replace", { userIds: targets.map(t => t.userId), requesterId: targets[0].me })
                     .middlewares(captureHeaders(onHeaders))
                     .middlewares(validate(RobloxBlockStatusesResponseSchema))
                     .request()
@@ -243,8 +243,8 @@ export class RobloxFriendsApi {
     /** GET /v1/users/{userId}/followers — 인증 필요. 항목은 id뿐이다 */
     getFollowers(userId: RobloxUserId, query: RobloxFollowPageQuery = {}) {
         return cached(this.config, { service: "friends", method: "getFollowers", userId, query }, this.ttl("getFollowers"), () => this.http()
-            .path("v1", "users", userId, "followers")
-            .query(query)
+            .path("append", "v1", "users", userId, "followers")
+            .query("append", query)
             .middlewares(validate(RobloxFollowPageSchema))
             .request())
     }
@@ -252,8 +252,8 @@ export class RobloxFriendsApi {
     /** GET /v1/users/{userId}/followings — 인증 필요. 항목은 id뿐이다 */
     getFollowings(userId: RobloxUserId, query: RobloxFollowPageQuery = {}) {
         return cached(this.config, { service: "friends", method: "getFollowings", userId, query }, this.ttl("getFollowings"), () => this.http()
-            .path("v1", "users", userId, "followings")
-            .query(query)
+            .path("append", "v1", "users", userId, "followings")
+            .query("append", query)
             .middlewares(validate(RobloxFollowPageSchema))
             .request())
     }
@@ -262,8 +262,8 @@ export class RobloxFriendsApi {
     searchFriends(userId: RobloxUserId, query: RobloxFriendSearchQuery) {
         return cachedByViewer(this.config, viewer => ({ service: "friends", method: "searchFriends", viewer, userId, query }), this.ttl("searchFriends"), async (): Promise<RobloxFriendPage> => {
             const res = await this.http()
-                .path("v1", "users", userId, "friends", "search")
-                .query(query)
+                .path("append", "v1", "users", userId, "friends", "search")
+                .query("append", query)
                 .middlewares(validate(RobloxFriendPageRawSchema))
                 .request()
             return {
@@ -277,8 +277,8 @@ export class RobloxFriendsApi {
     /** GET /v1/metadata — 친구 페이지 설정과 대상의 이름 */
     getMetadata(targetUserId: RobloxUserId) {
         return cached(this.config, { service: "friends", method: "getMetadata", targetUserId }, this.ttl("getMetadata"), () => this.http()
-            .path("v1", "metadata")
-            .query({ targetUserId })
+            .path("append", "v1", "metadata")
+            .query("append", { targetUserId })
             .middlewares(validate(RobloxFriendsMetadataSchema))
             .request())
     }
@@ -328,7 +328,7 @@ export class RobloxFriendsApi {
         return cachedByViewer(this.config, viewer => ({ service: "friends", method: "getOnlineFriends", viewer }), this.ttl("getOnlineFriends"), async (): Promise<RobloxOnlineFriend[]> => {
             const me = await this.myId()
             const res = await this.http()
-                .path("v1", "users", me, "friends", "online")
+                .path("append", "v1", "users", me, "friends", "online")
                 .middlewares(validate(RobloxOnlineFriendsResponseSchema))
                 .request()
             return res.data
@@ -340,7 +340,7 @@ export class RobloxFriendsApi {
         return cachedByViewer(this.config, viewer => ({ service: "friends", method: "getInactiveFriends", viewer }), this.ttl("getInactiveFriends"), async (): Promise<RobloxUserId[]> => {
             const me = await this.myId()
             const res = await this.http()
-                .path("v1", "users", me, "friends", "inactive")
+                .path("append", "v1", "users", me, "friends", "inactive")
                 .middlewares(validate(RobloxFriendListResponseSchema))
                 .request()
             return res.data.map(f => f.id)
@@ -350,8 +350,8 @@ export class RobloxFriendsApi {
     /** GET /v1/my/friends/requests — 받은 친구 요청 */
     getFriendRequests(query: RobloxFriendRequestsQuery = {}) {
         return cachedByViewer(this.config, viewer => ({ service: "friends", method: "getFriendRequests", viewer, query }), this.ttl("getFriendRequests"), () => this.http()
-            .path("v1", "my", "friends", "requests")
-            .query(query)
+            .path("append", "v1", "my", "friends", "requests")
+            .query("append", query)
             .middlewares(validate(RobloxFriendRequestPageSchema))
             .request())
     }
@@ -359,8 +359,8 @@ export class RobloxFriendsApi {
     /** GET /v1/my/trusted-friends/requests — 받은 신뢰하는 친구 요청 */
     getTrustedFriendRequests(query: RobloxTrustedFriendRequestsQuery = {}) {
         return cachedByViewer(this.config, viewer => ({ service: "friends", method: "getTrustedFriendRequests", viewer, query }), this.ttl("getTrustedFriendRequests"), () => this.http()
-            .path("v1", "my", "trusted-friends", "requests")
-            .query(query)
+            .path("append", "v1", "my", "trusted-friends", "requests")
+            .query("append", query)
             .middlewares(validate(RobloxTrustedFriendRequestPageSchema))
             .request())
     }
@@ -374,7 +374,7 @@ export class RobloxFriendsApi {
                 ? ["v1", "my", "new-friend-requests", "count"]
                 : ["v1", "user", trusted ? "trusted-friend-requests" : "friend-requests", "count"]
             const res = await this.http()
-                .path(...path)
+                .path("append", ...path)
                 .middlewares(validate(RobloxCountResponseSchema))
                 .request()
             return res.count
@@ -387,8 +387,8 @@ export class RobloxFriendsApi {
     /** POST /v1/users/{userId}/request-friendship — 계정에 따라 챌린지(캡차)를 요구하며 403이 난다 */
     async sendFriendRequest(userId: RobloxUserId): Promise<void> {
         await this.http()
-            .path("v1", "users", userId, "request-friendship")
-            .body("overwrite", {})
+            .path("append", "v1", "users", userId, "request-friendship")
+            .body("replace", {})
             .middlewares(validate(z.unknown()))
             .request()
     }
@@ -396,8 +396,8 @@ export class RobloxFriendsApi {
     /** POST /v1/users/{userId}/accept-friend-request */
     async acceptFriendRequest(userId: RobloxUserId): Promise<void> {
         await this.http()
-            .path("v1", "users", userId, "accept-friend-request")
-            .body("overwrite", {})
+            .path("append", "v1", "users", userId, "accept-friend-request")
+            .body("replace", {})
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -405,8 +405,8 @@ export class RobloxFriendsApi {
     /** POST /v1/users/{userId}/decline-friend-request */
     async declineFriendRequest(userId: RobloxUserId): Promise<void> {
         await this.http()
-            .path("v1", "users", userId, "decline-friend-request")
-            .body("overwrite", {})
+            .path("append", "v1", "users", userId, "decline-friend-request")
+            .body("replace", {})
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -414,8 +414,8 @@ export class RobloxFriendsApi {
     /** POST /v1/user/friend-requests/decline-all */
     async declineAllFriendRequests(): Promise<void> {
         await this.http()
-            .path("v1", "user", "friend-requests", "decline-all")
-            .body("overwrite", {})
+            .path("append", "v1", "user", "friend-requests", "decline-all")
+            .body("replace", {})
             .middlewares(validate(z.unknown()))
             .request()
     }
@@ -423,8 +423,8 @@ export class RobloxFriendsApi {
     /** POST /v1/users/{userId}/unfriend */
     async unfriend(userId: RobloxUserId): Promise<void> {
         await this.http()
-            .path("v1", "users", userId, "unfriend")
-            .body("overwrite", {})
+            .path("append", "v1", "users", userId, "unfriend")
+            .body("replace", {})
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -432,8 +432,8 @@ export class RobloxFriendsApi {
     /** POST /v1/users/{userId}/follow — 캡차가 필요하면 `isCaptchaRequired`가 true로 온다 */
     follow(userId: RobloxUserId, captcha: RobloxCaptchaTokenRequest = {}) {
         return this.http()
-            .path("v1", "users", userId, "follow")
-            .body("overwrite", captcha)
+            .path("append", "v1", "users", userId, "follow")
+            .body("replace", captcha)
             .middlewares(validate(RobloxCaptchaStatusSchema))
             .request()
     }
@@ -441,8 +441,8 @@ export class RobloxFriendsApi {
     /** POST /v1/users/{userId}/unfollow */
     async unfollow(userId: RobloxUserId): Promise<void> {
         await this.http()
-            .path("v1", "users", userId, "unfollow")
-            .body("overwrite", {})
+            .path("append", "v1", "users", userId, "unfollow")
+            .body("replace", {})
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -450,8 +450,8 @@ export class RobloxFriendsApi {
     /** POST friends /v1/users/{userId}/create-trusted-friend-link — 신뢰하는 친구 초대 링크를 만든다 */
     async createTrustedFriendLink(userId: RobloxUserId): Promise<string> {
         const res = await this.http()
-            .path("v1", "users", userId, "create-trusted-friend-link")
-            .body("overwrite", {})
+            .path("append", "v1", "users", userId, "create-trusted-friend-link")
+            .body("replace", {})
             .middlewares(validate(z.object({ link: z.string() })))
             .request()
         return res.link
@@ -460,8 +460,8 @@ export class RobloxFriendsApi {
     /** POST contacts /v1/user/tag — 친구 목록에서 그 유저 옆에 보이는 나만의 별명 */
     async setUserTag(userId: RobloxUserId, tag: string): Promise<void> {
         await this.contactsHttp()
-            .path("v1", "user", "tag")
-            .body("overwrite", { targetUserId: userId, userTag: tag })
+            .path("append", "v1", "user", "tag")
+            .body("replace", { targetUserId: userId, userTag: tag })
             .middlewares(validate(z.object({ status: z.string() })))
             .request()
     }
@@ -469,8 +469,8 @@ export class RobloxFriendsApi {
     /** POST apis /user-blocking-api/v1/users/{userId}/block-user — 응답은 안내 문자열이다 */
     async block(userId: RobloxUserId): Promise<void> {
         await this.apisHttp()
-            .path("user-blocking-api", "v1", "users", userId, "block-user")
-            .body("overwrite", {})
+            .path("append", "user-blocking-api", "v1", "users", userId, "block-user")
+            .body("replace", {})
             .middlewares(validate(z.unknown()))
             .request()
     }
@@ -478,8 +478,8 @@ export class RobloxFriendsApi {
     /** POST apis /user-blocking-api/v1/users/{userId}/unblock-user */
     async unblock(userId: RobloxUserId): Promise<void> {
         await this.apisHttp()
-            .path("user-blocking-api", "v1", "users", userId, "unblock-user")
-            .body("overwrite", {})
+            .path("append", "user-blocking-api", "v1", "users", userId, "unblock-user")
+            .body("replace", {})
             .middlewares(validate(z.unknown()))
             .request()
     }
@@ -487,8 +487,8 @@ export class RobloxFriendsApi {
     /** POST /v1/my/friends/refresh-qr-session — QR 친구 추가 세션 갱신 */
     async refreshQrSession(): Promise<boolean> {
         const res = await this.http()
-            .path("v1", "my", "friends", "refresh-qr-session")
-            .body("overwrite", {})
+            .path("append", "v1", "my", "friends", "refresh-qr-session")
+            .body("replace", {})
             .middlewares(validate(z.object({ Success: z.boolean() })))
             .request()
         return res.Success
@@ -497,7 +497,7 @@ export class RobloxFriendsApi {
     /** GET /v1/my/friends/{userId}/check-qr-session — QR로 친구가 됐는지 */
     checkQrSession(userId: RobloxUserId) {
         return this.http()
-            .path("v1", "my", "friends", userId, "check-qr-session")
+            .path("append", "v1", "my", "friends", userId, "check-qr-session")
             .middlewares(validate(z.boolean()))
             .request()
     }

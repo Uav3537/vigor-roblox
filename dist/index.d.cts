@@ -5282,7 +5282,7 @@ declare class RobloxFriendsApi {
     /** GET /v1/my/friends/{userId}/check-qr-session — QR로 친구가 됐는지 */
     checkQrSession(userId: RobloxUserId): Promise<vigor_fetch.VigorFetchResult<{
         policy: {
-            path: ["v1", "my", "friends", `${number & z.core.$brand<"RobloxUserId">}`, "check-qr-session"];
+            path: ["v1", "my", "friends", number & z.core.$brand<"RobloxUserId">, "check-qr-session"];
             origin: string;
             body: symbol & {
                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
@@ -5312,6 +5312,7 @@ declare class RobloxFriendsApi {
                                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                             };
                             readonly extra: {};
+                            readonly serializers: vigor_fetch.VigorFetchSerializersSchema;
                             readonly settings: {
                                 readonly __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Settings<Schema">;
                                 readonly debug: false;
@@ -5319,8 +5320,10 @@ declare class RobloxFriendsApi {
                                 readonly unretryStatus: [400, 401, 402, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 416, 417, 422, 424, 426, 428, 431, 451, 501, 505, 506, 508, 510, 511];
                                 readonly maxRetryAfter: number;
                                 readonly redirect: false;
-                                readonly confinePath: true;
                                 readonly maxRestarts: 3;
+                                readonly fetcher: symbol & {
+                                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                                };
                                 readonly default: symbol & {
                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                 };
@@ -5434,6 +5437,7 @@ declare class RobloxFriendsApi {
                                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                             };
                             readonly extra: {};
+                            readonly serializers: vigor_fetch.VigorFetchSerializersSchema;
                             readonly settings: {
                                 readonly __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Settings<Schema">;
                                 readonly debug: false;
@@ -5441,8 +5445,10 @@ declare class RobloxFriendsApi {
                                 readonly unretryStatus: [400, 401, 402, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 416, 417, 422, 424, 426, 428, 431, 451, 501, 505, 506, 508, 510, 511];
                                 readonly maxRetryAfter: number;
                                 readonly redirect: false;
-                                readonly confinePath: true;
                                 readonly maxRestarts: 3;
+                                readonly fetcher: symbol & {
+                                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                                };
                                 readonly default: symbol & {
                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                 };
@@ -5555,6 +5561,7 @@ declare class RobloxFriendsApi {
                                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                             };
                             readonly extra: {};
+                            readonly serializers: vigor_fetch.VigorFetchSerializersSchema;
                             readonly settings: {
                                 readonly __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Settings<Schema">;
                                 readonly debug: false;
@@ -5562,8 +5569,10 @@ declare class RobloxFriendsApi {
                                 readonly unretryStatus: [400, 401, 402, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 416, 417, 422, 424, 426, 428, 431, 451, 501, 505, 506, 508, 510, 511];
                                 readonly maxRetryAfter: number;
                                 readonly redirect: false;
-                                readonly confinePath: true;
                                 readonly maxRestarts: 3;
+                                readonly fetcher: symbol & {
+                                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                                };
                                 readonly default: symbol & {
                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                 };
@@ -5676,6 +5685,7 @@ declare class RobloxFriendsApi {
                                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                             };
                             readonly extra: {};
+                            readonly serializers: vigor_fetch.VigorFetchSerializersSchema;
                             readonly settings: {
                                 readonly __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Settings<Schema">;
                                 readonly debug: false;
@@ -5683,8 +5693,10 @@ declare class RobloxFriendsApi {
                                 readonly unretryStatus: [400, 401, 402, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 416, 417, 422, 424, 426, 428, 431, 451, 501, 505, 506, 508, 510, 511];
                                 readonly maxRetryAfter: number;
                                 readonly redirect: false;
-                                readonly confinePath: true;
                                 readonly maxRestarts: 3;
+                                readonly fetcher: symbol & {
+                                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                                };
                                 readonly default: symbol & {
                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                 };
@@ -5816,6 +5828,7 @@ declare class RobloxFriendsApi {
                                                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                             };
                                             readonly extra: {};
+                                            readonly serializers: vigor_fetch.VigorFetchSerializersSchema;
                                             readonly settings: {
                                                 readonly __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Settings<Schema">;
                                                 readonly debug: false;
@@ -5823,8 +5836,10 @@ declare class RobloxFriendsApi {
                                                 readonly unretryStatus: [400, 401, 402, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 416, 417, 422, 424, 426, 428, 431, 451, 501, 505, 506, 508, 510, 511];
                                                 readonly maxRetryAfter: number;
                                                 readonly redirect: false;
-                                                readonly confinePath: true;
                                                 readonly maxRestarts: 3;
+                                                readonly fetcher: symbol & {
+                                                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                                                };
                                                 readonly default: symbol & {
                                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                                 };
@@ -5962,8 +5977,10 @@ declare class RobloxFriendsApi {
                                 readonly unretryStatus: [400, 401, 402, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 416, 417, 422, 424, 426, 428, 431, 451, 501, 505, 506, 508, 510, 511];
                                 readonly maxRetryAfter: number;
                                 readonly redirect: false;
-                                readonly confinePath: true;
                                 readonly maxRestarts: 3;
+                                readonly fetcher: symbol & {
+                                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                                };
                                 readonly default: symbol & {
                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                 };
@@ -6011,6 +6028,7 @@ declare class RobloxFriendsApi {
                             hash: "";
                             headers: {};
                             extra: {};
+                            serializers: vigor_fetch.VigorFetchSerializersSchema;
                         };
                         apiMap: symbol & {
                             __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
@@ -6053,6 +6071,7 @@ declare class RobloxFriendsApi {
                                                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                             };
                                             readonly extra: {};
+                                            readonly serializers: vigor_fetch.VigorFetchSerializersSchema;
                                             readonly settings: {
                                                 readonly __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Settings<Schema">;
                                                 readonly debug: false;
@@ -6060,8 +6079,10 @@ declare class RobloxFriendsApi {
                                                 readonly unretryStatus: [400, 401, 402, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 416, 417, 422, 424, 426, 428, 431, 451, 501, 505, 506, 508, 510, 511];
                                                 readonly maxRetryAfter: number;
                                                 readonly redirect: false;
-                                                readonly confinePath: true;
                                                 readonly maxRestarts: 3;
+                                                readonly fetcher: symbol & {
+                                                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                                                };
                                                 readonly default: symbol & {
                                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                                 };
@@ -6199,8 +6220,10 @@ declare class RobloxFriendsApi {
                                 readonly unretryStatus: [400, 401, 402, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 416, 417, 422, 424, 426, 428, 431, 451, 501, 505, 506, 508, 510, 511];
                                 readonly maxRetryAfter: number;
                                 readonly redirect: false;
-                                readonly confinePath: true;
                                 readonly maxRestarts: 3;
+                                readonly fetcher: symbol & {
+                                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                                };
                                 readonly default: symbol & {
                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                 };
@@ -6248,6 +6271,7 @@ declare class RobloxFriendsApi {
                             hash: "";
                             headers: {};
                             extra: {};
+                            serializers: vigor_fetch.VigorFetchSerializersSchema;
                         };
                         apiMap: symbol & {
                             __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
@@ -6290,6 +6314,7 @@ declare class RobloxFriendsApi {
                                                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                             };
                                             readonly extra: {};
+                                            readonly serializers: vigor_fetch.VigorFetchSerializersSchema;
                                             readonly settings: {
                                                 readonly __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Settings<Schema">;
                                                 readonly debug: false;
@@ -6297,8 +6322,10 @@ declare class RobloxFriendsApi {
                                                 readonly unretryStatus: [400, 401, 402, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 416, 417, 422, 424, 426, 428, 431, 451, 501, 505, 506, 508, 510, 511];
                                                 readonly maxRetryAfter: number;
                                                 readonly redirect: false;
-                                                readonly confinePath: true;
                                                 readonly maxRestarts: 3;
+                                                readonly fetcher: symbol & {
+                                                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                                                };
                                                 readonly default: symbol & {
                                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                                 };
@@ -6436,8 +6463,10 @@ declare class RobloxFriendsApi {
                                 readonly unretryStatus: [400, 401, 402, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 416, 417, 422, 424, 426, 428, 431, 451, 501, 505, 506, 508, 510, 511];
                                 readonly maxRetryAfter: number;
                                 readonly redirect: false;
-                                readonly confinePath: true;
                                 readonly maxRestarts: 3;
+                                readonly fetcher: symbol & {
+                                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                                };
                                 readonly default: symbol & {
                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                 };
@@ -6485,6 +6514,7 @@ declare class RobloxFriendsApi {
                             hash: "";
                             headers: {};
                             extra: {};
+                            serializers: vigor_fetch.VigorFetchSerializersSchema;
                         };
                         apiMap: symbol & {
                             __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
@@ -6538,8 +6568,10 @@ declare class RobloxFriendsApi {
                 retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after"];
                 unretryStatus: number[];
                 maxRetryAfter: number;
-                confinePath: true;
                 maxRestarts: 3;
+                fetcher: symbol & {
+                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                };
             };
             retry: {
                 policy: {
@@ -6588,6 +6620,7 @@ declare class RobloxFriendsApi {
             } | {
                 readonly credentials?: undefined;
             };
+            serializers: vigor_fetch.VigorFetchSerializersSchema;
         };
         apiMap: symbol & {
             __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
@@ -7192,7 +7225,7 @@ declare class RobloxGroupsApi {
     /** PATCH /v1/groups/{groupId}/status — 샤우트. 빈 문자열이면 지운다 */
     setShout(groupId: RobloxGroupId, message: string): Promise<vigor_fetch.VigorFetchResult<{
         policy: {
-            path: ["v1", "groups", `${number & z.core.$brand<"RobloxGroupId">}`, "status"];
+            path: ["v1", "groups", number & z.core.$brand<"RobloxGroupId">, "status"];
             origin: string;
             body: {
                 readonly message: string;
@@ -7220,6 +7253,7 @@ declare class RobloxGroupsApi {
                                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                             };
                             readonly extra: {};
+                            readonly serializers: vigor_fetch.VigorFetchSerializersSchema;
                             readonly settings: {
                                 readonly __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Settings<Schema">;
                                 readonly debug: false;
@@ -7227,8 +7261,10 @@ declare class RobloxGroupsApi {
                                 readonly unretryStatus: [400, 401, 402, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 416, 417, 422, 424, 426, 428, 431, 451, 501, 505, 506, 508, 510, 511];
                                 readonly maxRetryAfter: number;
                                 readonly redirect: false;
-                                readonly confinePath: true;
                                 readonly maxRestarts: 3;
+                                readonly fetcher: symbol & {
+                                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                                };
                                 readonly default: symbol & {
                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                 };
@@ -7342,6 +7378,7 @@ declare class RobloxGroupsApi {
                                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                             };
                             readonly extra: {};
+                            readonly serializers: vigor_fetch.VigorFetchSerializersSchema;
                             readonly settings: {
                                 readonly __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Settings<Schema">;
                                 readonly debug: false;
@@ -7349,8 +7386,10 @@ declare class RobloxGroupsApi {
                                 readonly unretryStatus: [400, 401, 402, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 416, 417, 422, 424, 426, 428, 431, 451, 501, 505, 506, 508, 510, 511];
                                 readonly maxRetryAfter: number;
                                 readonly redirect: false;
-                                readonly confinePath: true;
                                 readonly maxRestarts: 3;
+                                readonly fetcher: symbol & {
+                                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                                };
                                 readonly default: symbol & {
                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                 };
@@ -7463,6 +7502,7 @@ declare class RobloxGroupsApi {
                                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                             };
                             readonly extra: {};
+                            readonly serializers: vigor_fetch.VigorFetchSerializersSchema;
                             readonly settings: {
                                 readonly __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Settings<Schema">;
                                 readonly debug: false;
@@ -7470,8 +7510,10 @@ declare class RobloxGroupsApi {
                                 readonly unretryStatus: [400, 401, 402, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 416, 417, 422, 424, 426, 428, 431, 451, 501, 505, 506, 508, 510, 511];
                                 readonly maxRetryAfter: number;
                                 readonly redirect: false;
-                                readonly confinePath: true;
                                 readonly maxRestarts: 3;
+                                readonly fetcher: symbol & {
+                                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                                };
                                 readonly default: symbol & {
                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                 };
@@ -7594,6 +7636,7 @@ declare class RobloxGroupsApi {
                                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                             };
                             readonly extra: {};
+                            readonly serializers: vigor_fetch.VigorFetchSerializersSchema;
                             readonly settings: {
                                 readonly __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Settings<Schema">;
                                 readonly debug: false;
@@ -7601,8 +7644,10 @@ declare class RobloxGroupsApi {
                                 readonly unretryStatus: [400, 401, 402, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 416, 417, 422, 424, 426, 428, 431, 451, 501, 505, 506, 508, 510, 511];
                                 readonly maxRetryAfter: number;
                                 readonly redirect: false;
-                                readonly confinePath: true;
                                 readonly maxRestarts: 3;
+                                readonly fetcher: symbol & {
+                                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                                };
                                 readonly default: symbol & {
                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                 };
@@ -7734,6 +7779,7 @@ declare class RobloxGroupsApi {
                                                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                             };
                                             readonly extra: {};
+                                            readonly serializers: vigor_fetch.VigorFetchSerializersSchema;
                                             readonly settings: {
                                                 readonly __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Settings<Schema">;
                                                 readonly debug: false;
@@ -7741,8 +7787,10 @@ declare class RobloxGroupsApi {
                                                 readonly unretryStatus: [400, 401, 402, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 416, 417, 422, 424, 426, 428, 431, 451, 501, 505, 506, 508, 510, 511];
                                                 readonly maxRetryAfter: number;
                                                 readonly redirect: false;
-                                                readonly confinePath: true;
                                                 readonly maxRestarts: 3;
+                                                readonly fetcher: symbol & {
+                                                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                                                };
                                                 readonly default: symbol & {
                                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                                 };
@@ -7880,8 +7928,10 @@ declare class RobloxGroupsApi {
                                 readonly unretryStatus: [400, 401, 402, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 416, 417, 422, 424, 426, 428, 431, 451, 501, 505, 506, 508, 510, 511];
                                 readonly maxRetryAfter: number;
                                 readonly redirect: false;
-                                readonly confinePath: true;
                                 readonly maxRestarts: 3;
+                                readonly fetcher: symbol & {
+                                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                                };
                                 readonly default: symbol & {
                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                 };
@@ -7929,6 +7979,7 @@ declare class RobloxGroupsApi {
                             hash: "";
                             headers: {};
                             extra: {};
+                            serializers: vigor_fetch.VigorFetchSerializersSchema;
                         };
                         apiMap: symbol & {
                             __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
@@ -7971,6 +8022,7 @@ declare class RobloxGroupsApi {
                                                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                             };
                                             readonly extra: {};
+                                            readonly serializers: vigor_fetch.VigorFetchSerializersSchema;
                                             readonly settings: {
                                                 readonly __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Settings<Schema">;
                                                 readonly debug: false;
@@ -7978,8 +8030,10 @@ declare class RobloxGroupsApi {
                                                 readonly unretryStatus: [400, 401, 402, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 416, 417, 422, 424, 426, 428, 431, 451, 501, 505, 506, 508, 510, 511];
                                                 readonly maxRetryAfter: number;
                                                 readonly redirect: false;
-                                                readonly confinePath: true;
                                                 readonly maxRestarts: 3;
+                                                readonly fetcher: symbol & {
+                                                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                                                };
                                                 readonly default: symbol & {
                                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                                 };
@@ -8117,8 +8171,10 @@ declare class RobloxGroupsApi {
                                 readonly unretryStatus: [400, 401, 402, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 416, 417, 422, 424, 426, 428, 431, 451, 501, 505, 506, 508, 510, 511];
                                 readonly maxRetryAfter: number;
                                 readonly redirect: false;
-                                readonly confinePath: true;
                                 readonly maxRestarts: 3;
+                                readonly fetcher: symbol & {
+                                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                                };
                                 readonly default: symbol & {
                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                 };
@@ -8166,6 +8222,7 @@ declare class RobloxGroupsApi {
                             hash: "";
                             headers: {};
                             extra: {};
+                            serializers: vigor_fetch.VigorFetchSerializersSchema;
                         };
                         apiMap: symbol & {
                             __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
@@ -8208,6 +8265,7 @@ declare class RobloxGroupsApi {
                                                 __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                             };
                                             readonly extra: {};
+                                            readonly serializers: vigor_fetch.VigorFetchSerializersSchema;
                                             readonly settings: {
                                                 readonly __brand: vigor_fetch.VigorBrand<"Fetch", "Policy<Settings<Schema">;
                                                 readonly debug: false;
@@ -8215,8 +8273,10 @@ declare class RobloxGroupsApi {
                                                 readonly unretryStatus: [400, 401, 402, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 416, 417, 422, 424, 426, 428, 431, 451, 501, 505, 506, 508, 510, 511];
                                                 readonly maxRetryAfter: number;
                                                 readonly redirect: false;
-                                                readonly confinePath: true;
                                                 readonly maxRestarts: 3;
+                                                readonly fetcher: symbol & {
+                                                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                                                };
                                                 readonly default: symbol & {
                                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                                 };
@@ -8354,8 +8414,10 @@ declare class RobloxGroupsApi {
                                 readonly unretryStatus: [400, 401, 402, 403, 404, 405, 406, 407, 409, 410, 411, 412, 413, 414, 415, 416, 417, 422, 424, 426, 428, 431, 451, 501, 505, 506, 508, 510, 511];
                                 readonly maxRetryAfter: number;
                                 readonly redirect: false;
-                                readonly confinePath: true;
                                 readonly maxRestarts: 3;
+                                readonly fetcher: symbol & {
+                                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                                };
                                 readonly default: symbol & {
                                     __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
                                 };
@@ -8403,6 +8465,7 @@ declare class RobloxGroupsApi {
                             hash: "";
                             headers: {};
                             extra: {};
+                            serializers: vigor_fetch.VigorFetchSerializersSchema;
                         };
                         apiMap: symbol & {
                             __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
@@ -8456,8 +8519,10 @@ declare class RobloxGroupsApi {
                 retryHeaders: ["retry-after", "ratelimit-reset", "x-ratelimit-reset", "x-retry-after", "x-amz-retry-after"];
                 unretryStatus: number[];
                 maxRetryAfter: number;
-                confinePath: true;
                 maxRestarts: 3;
+                fetcher: symbol & {
+                    __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;
+                };
             };
             retry: {
                 policy: {
@@ -8506,6 +8571,7 @@ declare class RobloxGroupsApi {
             } | {
                 readonly credentials?: undefined;
             };
+            serializers: vigor_fetch.VigorFetchSerializersSchema;
         };
         apiMap: symbol & {
             __brand: vigor_fetch.VigorBrand<"Core", "Symbol_Empty">;

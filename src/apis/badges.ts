@@ -57,7 +57,7 @@ export class RobloxBadgesApi {
             group:  () => "",
             async send(http, [badgeId], onHeaders) {
                 return [await nullOn([404], onHeaders, () => http()
-                    .path("v1", "badges", badgeId)
+                    .path("append", "v1", "badges", badgeId)
                     .middlewares(captureHeaders(onHeaders))
                     .middlewares(validate(RobloxBadgeSchema))
                     .request())]
@@ -72,8 +72,8 @@ export class RobloxBadgesApi {
                 group:  t => String(t.userId),
                 async send(http, targets, onHeaders) {
                     const res = await http()
-                        .path("v1", "users", targets[0].userId, "badges", "awarded-dates")
-                        .query({ badgeIds: targets.map(t => t.badgeId).join(",") })
+                        .path("append", "v1", "users", targets[0].userId, "badges", "awarded-dates")
+                        .query("append", { badgeIds: targets.map(t => t.badgeId).join(",") })
                         .middlewares(captureHeaders(onHeaders))
                         .middlewares(validate(RobloxBadgeAwardsResponseSchema))
                         .request()
@@ -88,7 +88,7 @@ export class RobloxBadgesApi {
                 async send(http, [t], onHeaders) {
                     // 받지 않았으면 204와 빈 body
                     const res = await http()
-                        .path("v1", "users", t.userId, "badges", t.badgeId, "awarded-date")
+                        .path("append", "v1", "users", t.userId, "badges", t.badgeId, "awarded-date")
                         .middlewares(captureHeaders(onHeaders))
                         .middlewares(validate(RobloxBadgeAwardSchema.nullish().catch(null)))
                         .request()
@@ -103,7 +103,7 @@ export class RobloxBadgesApi {
             group:  () => "",
             async send(http, [universeId], onHeaders) {
                 return [await nullOn([404], onHeaders, () => http()
-                    .path("v1", "universes", universeId, "free-badges-quota")
+                    .path("append", "v1", "universes", universeId, "free-badges-quota")
                     .middlewares(captureHeaders(onHeaders))
                     .middlewares(validate(z.number()))
                     .request())]
@@ -140,8 +140,8 @@ export class RobloxBadgesApi {
     /** GET /v1/universes/{universeId}/badges — 게임의 배지 (100회/분). 없는 게임이면 빈 목록이다 */
     getUniverseBadges(universeId: RobloxUniverseId, query: RobloxUniverseBadgesQuery = {}) {
         return cached(this.config, { service: "badges", method: "getUniverseBadges", universeId, query }, this.ttl("getUniverseBadges"), () => this.http()
-            .path("v1", "universes", universeId, "badges")
-            .query(query)
+            .path("append", "v1", "universes", universeId, "badges")
+            .query("append", query)
             .middlewares(validate(RobloxBadgePageSchema))
             .request())
     }
@@ -149,8 +149,8 @@ export class RobloxBadgesApi {
     /** GET /v1/users/{userId}/badges — 유저가 받은 배지 (1000회/분). 인증 필요. 없는 유저면 404 */
     getUserBadges(userId: RobloxUserId, query: RobloxBadgePageQuery = {}) {
         return cachedByViewer(this.config, viewer => ({ service: "badges", method: "getUserBadges", viewer, userId, query }), this.ttl("getUserBadges"), () => this.http()
-            .path("v1", "users", userId, "badges")
-            .query(query)
+            .path("append", "v1", "users", userId, "badges")
+            .query("append", query)
             .middlewares(validate(RobloxUserBadgePageSchema))
             .request())
     }
@@ -181,7 +181,7 @@ export class RobloxBadgesApi {
     /** GET /v1/badges/metadata — 배지 비용과 이름/설명 길이 제한 */
     getMetadata() {
         return cached(this.config, { service: "badges", method: "getMetadata" }, this.ttl("getMetadata"), () => this.http()
-            .path("v1", "badges", "metadata")
+            .path("append", "v1", "badges", "metadata")
             .middlewares(validate(RobloxBadgeMetadataSchema))
             .request())
     }
@@ -201,8 +201,8 @@ export class RobloxBadgesApi {
         if (request.isActive !== undefined) form.append("isActive", String(request.isActive))
         if (request.icon !== undefined) form.append("files", request.icon)
         return this.http()
-            .path("v1", "universes", universeId, "badges")
-            .body("overwrite", form)
+            .path("append", "v1", "universes", universeId, "badges")
+            .body("replace", form)
             .middlewares(validate(RobloxCreatedBadgeSchema))
             .request()
     }
@@ -211,8 +211,8 @@ export class RobloxBadgesApi {
     async updateBadge(badgeId: RobloxBadgeId, request: RobloxUpdateBadgeRequest): Promise<void> {
         await this.http()
             .method("PATCH")
-            .path("v1", "badges", badgeId)
-            .body("overwrite", request)
+            .path("append", "v1", "badges", badgeId)
+            .body("replace", request)
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -222,8 +222,8 @@ export class RobloxBadgesApi {
         const form = new FormData()
         form.append("Files", icon)
         const res = await this.http()
-            .path("v1", "badges", badgeId, "icon")
-            .body("overwrite", form)
+            .path("append", "v1", "badges", badgeId, "icon")
+            .body("replace", form)
             .middlewares(validate(z.object({ targetId: RobloxAssetIdSchema })))
             .request()
         return res.targetId
@@ -233,7 +233,7 @@ export class RobloxBadgesApi {
     async removeBadge(badgeId: RobloxBadgeId): Promise<void> {
         await this.http()
             .method("DELETE")
-            .path("v1", "user", "badges", badgeId)
+            .path("append", "v1", "user", "badges", badgeId)
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }

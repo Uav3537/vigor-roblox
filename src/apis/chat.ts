@@ -46,8 +46,8 @@ const conversationsRoute: RobloxBatchRoute<{ viewer: string, id: RobloxConversat
     group:  t => t.viewer,
     async send(http, targets, onHeaders) {
         const res = await http()
-            .path(...BASE, "get-conversations")
-            .body("overwrite", { ids: targets.map(t => t.id), include_user_data: true })
+            .path("append", ...BASE, "get-conversations")
+            .body("replace", { ids: targets.map(t => t.id), include_user_data: true })
             .middlewares(captureHeaders(onHeaders))
             .middlewares(validate(RobloxChatConversationsResponseSchema))
             .request()
@@ -96,8 +96,8 @@ export class RobloxChatApi {
             const params: Record<string, string | number | boolean> = { page_size: query.pageSize ?? 20, include_user_data: true }
             if (query.cursor) params.cursor = query.cursor
             const res = await this.http()
-                .path(...BASE, "get-user-conversations")
-                .query(params)
+                .path("append", ...BASE, "get-user-conversations")
+                .query("append", params)
                 .middlewares(validate(RobloxChatConversationPageRawSchema))
                 .request()
             return { conversations: res.conversations, nextCursor: res.next_cursor }
@@ -111,8 +111,8 @@ export class RobloxChatApi {
             const body: Record<string, string | number> = { query, page_size: page.pageSize ?? 20 }
             if (page.cursor) body.cursor = page.cursor
             const res = await this.http()
-                .path(...BASE, "search-conversations")
-                .body("overwrite", body)
+                .path("append", ...BASE, "search-conversations")
+                .body("replace", body)
                 .middlewares(validate(RobloxChatConversationPageRawSchema))
                 .request()
             return { conversations: res.conversations, nextCursor: res.next_cursor }
@@ -126,8 +126,8 @@ export class RobloxChatApi {
             const params: Record<string, string | number> = { conversation_id: conversationId, page_size: query.pageSize ?? 30 }
             if (query.cursor) params.cursor = query.cursor
             const res = await this.http()
-                .path(...BASE, "get-conversation-messages")
-                .query(params)
+                .path("append", ...BASE, "get-conversation-messages")
+                .query("append", params)
                 .middlewares(validate(RobloxChatMessagePageRawSchema))
                 .request()
             return { messages: res.messages, nextCursor: res.next_cursor, previousCursor: res.previous_cursor }
@@ -141,8 +141,8 @@ export class RobloxChatApi {
             const body: Record<string, string | number> = { conversation_id: conversationId, query, page_size: page.pageSize ?? 30 }
             if (page.cursor) body.cursor = page.cursor
             const res = await this.http()
-                .path(...BASE, "search-messages")
-                .body("overwrite", body)
+                .path("append", ...BASE, "search-messages")
+                .body("replace", body)
                 .middlewares(validate(RobloxChatMessagePageRawSchema))
                 .request()
             return { messages: res.messages, nextCursor: res.next_cursor, previousCursor: res.previous_cursor }
@@ -153,7 +153,7 @@ export class RobloxChatApi {
     async getUnreadCounts() {
         await this.viewer()
         return cachedByViewer(this.config, viewer => ({ service: "chat", method: "getUnreadCounts", viewer }), this.ttl("getUnreadCounts"), () => this.http()
-            .path(...BASE, "get-conversation-metadata")
+            .path("append", ...BASE, "get-conversation-metadata")
             .middlewares(validate(RobloxChatUnreadCountsSchema))
             .request())
     }
@@ -162,7 +162,7 @@ export class RobloxChatApi {
     async getMetadata() {
         await this.viewer()
         return cachedByViewer(this.config, viewer => ({ service: "chat", method: "getMetadata", viewer }), this.ttl("getMetadata"), () => this.http()
-            .path(...BASE, "metadata")
+            .path("append", ...BASE, "metadata")
             .middlewares(validate(RobloxChatMetadataSchema))
             .request())
     }
@@ -177,8 +177,8 @@ export class RobloxChatApi {
         await this.viewer()
         if (!messages.length) return []
         const res = await this.http()
-            .path(...BASE, "send-messages")
-            .body("overwrite", {
+            .path("append", ...BASE, "send-messages")
+            .body("replace", {
                 conversation_id: conversationId,
                 messages: messages.map(m => typeof m === "string" ? { content: m } : { content: m.content, replies_to: m.repliesTo }),
             })
@@ -192,8 +192,8 @@ export class RobloxChatApi {
         await this.viewer()
         if (!conversationIds.length) return
         await this.http()
-            .path(...BASE, "mark-conversations")
-            .body("overwrite", { conversation_ids: conversationIds })
+            .path("append", ...BASE, "mark-conversations")
+            .body("replace", { conversation_ids: conversationIds })
             .middlewares(validate(z.unknown()))
             .request()
     }
@@ -202,8 +202,8 @@ export class RobloxChatApi {
     async setTyping(conversationId: RobloxConversationId): Promise<void> {
         await this.viewer()
         await this.http()
-            .path(...BASE, "update-typing-status")
-            .body("overwrite", { conversation_id: conversationId })
+            .path("append", ...BASE, "update-typing-status")
+            .body("replace", { conversation_id: conversationId })
             .middlewares(validate(z.unknown()))
             .request()
     }
@@ -213,8 +213,8 @@ export class RobloxChatApi {
         await this.viewer()
         if (!requests.length) return []
         const res = await this.http()
-            .path(...BASE, "create-conversations")
-            .body("overwrite", {
+            .path("append", ...BASE, "create-conversations")
+            .body("replace", {
                 conversations: requests.map(r => r.type === "one_to_one"
                     ? { type: "one_to_one", participant_user_ids: [r.userId] }
                     : { type: "group", participant_user_ids: r.userIds, name: r.name }),
@@ -230,8 +230,8 @@ export class RobloxChatApi {
         await this.viewer()
         if (!requests.length) return []
         const res = await this.http()
-            .path(...BASE, "update-conversations")
-            .body("overwrite", { conversations: requests.map(r => ({ id: r.id, name: r.name })) })
+            .path("append", ...BASE, "update-conversations")
+            .body("replace", { conversations: requests.map(r => ({ id: r.id, name: r.name })) })
             .middlewares(validate(RobloxChatConversationResultsResponseSchema))
             .request()
         return res.conversations
@@ -241,8 +241,8 @@ export class RobloxChatApi {
     async addUsers(conversationId: RobloxConversationId, userIds: readonly RobloxUserId[]): Promise<void> {
         await this.viewer()
         await this.http()
-            .path(...BASE, "add-users")
-            .body("overwrite", { conversation_id: conversationId, user_ids: userIds })
+            .path("append", ...BASE, "add-users")
+            .body("replace", { conversation_id: conversationId, user_ids: userIds })
             .middlewares(validate(z.unknown()))
             .request()
     }
@@ -251,8 +251,8 @@ export class RobloxChatApi {
     async removeUsers(conversationId: RobloxConversationId, userIds: readonly RobloxUserId[]): Promise<void> {
         await this.viewer()
         await this.http()
-            .path(...BASE, "remove-users")
-            .body("overwrite", { conversation_id: conversationId, user_ids: userIds })
+            .path("append", ...BASE, "remove-users")
+            .body("replace", { conversation_id: conversationId, user_ids: userIds })
             .middlewares(validate(z.unknown()))
             .request()
     }

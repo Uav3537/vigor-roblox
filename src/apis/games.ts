@@ -156,8 +156,8 @@ function listRoute<R>(opts: {
         group:  () => opts.auth && !opts.auth() ? null : "",
         async send(http, ids, onHeaders) {
             const res = await http()
-                .path(...opts.path)
-                .query({ [opts.param]: opts.repeat ? ids : csv(ids) })
+                .path("append", ...opts.path)
+                .query("append", { [opts.param]: opts.repeat ? ids : csv(ids) })
                 .middlewares(captureHeaders(onHeaders))
                 .middlewares(validate(opts.schema))
                 .request()
@@ -184,7 +184,7 @@ function singleRoute<R>(opts: {
         group:  () => opts.auth && !opts.auth() ? null : "",
         async send(http, [id], onHeaders) {
             const res = await nullOn(opts.missing ?? [404], onHeaders, () => http()
-                .path(...opts.path(id))
+                .path("append", ...opts.path(id))
                 .middlewares(captureHeaders(onHeaders))
                 .middlewares(validate(opts.schema))
                 .request())
@@ -217,8 +217,8 @@ function serverRoute(bucket: string, path: (placeId: RobloxPlaceId, type: string
             if (cursor) query.cursor = v2 ? cursor.slice(V2_CURSOR.length) : cursor
 
             const res = await http()
-                .path(...path(t.placeId, serverType))
-                .query(query)
+                .path("append", ...path(t.placeId, serverType))
+                .query("append", query)
                 .middlewares(captureHeaders(onHeaders))
                 .middlewares(validate(RobloxServerPageRawSchema))
                 .request()
@@ -248,8 +248,8 @@ const addressRoute: RobloxBatchRoute<RobloxServerAddressTarget, RobloxServerAddr
     group:  () => "",
     async send(http, [t], onHeaders) {
         const res = await http()
-            .path("v1", "join-game-instance")
-            .body("overwrite", { placeId: t.placeId, gameId: t.jobId })
+            .path("append", "v1", "join-game-instance")
+            .body("replace", { placeId: t.placeId, gameId: t.jobId })
             .middlewares(captureHeaders(onHeaders))
             .middlewares(validate(RobloxJoinResponseSchema))
             .request()
@@ -387,8 +387,8 @@ export class RobloxGamesApi<L = unknown> {
             group:  () => "",
             async send(http, [t], onHeaders) {
                 const res = await nullOn([404], onHeaders, () => http()
-                    .path("v2", "games", t.universeId, "media")
-                    .query(t.all ? { fetchAllExperienceRelatedMedia: true } : {})
+                    .path("append", "v2", "games", t.universeId, "media")
+                    .query("append", t.all ? { fetchAllExperienceRelatedMedia: true } : {})
                     .middlewares(captureHeaders(onHeaders))
                     .middlewares(validate(RobloxGameMediaResponseSchema))
                     .request())
@@ -431,8 +431,8 @@ export class RobloxGamesApi<L = unknown> {
             bucket, limit: 1, group: () => "",
             async send(http, [t], onHeaders) {
                 return [await http()
-                    .path("v2", "groups", t.groupId, last)
-                    .query(t.query)
+                    .path("append", "v2", "groups", t.groupId, last)
+                    .query("append", t.query)
                     .middlewares(captureHeaders(onHeaders))
                     .middlewares(validate(RobloxGameSummaryPageSchema))
                     .request()]
@@ -447,8 +447,8 @@ export class RobloxGamesApi<L = unknown> {
             bucket, limit: 1, group: () => this.auth() ? "" : null,
             async send(http, [query], onHeaders) {
                 return [await http()
-                    .path("v1", first, "my-private-servers")
-                    .query(query)
+                    .path("append", "v1", first, "my-private-servers")
+                    .query("append", query)
                     .middlewares(captureHeaders(onHeaders))
                     .middlewares(validate(RobloxMyPrivateServerPageSchema))
                     .request()]
@@ -548,8 +548,8 @@ export class RobloxGamesApi<L = unknown> {
         const params: Record<string, string | number> = { MaxRows: query.maxRows ?? 20 }
         if (query.paginationKey) params.PaginationKey = query.paginationKey
         return cached(this.config, { service: "games", method: "getRecommendations", universeId, query }, this.ttl("getRecommendations"), () => this.http()
-            .path("v1", "games", "recommendations", "game", universeId)
-            .query(params)
+            .path("append", "v1", "games", "recommendations", "game", universeId)
+            .query("append", params)
             .middlewares(validate(RobloxGameRecommendationsSchema))
             .request())
     }
@@ -557,8 +557,8 @@ export class RobloxGamesApi<L = unknown> {
     /** GET /v2/users/{userId}/games — 유저가 만든 게임 (limit은 10/25/50) */
     getUserGames(userId: RobloxUserId, query: RobloxGameListQuery = {}): Promise<RobloxGameSummaryPage> {
         return cached(this.config, { service: "games", method: "getUserGames", userId, query }, this.ttl("getUserGames"), () => this.http()
-            .path("v2", "users", userId, "games")
-            .query(query)
+            .path("append", "v2", "users", userId, "games")
+            .query("append", query)
             .middlewares(validate(RobloxGameSummaryPageSchema))
             .request())
     }
@@ -566,8 +566,8 @@ export class RobloxGamesApi<L = unknown> {
     /** GET /v2/users/{userId}/favorite/games — 유저의 즐겨찾기 */
     getUserFavoriteGames(userId: RobloxUserId, query: RobloxGameListQuery = {}): Promise<RobloxFavoriteGamePage> {
         return cached(this.config, { service: "games", method: "getUserFavoriteGames", userId, query }, this.ttl("getUserFavoriteGames"), () => this.http()
-            .path("v2", "users", userId, "favorite", "games")
-            .query(query)
+            .path("append", "v2", "users", userId, "favorite", "games")
+            .query("append", query)
             .middlewares(validate(RobloxFavoriteGamePageSchema))
             .request())
     }
@@ -589,8 +589,8 @@ export class RobloxGamesApi<L = unknown> {
     /** POST /v1/games/{universeId}/favorites */
     async setFavorited(universeId: RobloxUniverseId, isFavorited: boolean): Promise<void> {
         await this.http()
-            .path("v1", "games", universeId, "favorites")
-            .body("overwrite", { isFavorited })
+            .path("append", "v1", "games", universeId, "favorites")
+            .body("replace", { isFavorited })
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -605,8 +605,8 @@ export class RobloxGamesApi<L = unknown> {
     async setUserVote(universeId: RobloxUniverseId, vote: boolean | null): Promise<void> {
         await this.http()
             .method("PATCH")
-            .path("v1", "games", universeId, "user-votes")
-            .body("overwrite", { vote })
+            .path("append", "v1", "games", universeId, "user-votes")
+            .body("replace", { vote })
             .middlewares(validate(RobloxEmptyResponseSchema))
             .request()
     }
@@ -627,7 +627,7 @@ export class RobloxGamesApi<L = unknown> {
         const me = await this.myId()
         const { values, errors } = await this.each("getFollowing", universeIds, async (universeId): Promise<RobloxGameFollowStatus> => {
             const res = await this.followingsHttp()
-                .path("v1", "users", me, "universes", universeId, "status")
+                .path("append", "v1", "users", me, "universes", universeId, "status")
                 .middlewares(validate(RobloxGameFollowStatusRawSchema))
                 .request()
             return {
@@ -646,9 +646,9 @@ export class RobloxGamesApi<L = unknown> {
         const me = await this.myId()
         const path = ["v1", "users", me, "universes", universeId] as const
         if (isFollowing) {
-            await this.followingsHttp().path(...path).body("overwrite", {}).middlewares(validate(z.unknown())).request()
+            await this.followingsHttp().path("append", ...path).body("replace", {}).middlewares(validate(z.unknown())).request()
         } else {
-            await this.followingsHttp().method("DELETE").path(...path).middlewares(validate(z.unknown())).request()
+            await this.followingsHttp().method("DELETE").path("append", ...path).middlewares(validate(z.unknown())).request()
         }
     }
 
@@ -756,8 +756,8 @@ export class RobloxGamesApi<L = unknown> {
             if (page.cursor) params.exclusiveStartKeyCursor = page.cursor
             if (page.excludeFriendServers !== undefined) params.excludeFriendServers = page.excludeFriendServers
             return this.http()
-                .path("v1", "games", placeId, "private-servers")
-                .query(params)
+                .path("append", "v1", "games", placeId, "private-servers")
+                .query("append", params)
                 .middlewares(validate(RobloxPrivateServerPageRawSchema))
                 .request()
         })
@@ -822,8 +822,8 @@ export class RobloxGamesApi<L = unknown> {
     /** POST /v1/games/vip-servers/{universeId} — 비공개 서버를 산다 */
     createPrivateServer(universeId: RobloxUniverseId, request: RobloxCreatePrivateServerRequest) {
         return this.http()
-            .path("v1", "games", "vip-servers", universeId)
-            .body("overwrite", request)
+            .path("append", "v1", "games", "vip-servers", universeId)
+            .body("replace", request)
             .middlewares(validate(z.record(z.string(), z.unknown())))
             .request()
     }
@@ -832,8 +832,8 @@ export class RobloxGamesApi<L = unknown> {
     updatePrivateServer(id: RobloxPrivateServerId, request: RobloxUpdatePrivateServerRequest) {
         return this.http()
             .method("PATCH")
-            .path("v1", "vip-servers", id)
-            .body("overwrite", request)
+            .path("append", "v1", "vip-servers", id)
+            .body("replace", request)
             .middlewares(validate(RobloxPrivateServerDetailSchema))
             .request()
     }
@@ -842,8 +842,8 @@ export class RobloxGamesApi<L = unknown> {
     updatePrivateServerPermissions(id: RobloxPrivateServerId, request: RobloxUpdatePrivateServerPermissionsRequest) {
         return this.http()
             .method("PATCH")
-            .path("v1", "vip-servers", id, "permissions")
-            .body("overwrite", request)
+            .path("append", "v1", "vip-servers", id, "permissions")
+            .body("replace", request)
             .middlewares(validate(RobloxPrivateServerPermissionsSchema))
             .request()
     }
@@ -852,8 +852,8 @@ export class RobloxGamesApi<L = unknown> {
     updatePrivateServerSubscription(id: RobloxPrivateServerId, request: RobloxUpdatePrivateServerSubscriptionRequest) {
         return this.http()
             .method("PATCH")
-            .path("v1", "vip-servers", id, "subscription")
-            .body("overwrite", request)
+            .path("append", "v1", "vip-servers", id, "subscription")
+            .body("replace", request)
             .middlewares(validate(RobloxPrivateServerSubscriptionSchema))
             .request()
     }
